@@ -204,3 +204,22 @@ first hub always spawned the procedural fallback body and the avatar turned into
 a different character after the first minigame. The first hub now waits up to
 2.5 s for the models. The cap keeps the original guarantee — a slow classroom
 connection still starts the game on the fallback body rather than hanging.
+
+## 2026-09-11 — Character facing convention, and one avatar key
+
+Kenney blocky models face +z at rotation 0. Movement heading is
+`atan2(move.x, -move.y)` — forward (W) moves toward -z — turned the short way
+round. An NPC who should face the camera or the room uses rotation 0, or an
+angle toward whatever it should look at.
+
+The first build assumed the opposite everywhere. The avatar walked backwards in
+the hub and the Restaurant, customers sat with their backs to their own tables
+(in chairs built backwards to match), and the host and the placeholder NPC faced
+the back wall — so the child never saw the face of the person they were talking
+to. Confirmed with screenshots of the avatar walking toward and away from the
+camera. Every future minigame should follow this convention.
+
+`characters.playerModel` is the one avatar key. Model keys are the bare letters
+`a`–`r`; the hub had asked for `character-a`, which silently fell back to a
+random model, so the child's avatar changed between screens and sessions.
+`chooseKey` now accepts the file-name form and warns on a genuinely unknown key.

@@ -152,9 +152,9 @@ export function createPlaceholder(ctx) {
       new THREE.Vector3(0, 0.55, -2.1),
     );
 
-    npc = characters.create({ model: 'character-j', tint: 0xffb36b });
+    npc = characters.create({ model: 'j', tint: 0xffb36b });
     npc.position.set(0, 0, -1.2);
-    npc.rotation.y = Math.PI;
+    npc.rotation.y = 0; // face the player and the camera: Kenney models face +z
     world.add(npc);
     scene.add(world);
 

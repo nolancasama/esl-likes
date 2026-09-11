@@ -25,7 +25,7 @@ function installStyles() {
     .lesson-hud__fallback-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
     .lesson-hud__fallback-list.is-choices { max-width: min(94vw, 760px); }
     .lesson-hud__fallback-list.is-choices .lesson-hud__fallback { width: auto; min-width: 0; flex: 0 1 auto;
-      padding: 12px 18px; font-size: calc(1.2rem * var(--lesson-text-scale, 1)); }
+      min-height: 68px; padding: 10px 18px; font-size: calc(1.2rem * var(--lesson-text-scale, 1)); }
     .lesson-hud__talk[data-state="listening"] { background: #e94f64; transform: translateY(3px);
       box-shadow: 0 3px 0 rgba(28,48,78,.3), 0 6px 18px rgba(28,48,78,.2); }
     .lesson-hud__talk[data-state="detected"] { background: #ef8a17; }

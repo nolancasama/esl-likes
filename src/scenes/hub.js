@@ -147,7 +147,7 @@ export function createHub(ctx) {
       doorEntries.push(door);
     });
 
-    player = characters.create({ model: 'character-a', tint: 0x5bb7e8 });
+    player = characters.create({ model: characters.playerModel });
     player.position.set(0, 0, 3);
     player.scale.setScalar(0.82);
     world.add(player);
@@ -172,8 +172,12 @@ export function createHub(ctx) {
       player.position.z -= move.y * MOVE_SPEED * safeDt;
       player.position.x = THREE.MathUtils.clamp(player.position.x, -12.5, 12.5);
       player.position.z = THREE.MathUtils.clamp(player.position.z, -6.5, 7);
-      const wantedRotation = Math.atan2(move.x, move.y);
-      player.rotation.y = THREE.MathUtils.lerp(player.rotation.y, wantedRotation, 1 - Math.exp(-12 * safeDt));
+      // Kenney models face +z at rotation 0 and forward (W) moves toward -z, so the
+      // heading is atan2(x, -y). Turn the short way round rather than spinning
+      // through a full circle whenever the heading crosses +/-PI.
+      const wantedRotation = Math.atan2(move.x, -move.y);
+      const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
+      player.rotation.y += turn * (1 - Math.exp(-12 * safeDt));
       player.playAnimation?.('walk');
     } else {
       player.playAnimation?.('idle');

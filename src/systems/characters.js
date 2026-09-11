@@ -111,8 +111,18 @@ export function characterModelsReady() {
   return Boolean(sources);
 }
 
+/** The child's own avatar. One model on every screen, so they always recognise themselves. */
+export const PLAYER_MODEL = 'a';
+
 function chooseKey(rng, { model, allowRare }) {
-  if (model && sources?.has(model)) return model;
+  if (model) {
+    // Accept the file-name form too: "character-a" names character-a.glb.
+    const key = String(model).replace(/^character-/, '');
+    if (sources?.has(key)) return key;
+    // An unknown requested model used to fall through to a random pick silently,
+    // which gave the child a different avatar on every screen and every session.
+    console.warn(`[characters] unknown model "${model}"; using a random one`);
+  }
   if (allowRare && chance(rng, RARE_CHANCE)) return pick(rng, RARE_KEYS);
   return pick(rng, COMMON_KEYS);
 }
@@ -345,6 +355,7 @@ export function createCharacterModel(rng, options = {}) {
 export function createCharacterSystem(camera = null) {
   return {
     preload: preloadCharacterModels,
+    playerModel: PLAYER_MODEL,
     create(options = {}) {
       return createCharacterModel(options.rng, { ...options, camera: options.camera ?? camera });
     },

@@ -279,7 +279,8 @@ export function createRestaurant(ctx) {
       addPart(world, cylinder, woodMaterial, table.x, 0.48, table.z, 0.38, 0.85, 0.38);
       addPart(world, cylinder, woodMaterial, table.x, 0.08, table.z, 0.75, 0.12, 0.75);
       addPart(world, box, chairMaterial, table.seatX, 0.47, table.seatZ, 0.9, 0.16, 0.82);
-      addPart(world, box, chairMaterial, table.seatX, 1.05, table.seatZ + 0.35, 0.9, 1.05, 0.15);
+      // Backrest behind the seated customer, not between them and their table.
+      addPart(world, box, chairMaterial, table.seatX, 1.05, table.seatZ - 0.35, 0.9, 1.05, 0.15);
       addPart(world, box, chairMaterial, table.x, 0.47, table.z + 1.25, 0.9, 0.16, 0.82);
       addPart(world, box, chairMaterial, table.x, 1.05, table.z + 1.62, 0.9, 1.05, 0.15);
     }
@@ -330,7 +331,7 @@ export function createRestaurant(ctx) {
       steamMaterial: makeMaterial(0xffffff, { transparent: true, opacity: 0.65 }),
     };
 
-    player = characters.create({ model: 'a', tint: 0x77c8f2 });
+    player = characters.create({ model: characters.playerModel });
     player.position.set(0, 0, 5.7);
     player.scale.setScalar(0.82);
     carryAnchor = new THREE.Group();
@@ -343,7 +344,7 @@ export function createRestaurant(ctx) {
     // the turnaround question seemed to come from a sliver of hair.
     host = characters.create({ model: 'j', tint: 0xffc56d });
     host.position.set(5.5, 0, -5.6);
-    host.rotation.y = Math.PI;
+    host.rotation.y = -0.85; // turned toward the dining room (Kenney models face +z)
     host.scale.setScalar(0.82);
     world.add(host);
 
@@ -358,7 +359,7 @@ export function createRestaurant(ctx) {
         tint: CUSTOMER_TINTS[index],
       });
       character.position.set(table.seatX, 0.34, table.seatZ);
-      character.rotation.y = Math.PI;
+      character.rotation.y = 0; // face their table and the room: Kenney models face +z
       character.scale.setScalar(0.72);
       character.visible = false;
       world.add(character);
@@ -647,8 +648,11 @@ export function createRestaurant(ctx) {
     const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
     if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
     if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
-    const wantedRotation = Math.atan2(move.x, move.y);
-    player.rotation.y = THREE.MathUtils.lerp(player.rotation.y, wantedRotation, 1 - Math.exp(-12 * dt));
+    // Kenney models face +z at rotation 0 and forward (W) moves toward -z, so the
+    // heading is atan2(x, -y). Turn the short way round, never through a full spin.
+    const wantedRotation = Math.atan2(move.x, -move.y);
+    const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
+    player.rotation.y += turn * (1 - Math.exp(-12 * dt));
     player.playAnimation?.('walk');
   }
 
@@ -824,9 +828,9 @@ export function createRestaurant(ctx) {
     setInstruction(STRINGS.turnaround);
     cameraRig
       .setTarget(host)
-      // From the room side, so the right wall never blocks the shot, and aimed
-      // low so the host's face sits above the answer buttons, not behind them.
-      .setPreset('closeup', { offset: [-3, 2.4, 4.8], lookOffset: [0, 0.1, 0], damping: 5.5 });
+      // From the open aisle in front of the counter, above chair height, so neither
+      // the right wall nor a chair blocks the shot; the host is turned to face it.
+      .setPreset('closeup', { offset: [-3.4, 3, 3], lookOffset: [0, 0.6, 0], damping: 5.5 });
     configureSpeech({
       mode: 'answer',
       sentence: LESSON.answerExample,

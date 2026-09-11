@@ -164,6 +164,7 @@ await shot('07-delivered');
 // ---- Turnaround ---------------------------------------------------------
 s = await waitFor((u) => u.fallback.length > 0 && /I like/i.test(u.fallback.map((f) => f.text).join(' ')), 8000, 'turnaround');
 check('turnaround asks the child, offering "I like ___."', s, s?.fallback.map((f) => f.text).join(' | '));
+await sleep(1500); // let the close-up camera settle; the child sees this view for seconds
 await shot('08-turnaround');
 const choiceButton = s?.fallback.find((f) => f.value === CHOICE);
 check(`turnaround lets the child choose their own food (${CHOICE})`, choiceButton,

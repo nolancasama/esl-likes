@@ -8,7 +8,9 @@ function installStyles() {
   const style = document.createElement('style');
   style.id = STYLE_ID;
   style.textContent = `
-    .npc-dialogue { position: absolute; z-index: 18; max-width: min(78vw, 520px);
+    /* width: max-content, or a bubble anchored near the right edge shrinks to the
+       space left of its anchor and wraps into a narrow column before it is clamped. */
+    .npc-dialogue { position: absolute; z-index: 18; width: max-content; max-width: min(78vw, 520px);
       min-width: 180px; transform: translate(-50%, -100%); pointer-events: auto;
       box-sizing: border-box; padding: 16px 58px 16px 20px; border: 4px solid #273858;
       border-radius: 24px; background: #fff; color: #1b2940;
