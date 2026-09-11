@@ -300,3 +300,19 @@ This avoids device-resolution-dependent scores and makes fast Chromebook
 trackpad strokes continuous without introducing a fill tool. The 2D screen is
 built and removed under the shared opaque wipe so the room and canvas never
 appear together in a partially constructed state.
+
+## 2026-09-11 — Drink Stand v1: fixed stand, walked work area, costly guessing
+
+Drink Stand uses a fixed camera over a three-row stand (customers at the top,
+the avatar in the middle, six large stations at the bottom). The avatar walks
+inside a small work area with the usual WASD and proximity actions, and
+clicking a station or customer walks there by itself, so trackpad-only play
+works. Rejected: a pure menu/cursor selection, which would make the stage 2D in
+all but name, and free exploration, which SPEC rules out for this stage.
+
+Guessing cannot be removed without dead ends, so it is made costly instead: a
+wrong serve loses the first-try credit that dominates scoring, the customer
+declines without repeating the English, and under half first-try serves caps
+at two stars. Drinks are independently random per customer with repeats
+allowed (no elimination), and the station order is shuffled per session.
+Patience pauses while the child is speaking.

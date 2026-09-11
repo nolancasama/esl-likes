@@ -1,0 +1,52 @@
+{
+  "task": "Build Drink Stand v1, the third minigame of the esl-likes 3D ESL game, as a complete playable slice: fixed-camera 3D drink stand, customers arrive at serving windows, the child asks 'What drink do you like?', hears 'I like ___.', pours the right drink from one of six stations and serves it, with levels, patience, streaks, a RUSH finale and the turnaround. The shared shell, speech stack, Restaurant and Coloring already exist and work; this order adds one minigame against the frozen interface.",
+  "requirements": [
+    "Read SPEC.md first: the anti-shortcut rule near the top, section 3 ('Listening again'), and section 6 (Drink Stand v1), which is the frozen design and wins over any assumption. Read DESIGN_DECISIONS.md for existing rationale. Do not modify SPEC.md.",
+    "Create src/minigames/drinkStand/ with at least index.js (createDrinkStand(ctx) controller), scoring.js (PURE logic, no DOM, no three.js) and scoring.test.mjs (node:test). Further modules in that folder are welcome (world building, customer queue).",
+    "createDrinkStand(ctx) implements the frozen interface { id, enter(level), update(dt), exit() } exactly as src/minigames/restaurant/index.js does, including the same level resolution (enter(level) falling back to settings 'difficulty', clamped 1..3) and the settings subscription for micFree / textSize.",
+    "Register it: src/main.js minigames map gets ['drink-stand', createDrinkStand] (the lesson id is 'drink-stand'); in src/config/lesson.js set that lesson available: true and add a UI.drinkStand block with ALL new Japanese strings. No UI text hardcoded elsewhere. Customer answers come only from answerFor(LESSON, drinkId).",
+    "Stand and camera per SPEC 6: fixed camera high and behind the player (use cameraRig with a fixed target/preset; no follow drift, no free exploration). Top: three serving windows with customers facing the camera. Middle: the avatar (characters.create({ model: characters.playerModel })) in a small clamped work area behind the counter. Bottom, nearest the camera: six large drink stations in a row, each a distinct procedural object plus a sign (CanvasTexture) with a drink picture and the English word. Everything must be visible without overlap at 1366x768 and still readable at 1280x720.",
+    "Drink looks (SPEC 6): water clear pale blue, milk white, orange juice orange, apple juice pale gold with an apple mark, tea amber with a teacup, soda bright green and fizzy (melon soda). Distinct at a glance.",
+    "Controls per SPEC 6: WASD/arrows walk inside the work area with the Restaurant's movement feel (copy its updateMovement: heading atan2(move.x, -move.y), shortest-way turning). Generous proximity zones for stations and windows. Space at a station pours (same pour time for every drink, about 1 s, with a visible cup of that liquid in the avatar's hands; pouring while holding empties the old cup first). Space at an asked customer while holding a cup serves. At an unasked customer the talk prompt appears via promptQuestion(ctx, LESSON, { isActive, onAccepted }) from src/systems/speechPrompt.js. Clicking/tapping a station or customer (raycast) makes the avatar walk there by itself and perform the same action on arrival, so a trackpad alone can play the whole game.",
+    "Loop per SPEC 6: customer walks to a RANDOM free window; asked -> answers with answerFor(LESSON, drink) via ctx.dialogue (spoken + bubble), bubble then disappears; no ticket, icon, or persistent text of the order anywhere. Right drink -> emote-yes, happy Japanese line, customer leaves, next arrives. Wrong drink -> polite Japanese refusal with NO English repeat, cup emptied, customer stays, patience keeps running.",
+    "Listening again (SPEC 3): the shared createListenAgain({ root, label: UI.listenAgain, onPress }) from src/ui/listenAgain.js is shown while the avatar is at an asked, unserved customer; pressing it replays that customer's exact answer sentence and marks that customer replayed. Never on Space, never deducts normal credit.",
+    "Difficulty per SPEC 6: customers per session L1 6 / L2 7 / L3 8; at most 1 / 2 / 3 at windows at once; overflow waits in a visible line, unasked, patience paused. RUSH finale: the last three customers arrive in quick succession with a large ラッシュ！ banner. Patience: visible generous meter above each customer at a window (tune around 50-60 s), paused while that customer's talk prompt is open; when empty the customer waves and leaves politely; play continues. No failure state anywhere.",
+    "Anti-shortcut per SPEC 6: each customer's drink is uniformly random over all six, independent of model, window, arrival order and other customers; repeats allowed. Station left-to-right order shuffled once per session. Nothing highlights the correct station, nothing is preselected, the avatar starts empty-handed, customers show nothing drink-related. Implement the random choices as pure seedable functions in scoring.js (e.g. pickDrink(rng), shuffleStations(rng)).",
+    "Customer models: Kenney keys not used elsewhere in play (the avatar is characters.playerModel 'a'; Restaurant uses e, f, i, j, m; Coloring uses b) — pick from the rest, randomly per customer. Do NOT tint textured Kenney models. Kenney models face +z at rotation.y = 0; customers at windows face the camera.",
+    "Scoring in scoring.js: pure scoreSession(records) where each record is { outcome: 'first' | 'later' | 'left', patienceLeft: 0..1, replayed: boolean } in serve order. Per customer: first-try 5, later 2, left 0; +2 * patienceLeft if served; +1 memory bonus if served and never replayed; +0.5 streak bonus for a first-try serve that extends a consecutive first-try streak to 2 or more. ratio = earned / maximum possible for the same number of customers. Stars: >= 0.75 -> 3, >= 0.4 -> 2, else 1; first-try share < 0.5 can never give 3 stars. Adjust the thresholds only if the tests below cannot all hold, and say so.",
+    "scoring.test.mjs must cover at least: all first-try with moderate patience (0.5) and no replays -> 3 stars; the same but every customer replayed -> still 3 stars; a seeded guessing simulation (random drink each attempt until right, over many sessions) reaches 3 stars in under 1% of sessions; first-try share below half never gives 3 stars; all customers left -> 1 star; streak bonus counts only consecutive first-try serves; pickDrink over several hundred seeded draws covers all six drinks; shuffleStations is a permutation.",
+    "Streak: show the current first-try streak as a small combo pop near the stand when it is 2 or more (Japanese text from UI.drinkStand).",
+    "Turnaround after the last customer: promptAnswer(ctx, LESSON, ...) with all six drinks, a warm reaction (e.g. the avatar receives a cup of the chosen drink), then finish({ stars, detail: { category: 'drink', answer } }). Frame the turnaround as a readable two-shot (the Coloring turnaround framing is a good reference).",
+    "Test hooks: stable DOM class names for the minigame's own overlay (at least an action/instruction element, the ラッシュ banner, the combo pop, the patience meters if DOM), and a READ-ONLY window.__eslDebug.drinkStand snapshot getter returning { phase, level, heldDrink, stations: [{ id, screen: {x, y} }], customers: [{ window, asked, served, screen: {x, y} }] } with screen positions projected to CSS pixels. It must NOT expose customers' wanted drinks. Remove it in exit().",
+    "exit() disposes every owned geometry, material, texture and canvas, removes overlays, listeners, injected styles and the debug hook, and clears speech/hud targets, exactly as the Restaurant does. Entering Drink Stand twice from the hub must not leak or duplicate anything.",
+    "npm test and npm run build must both pass."
+  ],
+  "constraints": [
+    "Do NOT modify SPEC.md, src/systems/*, src/ui/*, src/scenes/hub.js, src/styles.css, the Restaurant, Coloring or the placeholder. If a shared system genuinely lacks something, say so in the summary instead of editing it. The only shared edits allowed: the registry line and import in src/main.js, and in src/config/lesson.js the drink-stand `available` flag plus a new UI.drinkStand block.",
+    "Do NOT add dependencies. three and vite only.",
+    "Do NOT build Sports or Zoo, a universal minigame base class, or shared scoring maths with other minigames.",
+    "No mouse-look, pointer lock or manual camera rotation.",
+    "Source-edit hygiene: edit files with structured file tools. If a shell-based edit fails on quoting or escaping, stop editing through the shell for that change and use the file tools; never escalate through nested shell/python/regex patches.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "Governing rule (SPEC): the NPC's English answer must be information the child needs. For Drink Stand: a child who ignores 'I like milk.' can still finish (trial and error, never stuck) but can never reliably get three stars. In your summary, state how each anti-shortcut leak in SPEC was checked (fixed mapping, order, elimination, colour/appearance cues, default selection, free trial-and-error). Tone: the fast, arcade-like stage between calm Coloring and active Sports — bright, bouncy, snappy feedback, but generous patience; 8-year-olds on Chromebook trackpads. Known traps from earlier slices: Kenney models face +z; one avatar key; tinting textured Kenney models turns skin grey; the dialogue bubble uses width max-content; focused buttons must not swallow movement keys (already handled in input.js); keep every clickable thing keyboard-reachable. Restaurant is the closest reference for movement, proximity actions, dialogue anchoring, patience, and exit() hygiene; Coloring for the turnaround two-shot and listen-again use. Append meaningful design decisions to DESIGN_DECISIONS.md as dated entries. List every file you touched.",
+  "startingPoints": [
+    "SPEC.md",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/coloring/index.js",
+    "src/systems/speechPrompt.js",
+    "src/ui/listenAgain.js",
+    "src/config/lesson.js",
+    "src/main.js",
+    "src/systems/cameraRig.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "3d-gameplay",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

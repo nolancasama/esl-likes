@@ -304,26 +304,86 @@ The fastest, most arcade-like stage.
 
 Drinks: water, milk, orange juice, apple juice, tea, soda.
 
-### Camera
+### Stand and camera (v1, decided 2026-09-11)
 
-A fixed 3D camera facing the counter. No free exploration. Customers queue in
-front; drink stations are large and selectable by key or by click.
+A fixed 3D camera, high and behind the player, looking over the stand. Top of
+the screen: three serving windows where customers stand facing the camera.
+Middle: the player's avatar in a small work area behind the counter. Bottom,
+nearest the camera: six large drink stations in a row, each a clearly shaped
+object plus a sign with a drink picture and its English word. The whole stand
+fits on a 1366x768 Chromebook screen; there is no exploration.
+
+Each drink looks different at a glance: water (clear, pale blue), milk
+(white), orange juice (orange), apple juice (pale gold, apple mark), tea
+(amber, teacup), soda (bright green and fizzy, like melon soda).
+
+### Controls
+
+- WASD / arrows walk inside the small work area, as in the Restaurant.
+  Interaction is by generous proximity: near a station, near a window.
+- Space at a station pours that drink into a cup in the avatar's hands. Pour
+  time is the same for every drink. Pouring while already holding a cup
+  empties the old one first.
+- Space at an asked customer while holding a cup serves it.
+- At an unasked customer, the talk prompt appears (hold to ask).
+- Click / tap a station or a customer: the avatar walks there by itself and
+  does the same action on arrival, so a trackpad alone is enough.
 
 ### Loop
 
-Customer arrives, ask "What drink do you like?", hear the answer, select and
-prepare the correct drink, serve it, reaction, next customer.
+1. A customer walks up to a free serving window. The window is chosen at
+   random.
+2. The player walks to them and asks "What drink do you like?"
+3. The customer answers with that drink's sentence ("I like orange juice."),
+   spoken plus a bubble. The bubble then disappears. There is no ticket and no
+   icon, so remembering is part of the job.
+4. The player pours the drink and serves it. A right drink gets a happy
+   reaction and the customer leaves; the next one arrives.
+5. With a wrong drink, the customer politely declines in Japanese without
+   repeating the English, and the cup is emptied. Their patience keeps
+   running. 🔊 もういちど きく (shown when at an asked customer) replays their
+   answer and forfeits only that customer's memory bonus.
+6. After the last customer comes the turnaround: "What drink do you like?" /
+   "I like ___." with any of the six drinks.
 
 ### Difficulty
 
-L1 one customer. L2 two waiting. L3 three waiting with visible patience meters
-and several orders held in memory at once. Each session ends with a short RUSH
-of quickly arriving customers as a finale, not a fail state.
+Customers per session: L1 6, L2 7, L3 8. At most 1, 2 or 3 customers stand at
+windows at once; anyone beyond that waits in a visible line, not yet asked,
+with their patience paused. Every session ends with a RUSH: the last three
+customers arrive in quick succession, announced by a large ラッシュ！ banner. It
+is a finale, never a fail state.
+
+Patience is a visible, generous meter above each customer at a window. It
+pauses while that customer's talk prompt is open, because slow speech is never
+punished. A customer whose patience runs out waves and leaves. Play continues,
+and there is no failure state.
+
+### Anti-shortcut review (applied before building)
+
+- Each customer's drink is chosen uniformly at random, independent of their
+  model, window, arrival order and every other customer. Repeats are allowed,
+  and nothing is removed from the choice, so elimination is impossible.
+- Station order is shuffled once per session. Nothing highlights a station;
+  no drink is preselected; the avatar starts holding nothing.
+- Customers carry and show nothing drink-related. The answer bubble does not
+  persist.
+- Trial and error is possible (the game never gets stuck) but costly. A wrong
+  serve loses the first-try credit that dominates the score, plus time and
+  patience. Fewer than half the customers served correctly first time can
+  never reach three stars.
+- Guessing wins one time in six per customer. That is luck, not consistent
+  success.
 
 ### Scoring
 
-Correct orders, service speed, remaining patience, streaks, total satisfied
-customers. An impatient customer may leave; play continues. No failure state.
+Computed in a pure module from per-customer records. Served correctly first
+try is the dominant term; served correctly after a wrong try earns part
+credit; leaving earns nothing. Remaining patience at serving (speed) adds a
+little. A memory bonus comes from never replaying that customer. A small
+streak bonus rewards consecutive first-try serves, and the current streak is
+shown as a combo. Asking again never costs normal credit. First-try share
+under one half caps the result at two stars.
 
 ---
 
