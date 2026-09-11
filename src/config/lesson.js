@@ -60,7 +60,7 @@ export const LESSONS = Object.freeze([
   lesson({ id: 'restaurant', name: 'Restaurant', category: 'food', question: 'What food do you like?', available: true }),
   lesson({ id: 'coloring', name: 'Coloring', category: 'color', question: 'What color do you like?', available: true }),
   lesson({ id: 'drink-stand', name: 'Drink Stand', category: 'drink', question: 'What drink do you like?', available: true }),
-  lesson({ id: 'sports', name: 'Sports', category: 'sport', question: 'What sport do you like?', available: false }),
+  lesson({ id: 'sports', name: 'Sports', category: 'sport', question: 'What sport do you like?', available: true }),
   lesson({ id: 'zoo', name: 'Zoo', category: 'animal', question: 'What animal do you like?', available: false }),
 ]);
 
@@ -167,6 +167,23 @@ export const UI = Object.freeze({
     roundEnd: 'みんなに とどけたよ！',
     turnaround: 'こんどは きみの ばん！',
     yourDrink: 'きみの ドリンクも できたよ！',
+    complete: 'スタンプを ゲット！',
+  },
+  sports: {
+    roomName: 'スポーツひろば',
+    walkToFriend: 'ひろばの おともだちに ちかづこう',
+    newFriends: 'あたらしい おともだちが きたよ！',
+    askFriend: 'ボタンを おしているあいだ、しつもんしよう',
+    listenAndLead: 'こたえを きいて、いっしょに いこう',
+    leadToZone: 'すきな スポーツの ばしょへ つれていこう',
+    joined: 'ここが すき！ いっしょに あそぼう！',
+    goodRoute: 'みつけた！',
+    wrongZone: 'ここじゃないよ',
+    tryAnotherZone: 'べつの ばしょへ いってみよう',
+    everyonePlaying: 'みんな あそびはじめたよ！',
+    turnaround: 'こんどは きみの ばん！',
+    yourTurn: 'きみの すきな スポーツへ いこう！',
+    letsPlay: 'いっしょに あそぼう！',
     complete: 'スタンプを ゲット！',
   },
   restaurant: {

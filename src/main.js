@@ -18,6 +18,7 @@ import { createHub } from './scenes/hub.js';
 import { createRestaurant } from './minigames/restaurant/index.js';
 import { createColoring } from './minigames/coloring/index.js';
 import { createDrinkStand } from './minigames/drinkStand/index.js';
+import { createSports } from './minigames/sports/index.js';
 
 document.title = UI.appTitle;
 
@@ -73,6 +74,7 @@ const minigames = new Map([
   ['restaurant', createRestaurant],
   ['coloring', createColoring],
   ['drink-stand', createDrinkStand],
+  ['sports', createSports],
 ]);
 
 let controller = null;

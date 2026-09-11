@@ -353,3 +353,34 @@ follower's sport be found by elimination. Any matching follower joins on
 entering a zone, so the child plans a route across two or three remembered
 answers. Route efficiency is expressed through the same first-try term rather
 than a separate distance score.
+
+## 2026-09-12 — Sports keeps destinations readable and followers unlabelled
+
+The four sport zones use a session-shuffled corner assignment, large illustrated
+English signs, distinct ground colours, and sport-specific silhouettes. The signs
+face the camera so they remain readable on a 1366×768 Chromebook, while the goal,
+hoop, backstop, and net preserve spatial identity even when a sign is edge-on.
+
+Friends use independently selected, untinted Kenney models and random plaza spots.
+They carry no equipment, badge, colour, or persistent answer marker. A moving trail
+history spaces multiple followers behind the avatar, and waiting friends have no
+collision, so a face or speech bubble is not hidden because another character has
+become a blocker.
+
+## 2026-09-12 — Sports turnaround ends by joining the child's chosen zone
+
+The coach asks from the solid floor of the last visited sport zone in a close,
+grounded two-shot. After the child answers, the avatar runs to that sport's shuffled
+zone and briefly joins the play animation before the result is saved. This makes the
+turnaround answer visibly consequential instead of ending on a speech form alone.
+
+## 2026-09-12 — Speech bubbles balance their lines and keep Japanese phrases whole
+
+The shared dialogue bubble now uses `text-wrap: balance` and
+`word-break: keep-all`. Previously it could strand one word on the last line
+("What sport do you / like?") and split Japanese mid-word ("いっし / ょに"),
+because Japanese has no spaces for the browser to break on. The UI strings
+already put spaces between phrases, so keep-all breaks only there;
+`overflow-wrap: anywhere` stays as the guard against a single overlong token.
+Coloring solved this locally for its result title; the Sports review showed it
+belonged in the shared bubble.

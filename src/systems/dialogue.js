@@ -20,7 +20,7 @@ function installStyles() {
     .npc-dialogue::after { content: ''; position: absolute; left: 50%; bottom: -18px;
       width: 26px; height: 26px; background: #fff; border-right: 4px solid #273858;
       border-bottom: 4px solid #273858; transform: translateX(-50%) rotate(45deg); }
-    .npc-dialogue__line { overflow-wrap: anywhere; }
+    .npc-dialogue__line { overflow-wrap: anywhere; word-break: keep-all; text-wrap: balance; }
     .npc-dialogue__replay { position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
       width: 44px; height: 44px; border: 0; border-radius: 50%; background: #3a86ff;
       color: #fff; font: 900 1.6rem/1 system-ui, sans-serif; cursor: pointer;
