@@ -1,0 +1,32 @@
+{
+  "task": "Correct three layout/interaction problems in the new Drink Stand minigame (src/minigames/drinkStand/index.js) found in review: customers at the serving windows are hidden, the waiting line stands inside the staff area and blocks clicks, and the station signs' English words are unreadably small.",
+  "requirements": [
+    "CUSTOMERS MUST BE CLEARLY VISIBLE AT THE WINDOWS. Evidence: .tmp/drink-02-answer.png and .tmp/drink-03-poured.png (1366x768). A customer at a window is almost entirely hidden behind the counter front and the back wall; only the top of a head shows, and the 'I like milk.' bubble floats over empty wall. From the fixed camera, every customer at a window must show at least head and torso, facing the camera, reading unmistakably as 'a customer standing at the counter facing me'. Adjust the counter/wall/window geometry, customer placement or the fixed camera as you judge best; the SPEC 6 three-row reading (customers top, avatar middle, six stations bottom, everything on one 1366x768 screen) must hold.",
+    "THE WAITING LINE MUST BE ON THE CUSTOMER SIDE, NOT IN THE STAFF AREA. Today queued customers stand at x ~6.2, z -1.15 and beyond, on the player's side of the counter, overlapping the rightmost station (see .tmp/drink-03-poured.png, five customers crowding the orange juice station). Put the line outside the stand on the customers' side of the counter, visible but never overlapping the stations, the work area, or the windows. Arriving and leaving customers must also walk only on the customer side (never through the counter, the wall or the staff area).",
+    "CLICKS MUST NOT BE SWALLOWED. onCanvasPointer currently breaks on the first customer hit even when that customer is not atWindow, so a queued customer standing in front of a station makes the station unclickable (the scripted playthrough failed to pour orange juice for this reason). Customers who are not at a window must be ignored by the raycast and the ray must continue to the next target.",
+    "STATION SIGNS MUST BE READABLE. The English word on each sign renders at roughly 8 CSS px at 1366x768. Make the word the dominant element of the sign, comfortably readable by an 8-year-old at 1366x768 and 1280x720 (aim for a rendered cap height of about 18-24 CSS px), keeping the drink picture. Long words ('orange juice', 'apple juice') may wrap to two lines rather than shrink.",
+    "Nothing else changes: SPEC 6 behaviour, scoring, anti-shortcut properties, the debug hook shape and DOM class names stay as they are.",
+    "npm test and npm run build must pass. Capture your own before/after screenshots at 1366x768 of: a customer at a window with their answer bubble, and the RUSH moment with a waiting line, and state what you checked."
+  ],
+  "constraints": [
+    "Edit only src/minigames/drinkStand/ (and DESIGN_DECISIONS.md only if a real layout decision changes). Do NOT modify SPEC.md, shared systems, src/ui, other minigames, or scripts/.",
+    "Do NOT add dependencies.",
+    "Source-edit hygiene: edit files with structured file tools. If a shell-based edit fails on quoting or escaping, stop editing through the shell for that change and use the file tools.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "Review of the first Drink Stand pass: unit tests 114/114, build clean, scoring and anti-shortcut logic accepted. The scripted click-only playthrough (scripts/playthrough-drink.mjs, needs `npx vite preview --port 5199` and Playwright from ../node_modules) confirmed ask -> answer -> listen-again -> pour -> serve -> combo all work for the first three customers, then stalled on the swallowed-click bug. Screenshots named above are in .tmp/. Visual judgement matters here: these are 3rd graders on Chromebooks, and the customer's face and the bubble are the heart of the stage.",
+  "startingPoints": [
+    "src/minigames/drinkStand/index.js",
+    ".tmp/drink-02-answer.png",
+    ".tmp/drink-03-poured.png",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "3d-gameplay",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "executionStyle": "deep-reasoning"
+}

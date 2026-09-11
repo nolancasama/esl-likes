@@ -1,0 +1,31 @@
+{
+  "task": "Second correction pass on the Drink Stand minigame (src/minigames/drinkStand/index.js): customers at the serving windows are still barely visible, the turnaround NPC floats, and the two-word station signs clip.",
+  "requirements": [
+    "CUSTOMERS AT WINDOWS ARE STILL NOT READABLE. Evidence: .tmp/drink-02-answer.png (1366x768) after the first correction. The customer at the centre window shows only a sliver of head above the white counter top, and when the avatar walks up to serve, the avatar stands directly between the camera and the customer, hiding them completely. Target, measured at 1366x768: a customer standing at a window appears at least about 140 CSS px tall on screen, head and torso fully above the counter top, and is NOT occluded by the avatar when the avatar stands at that window's approach point. Likely levers (your judgement): a lower customer-side counter, customers larger and/or raised so their torso clears it, a shallower stand so customers sit nearer the camera, a slightly lower or re-aimed fixed camera, and an approach point offset to the side of the window (or the avatar dipping out of the sightline) instead of dead in front. The SPEC 6 three-row reading and the six stations fully visible and clickable at the bottom must hold; everything must still fit one 1366x768 screen and 1280x720.",
+    "TURNAROUND NPC FLOATS. Evidence: .tmp/drink-05-turnaround.png. The NPC stands on the staff side in front of the counter but at the raised customer floor height (CUSTOMER_FLOOR_Y), so it hovers above the floor next to the grounded avatar. Whoever asks the turnaround question must stand on a real floor surface — either behind the counter on the customer platform, or on the staff floor at y = 0 — framed as a readable two-shot with both characters' feet grounded.",
+    "TWO-WORD SIGNS CLIP. Evidence: .tmp/drink-04-rush.png — the second line 'juice' of 'orange juice' and 'apple juice' is cut off by the bottom edge of the sign. Fit both lines fully inside the sign with a margin, keeping the word size close to what it is now.",
+    "Nothing else changes: behaviour, scoring, anti-shortcut properties, the queue on the customer side, the raycast fix, the debug hook shape and DOM class names stay as they are. Keep the debug hook's customer screen point on the visible customer body so clicking it hits the customer.",
+    "npm test and npm run build must pass. Capture your own 1366x768 screenshots of: a customer at a window with the avatar standing at that window; the turnaround two-shot; the station row. State the measured on-screen customer height."
+  ],
+  "constraints": [
+    "Edit only src/minigames/drinkStand/ (and DESIGN_DECISIONS.md only if a real layout decision changes). Do NOT modify SPEC.md, shared systems, src/ui, other minigames, or scripts/.",
+    "Do NOT add dependencies.",
+    "Source-edit hygiene: edit files with structured file tools. If a shell-based edit fails on quoting or escaping, stop editing through the shell for that change and use the file tools.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "First correction accepted in part: queue now on the customer side, raycast skips non-window customers, signs readable. The click-only scripted playthrough (scripts/playthrough-drink.mjs; needs `npx vite preview --port 5199` and Playwright from ../node_modules) now passes the full listening session: six customers, RUSH, combo, turnaround, stamp, 3 stars, clean re-entry. What remains is primarily visual. The customer's face with the 'I like ___.' bubble is the heart of this stage for 8-year-olds, so the customer must read clearly at a glance.",
+  "startingPoints": [
+    "src/minigames/drinkStand/index.js",
+    ".tmp/drink-02-answer.png",
+    ".tmp/drink-04-rush.png",
+    ".tmp/drink-05-turnaround.png"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "3d-gameplay",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "executionStyle": "deep-reasoning"
+}

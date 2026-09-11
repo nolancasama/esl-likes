@@ -316,3 +316,24 @@ declines without repeating the English, and under half first-try serves caps
 at two stars. Drinks are independently random per customer with repeats
 allowed (no elimination), and the station order is shuffled per session.
 Patience pauses while the child is speaking.
+
+## 2026-09-11 — Drink Stand keeps transient order speech separate from replay support
+
+The customer's English answer appears only in the shared spoken dialogue bubble,
+which closes after a short beat. Its inline replay affordance is hidden in this
+minigame; the only replay route is the shared secondary listen-again button shown
+while the child is beside that customer. This ensures every replay is recorded for
+the memory bonus without leaving an order ticket or an untracked replay shortcut.
+
+Patience meters use projected DOM bars anchored above the 3D customers. At the fixed
+Chromebook framing this keeps the generous timer legible at both target resolutions,
+while customers waiting in the overflow line have no meter and lose no patience.
+
+## 2026-09-12 — Drink Stand serving spots sit beside each window
+
+The fixed camera looks over the avatar's back, so a serving spot directly in
+front of a window put the avatar between the camera and the customer, hiding
+the face and the "I like ___." bubble. Each spot is now offset to the side of
+its window, the customer-side counter is lower, and customers are scaled up so
+head and torso clear it. The overflow line stands on the customer side of the
+counter and is ignored by clicks, so it can never block a station.
