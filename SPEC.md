@@ -389,33 +389,72 @@ under one half caps the result at two stars.
 
 ## 7. Minigame 4 — Sports
 
+The active stage: walking a crowd of new friends across a playground.
+
 Sports: soccer, basketball, baseball, volleyball.
 
-### Environment
+### Environment (v1, decided 2026-09-12)
 
-A playground with four clearly distinct zones, each identifiable from across
-the field by silhouette and color — goal and green pitch, hoop and orange
-court, backstop and diamond, net and sand.
+A playground with a central plaza, where NPCs wait, and four zones in the four
+corners around it. Each zone is identifiable from across the field by
+silhouette and colour: a goal and a green pitch, a hoop and an orange court, a
+backstop and a brown diamond, a net and sand. Each zone also has a large sign
+with a picture and its English word, as at the Drink Stand. A straight path
+leads from the plaza to each zone without crossing any other zone. The whole
+field is small enough to cross in a few seconds. The follow camera and WASD
+controls are the same as in the Restaurant.
 
 ### Loop
 
-Meet an NPC, ask "What sport do you like?", hear "I like basketball.", the NPC
-begins following, the player leads them across the field, and on arriving at
-the right zone the NPC automatically joins in and plays.
-
-The sport itself is NOT a minigame. It is the reward animation: soccer kicks,
-basketball shoots, baseball bats, volleyball passes.
-
-Wrong zone: the NPC shakes its head, keeps following, no penalty.
+1. NPCs wait at random spots on the plaza. Walk up to one and ask "What sport
+   do you like?"
+2. The NPC answers ("I like basketball."), spoken plus a bubble. The bubble
+   disappears afterwards, and nothing on screen records the answer. The NPC
+   then follows the player.
+3. Several NPCs can follow at once, trailing in a line.
+4. Entering a zone: every follower whose sport it is joins in and plays there
+   for the rest of the session. The sport is the reward animation, not a
+   minigame: soccer kicks at the goal, basketball shoots, baseball bats,
+   volleyball passes over the net. A ball moves procedurally.
+5. Entering a zone where NO follower's sport matches: the followers shake their
+   heads, say ここじゃないよ in Japanese without repeating the English, and keep
+   following.
+6. 🔊 もういちど きく (shown while anyone is following) replays each current
+   follower's answer in turn. It forfeits only their memory bonus.
+7. When everyone has joined, next comes the turnaround: "What sport do you
+   like?" / "I like ___." with any of the four sports.
 
 ### Difficulty
 
-L1 escort one NPC. L2 two NPCs at once with different sports. L3 three, which
-means holding three answers and planning a route.
+Each level sets how many answers the child holds and routes at once. L1 has 3
+NPCs, one at a time: the next appears after a delivery. L2 has 4 NPCs in two
+waves of two. L3 has 6 NPCs in two waves of three. With two or three
+followers, the child plans an order of zones. There is no timer and no
+patience meter.
+
+### Anti-shortcut review (applied before building)
+
+- The original "wrong zone, no penalty" rule let a child tour all four zones
+  until every NPC joined, winning without listening. Wrong zones therefore
+  cost the dominant first-try credit (below). The game still never gets stuck.
+- Each NPC's sport is chosen uniformly at random, independent of their model,
+  waiting spot, asking order and every other NPC. Repeats are allowed: forcing
+  different sports would let the last follower's sport be found by
+  elimination.
+- Zone positions are shuffled once per session. NPCs carry no ball or kit,
+  and nothing on an NPC or in the scene points to their zone.
+- Paths never cross another zone, so passing through never counts as a visit
+  or gives feedback.
 
 ### Scoring
 
-Correct deliveries, with route efficiency as a light bonus only.
+Computed in a pure module from per-NPC records. Joining in the first zone
+visited while that NPC was following counts as first try, the dominant term.
+Joining after one or more wrong-zone visits while following earns part credit.
+A memory bonus goes to followers never replayed. Route efficiency is expressed
+through the same term: a wrong-zone visit costs every current follower their
+first-try credit, so a good route and a correct memory are the same thing.
+First-try share under one half caps the result at two stars.
 
 ---
 

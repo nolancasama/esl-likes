@@ -337,3 +337,19 @@ the face and the "I like ___." bubble. Each spot is now offset to the side of
 its window, the customer-side counter is lower, and customers are scaled up so
 head and torso clear it. The overflow line stands on the customer side of the
 counter and is ignored by clicks, so it can never block a station.
+
+## 2026-09-12 — Sports v1: wrong zones cost first-try credit, sports may repeat
+
+MODIFIED from the original plan, where a wrong zone had "no penalty". That
+let a child walk the followers through all four zones until everyone joined,
+which is reliably solvable without the English. A zone where no follower's
+sport matches now costs every current follower their first-try credit, the
+dominant scoring term, and under half first-try caps at two stars. It is still
+never a dead end.
+
+Also MODIFIED: followers' sports are independent and may repeat, instead of
+"different sports" at L2/L3, because guaranteed-distinct sports let the last
+follower's sport be found by elimination. Any matching follower joins on
+entering a zone, so the child plans a route across two or three remembered
+answers. Route efficiency is expressed through the same first-try term rather
+than a separate distance score.
