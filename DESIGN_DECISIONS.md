@@ -161,3 +161,17 @@ Previously the doors were a straight row and the rig was offset 7.5 units to
 one side, which pushed the fifth door (Zoo) entirely off screen and hid the
 first behind the guidance card. A child choosing between five minigames has to
 be able to see all five without walking around to find them.
+
+## 2026-09-11 — Restaurant dishes carry no spatial or timing clue to their table
+
+A ready dish goes to a random free counter slot, customers are given a
+shuffled set of distinct foods, and cooking time depends on the food itself
+(sushi is quick, curry is slow), scaled by level.
+
+As first delivered, each customer index had a fixed counter slot and a fixed
+prep time. The slots ran left to right in the same order as the tables, and
+the bells always rang in the order the orders were taken. A child could finish
+every delivery with "left plate to the left table" or "first bell to the first
+customer" without understanding a single answer — which breaks the governing
+rule that the NPC's English must be information the player needs. Now the food
+named in the answer is the only reliable link between a dish and its customer.

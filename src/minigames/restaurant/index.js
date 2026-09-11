@@ -17,14 +17,28 @@ const TABLES = Object.freeze([
   Object.freeze({ x: 4.2, z: 3.9, seatX: 4.2, seatZ: 2.85 }),
 ]);
 
+// Cooking time belongs to the dish, not to the table or to the order it was
+// taken in. With fixed per-slot times the bells always rang in the order the
+// child asked, so "first bell, first customer" beat listening to the food.
+const FOOD_PREP_SECONDS = Object.freeze({ curry: 11, pizza: 9, hamburger: 7.5, noodles: 6, sushi: 4.5 });
+
 const DIFFICULTY = Object.freeze({
-  1: Object.freeze({ count: 1, spawns: [0], prep: [4], patience: 100 }),
-  2: Object.freeze({ count: 2, spawns: [0, 4], prep: [6, 8], patience: 110 }),
-  3: Object.freeze({ count: 4, spawns: [0, 4, 9, 14], prep: [10, 15, 12, 18], patience: 125 }),
+  1: Object.freeze({ count: 1, spawns: [0], prepScale: 0.55, patience: 100 }),
+  2: Object.freeze({ count: 2, spawns: [0, 4], prepScale: 0.85, patience: 110 }),
+  3: Object.freeze({ count: 4, spawns: [0, 4, 9, 14], prepScale: 1.3, patience: 125 }),
 });
 
 const CUSTOMER_TINTS = Object.freeze([0xff9f7a, 0x86c9ff, 0xb99cff, 0x75d5a4]);
 const SLOT_X = Object.freeze([-3.15, -1.05, 1.05, 3.15]);
+
+function shuffled(values) {
+  const copy = [...values];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 /** Restaurant minigame controller for the frozen shell interface. */
 export function createRestaurant(ctx) {
@@ -329,7 +343,7 @@ export function createRestaurant(ctx) {
     const meterGeometry = ownGeometry(new THREE.BoxGeometry(1.25, 0.14, 0.05));
     const meterBackMaterial = makeMaterial(0x273858);
     const configured = DIFFICULTY[difficulty];
-    const foodOffset = Math.floor(Math.random() * LESSON.answers.length);
+    const menu = shuffled(LESSON.answers);
     for (let index = 0; index < configured.count; index += 1) {
       const table = TABLES[index];
       const character = characters.create({
@@ -350,14 +364,15 @@ export function createRestaurant(ctx) {
       meter.visible = false;
       world.add(meter);
 
-      const food = LESSON.answers[(foodOffset + index) % LESSON.answers.length];
+      const food = menu[index % menu.length];
       const customer = {
         index,
         table,
         food,
+        slot: -1,
         state: 'scheduled',
         spawnAt: configured.spawns[index],
-        prepDuration: configured.prep[index],
+        prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
         prepRemaining: 0,
         patienceMax: configured.patience,
         patience: configured.patience,
@@ -456,11 +471,27 @@ export function createRestaurant(ctx) {
     }
   }
 
+  // A ready dish goes to a random free place on the counter. Tying the counter
+  // slot to the customer let a child carry "the left plate to the left table"
+  // without ever knowing which food each customer asked for.
+  function pickCounterSlot() {
+    const free = [];
+    for (let slot = 0; slot < SLOT_X.length; slot += 1) {
+      let taken = false;
+      for (const other of customers) {
+        if (other.state === 'ready' && other.slot === slot) taken = true;
+      }
+      if (!taken) free.push(slot);
+    }
+    return free.length ? free[Math.floor(Math.random() * free.length)] : 0;
+  }
+
   function makeReady(customer) {
     if (customer.state !== 'preparing') return;
     customer.state = 'ready';
     customer.dish.visible = true;
-    customer.dish.position.set(SLOT_X[customer.index], 1.46, -5.05);
+    customer.slot = pickCounterSlot();
+    customer.dish.position.set(SLOT_X[customer.slot], 1.46, -5.05);
     customer.dish.rotation.set(0, 0, 0);
     audio.playSfx('bell', {
       frequency: 820,
@@ -675,7 +706,7 @@ export function createRestaurant(ctx) {
     let best = COUNTER_RADIUS_SQ;
     for (const customer of customers) {
       if (customer.state !== 'ready') continue;
-      const dx = player.position.x - SLOT_X[customer.index];
+      const dx = player.position.x - SLOT_X[customer.slot];
       const dz = player.position.z + 5.05;
       const distance = dx * dx + dz * dz;
       if (distance < best) {
