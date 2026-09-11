@@ -57,8 +57,15 @@ const stampBook = createStampBook({ root: uiRoot, progression, lessons: LESSONS,
 const transitions = createTransitions(wipe);
 const unbindSpeech = speech.bind(hud.talkButton);
 
-// Fetching character assets is deliberately not on the startup critical path.
-characters.preload();
+// Character assets get a short head start before the first hub is built, so the
+// child's avatar is the same model on every screen. The wait is capped: on a slow
+// classroom connection the game still starts on the procedural fallback body
+// instead of hanging, which is why preloading was first kept off the startup path.
+const CHARACTER_HEAD_START_MS = 2500;
+const charactersReady = Promise.race([
+  characters.preload(),
+  new Promise((resolve) => setTimeout(resolve, CHARACTER_HEAD_START_MS)),
+]);
 
 const minigames = new Map([
   ['restaurant', createRestaurant],
@@ -206,7 +213,7 @@ window.addEventListener('resize', resize);
 window.addEventListener('pagehide', dispose, { once: true });
 
 resize();
-replaceController(makeHub).then(() => {
+charactersReady.then(() => replaceController(makeHub)).then(() => {
   cameraRig.update(1);
   animationFrame = requestAnimationFrame(frame);
 });

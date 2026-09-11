@@ -303,8 +303,11 @@ export function createRestaurant(ctx) {
       plateGeometry: ownGeometry(new THREE.CylinderGeometry(0.58, 0.58, 0.08, 20)),
       plateMaterial: makeMaterial(0xf7fbff),
       sphereGeometry: ownGeometry(new THREE.SphereGeometry(1, 12, 8)),
-      riceMaterial: makeMaterial(0xfff4d6),
-      curryMaterial: makeMaterial(0xd68c23),
+      // Japanese curry: dark brown roux beside white rice. The earlier light
+      // orange on cream read as an omelette, and the child has to recognise
+      // which food they are carrying.
+      riceMaterial: makeMaterial(0xfffdf6),
+      curryMaterial: makeMaterial(0x8a4a1c),
       pizzaGeometry: ownGeometry(new THREE.CylinderGeometry(0.48, 0.48, 0.11, 3)),
       pizzaMaterial: makeMaterial(0xf3b941),
       pepperoniGeometry: ownGeometry(new THREE.CylinderGeometry(0.08, 0.08, 0.025, 10)),
@@ -812,6 +815,8 @@ export function createRestaurant(ctx) {
     phase = 'turnaround';
     hideAction();
     temperature.hidden = true;
+    noticeRemaining = 0;
+    notice.hidden = true;
     dialogue.show({ text: LESSON.question, anchor: host, offsetY: 1.8 });
     setInstruction(STRINGS.turnaround);
     cameraRig

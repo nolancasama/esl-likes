@@ -188,3 +188,19 @@ recorded as liking curry, and the hub then told them so — the one moment the
 game claims to have heard the child, and it was false. The fallback still never
 removes the English: the child reads a complete "I like ___." sentence along
 with the audio. They just get to choose which one.
+
+## 2026-09-11 — Kenney characters are never tinted; the first hub waits briefly for them
+
+Two avatar fixes, both found in playthrough screenshots.
+
+Tint: character tinting multiplied a colour over every material. Kenney models
+are a single textured atlas, so a light-blue tint turned skin grey-green along
+with the clothing and the child's own avatar looked like a zombie. Textured
+materials are now left untouched; the cast is told apart by model, and only the
+untextured fallback body is tinted.
+
+Preload: character assets were deliberately kept off the startup path, so the
+first hub always spawned the procedural fallback body and the avatar turned into
+a different character after the first minigame. The first hub now waits up to
+2.5 s for the models. The cap keeps the original guarantee — a slow classroom
+connection still starts the game on the fallback body rather than hanging.

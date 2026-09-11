@@ -124,7 +124,10 @@ function makeTintController(root, initialTint) {
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     const cloned = materials.map((material) => {
       const copy = material.clone();
-      if (copy.color) tintedMaterials.push({ material: copy, base: copy.color.clone() });
+      // Textured Kenney models keep their painted colours. Multiplying a tint over
+      // the whole atlas turned skin grey-green along with the clothes. The cast is
+      // told apart by model, so only the untextured fallback body is tinted.
+      if (copy.color && !copy.map) tintedMaterials.push({ material: copy, base: copy.color.clone() });
       return copy;
     });
     object.material = Array.isArray(object.material) ? cloned : cloned[0];
