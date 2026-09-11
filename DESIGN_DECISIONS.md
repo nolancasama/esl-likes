@@ -276,3 +276,27 @@ positions, sequence, timing, visual cues or other non-language shortcuts, and
 every review must ask "Can a child consistently succeed without understanding
 the NPC's answer?" Prompted by the Restaurant review, where dish placement and
 bell order let children ignore the English.
+
+## 2026-09-11 — Coloring v1 randomizes the two facts independently
+
+Coloring chooses the NPC's favourite from red, blue, and yellow independently
+from the starred body, arms, or visor region. The free regions have no target
+colours, the neutral star carries no colour information, and the palette starts
+with no selection. This keeps the spoken answer as the only reliable way to earn
+maximum credit while preserving creative freedom everywhere except the star.
+
+Rejected: fixed colour-to-region pairings, prescribed colours for the free
+regions, or a preselected swatch. Each creates a position, elimination, or
+default-selection shortcut that can replace listening.
+
+## 2026-09-11 — Coloring uses one brush geometry for pixels and scoring
+
+The visible canvas and the coarse 72 by 72 scoring grid are painted by the same
+interpolated round stroke. The grid is authoritative for coverage, starred-colour
+accuracy, and a two-cell overshoot margin; the bitmap is presentation and the
+texture later hung in the Art Room.
+
+This avoids device-resolution-dependent scores and makes fast Chromebook
+trackpad strokes continuous without introducing a fill tool. The 2D screen is
+built and removed under the shared opaque wipe so the room and canvas never
+appear together in a partially constructed state.
