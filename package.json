@@ -1,0 +1,19 @@
+{
+  "name": "esl-likes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Speak English, help people. A 3D ESL game of five minigames around \"What ___ do you like?\" for Japanese elementary classrooms.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "test": "node --test \"src/**/*.test.mjs\""
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

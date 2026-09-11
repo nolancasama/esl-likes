@@ -1,0 +1,52 @@
+{
+  "task": "Build the Restaurant minigame for the esl-likes 3D ESL game, replacing the placeholder that currently stands in for it. The shared shell, speech stack, hub and minigame interface are already built and working; this order implements one minigame against that frozen interface.",
+  "requirements": [
+    "Read SPEC.md section 4 first, plus section 3 for the speech contract and section 9 for scoring. SPEC.md is the frozen design and wins over any assumption. Do not modify it.",
+    "Create src/minigames/restaurant/ exporting createRestaurant(ctx) matching the FROZEN interface already used by src/minigames/placeholder/index.js: it returns { id, enter(level), update(dt), exit() } and ctx provides { scene, camera, cameraRig, input, speech, audio, dialogue, characters, hud, settings, finish }. Read the placeholder first — it is the reference for how to use every ctx system, how to wire the fallback ladder, and how to dispose owned geometry and materials on exit.",
+    "Register it: in src/main.js change the import and the registry entry at the 'restaurant' key from createPlaceholder to createRestaurant. Leave the other four entries alone.",
+    "Build a compact 3D dining room: several tables with chairs, a kitchen pickup counter with a visible bell, and wide clear pathways. Simple procedural geometry, flat bright materials, no realism. It must be small enough that walking between any table and the counter is quick and readable.",
+    "The player is a WAITER and never cooks. The kitchen prepares food automatically.",
+    "Core loop: a customer NPC sits at a table; the player walks over; a hold-to-talk prompt asks 'What food do you like?'; on acceptance the NPC answers 'I like curry.' spoken via ctx.audio and shown in a ctx.dialogue bubble; the kitchen begins preparing; a bell rings with a clear visual cue when the dish is ready; the player walks to the counter and collects it; the player carries it to the table and delivers it.",
+    "Foods are exactly: curry, pizza, hamburger, noodles, sushi. Each needs a visually distinct dish model — silhouette and colour must differ enough to be told apart at a glance.",
+    "THE ORDER IS NEVER DISPLAYED. No ticket, no HUD entry, no label above the table, no icon over the customer once the answer has been given. Memory is the mechanic and this is the rule the whole minigame exists to serve. Provide a 'remind me' interaction that re-asks the customer and costs a small score penalty, so a stuck child always has a way forward.",
+    "Carrying: the dish visibly attaches to the player while carried. Only one dish can be carried at a time.",
+    "Food temperature: a dish begins hot when collected and cools on a timer while carried. Delivery scores Hot 3 / Warm 2 / Cold 1. Cold food must NEVER fail — it still counts as a correct delivery.",
+    "Customer patience: a visible, generous meter per seated customer. A customer running out of patience leaves disappointed; play continues. There is NO failure state and no game over.",
+    "Wrong delivery: the customer politely refuses, the dish stays in the player's hands, and the player can walk it to the correct table. No harsh penalty, no lost dish.",
+    "Difficulty from ctx level: L1 one customer and one order at a time; L2 two tables with overlapping orders; L3 several tables with staggered readiness and longer gaps between taking an order and the dish being ready. Read the level argument passed to enter(level) and the difficulty setting via ctx.settings.",
+    "Turnaround beat, required: when the service round ends, one NPC asks the child 'What food do you like?' and the child answers 'I like ___.' Use the speech system's answer direction. Any valid food word is correct. Pass the recognised answer up through finish({ stars, detail: { category: 'food', answer } }) so the shell saves it and the hub can greet the child with it.",
+    "Convert the round's result into 1-3 stars using whatever weighting suits the activity — correct deliveries, temperature and patience. Do not try to share scoring maths with any other minigame.",
+    "UI chrome Japanese, English only where it is the lesson. All new user-facing strings go in src/config/lesson.js, not inline.",
+    "Clean up fully in exit(): dispose owned geometry, materials and canvas textures, remove overlays and event listeners, and clear speech and hud targets, exactly as the placeholder does. Re-entering the minigame from the hub twice in a row must not leak or double-register anything.",
+    "npm run build and npm test must both pass."
+  ],
+  "constraints": [
+    "Do NOT modify SPEC.md, DESIGN_DECISIONS.md, src/systems/speechMatch.js, src/systems/speechMatch.test.mjs, src/styles.css, src/scenes/hub.js, or anything under public/assets/.",
+    "In src/main.js change ONLY the restaurant import and its registry entry.",
+    "Do NOT modify the shared systems in src/systems/ or src/ui/. If one genuinely lacks something you need, say so in your summary rather than editing it.",
+    "Do NOT delete src/minigames/placeholder/ — it stays as the reference implementation of the interface for the four minigames still to be built.",
+    "Do NOT add dependencies. three and vite only.",
+    "Do NOT build a universal minigame base class, a shared scoring system, or an entity-component framework.",
+    "No mouse-look, no pointer lock, no manual camera rotation, no precision movement, no timing-based platforming.",
+    "Avoid per-frame allocation in update(); share geometry and materials across repeated props."
+  ],
+  "notes": "The governing product rule from SPEC.md: the NPC's English answer must be information the player genuinely needs in order to succeed. If a child could complete a delivery without having understood 'I like curry', the minigame is wrong — which is exactly why the order is never displayed anywhere. This should feel like a warm, forgiving children's restaurant game, not a stress test: patience meters are generous, mistakes are polite, and nothing is ever lost. Append any meaningful design decision you make to DESIGN_DECISIONS.md as a dated entry. Note that the working tree is not yet committed to git, so FILES_CHANGED reporting may be unreliable; list the files you touched explicitly in your summary.",
+  "startingPoints": [
+    "SPEC.md",
+    "src/minigames/placeholder/index.js",
+    "src/main.js",
+    "src/config/lesson.js",
+    "src/systems/speech.js",
+    "src/systems/dialogue.js",
+    "src/ui/hud.js"
+  ],
+  "validation": ["npm run build", "npm test"],
+  "category": "3d-gameplay",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

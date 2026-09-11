@@ -1,0 +1,36 @@
+{
+  "task": "Implement the forgiving speech matcher and its test suite for a 3D ESL game. Both files already exist with frozen exported signatures and doc comments; fill in the implementations and write the tests. Do not create new files, do not rename or change any exported signature.",
+  "requirements": [
+    "Implement normalise, levenshtein, hasWord, matchQuestion, matchAnswer and matchBest in src/systems/speechMatch.js, replacing every 'not implemented' throw. Keep the existing signatures, names and doc comments exactly.",
+    "Populate the VARIANTS table with accepted spoken variants for: what, like, and the five category nouns food, color, drink, sport, animal. SPEC.md section 3 lists the starting variants; include those verbatim and add further plausible Japanese-accented mis-hearings.",
+    "Populate the ANSWERS table with the answer words for each category, taken from SPEC.md sections 4 to 8: food = curry, pizza, hamburger, noodles, sushi; color = red, blue, yellow, green, pink, purple, orange; drink = water, milk, orange juice, apple juice, tea, soda; sport = soccer, basketball, baseball, volleyball; animal = elephant, lion, panda, monkey, giraffe, penguin. Multi-word answers such as 'orange juice' must match as a phrase and also when both words are heard separately.",
+    "matchQuestion accepts when a question word, the category noun, and 'like' are all heard; 'do' and 'you' are never required.",
+    "matchQuestion must reject: a missing category noun, a missing 'like', a different category's noun than the one asked for, empty input, and gibberish.",
+    "hasWord fuzz slack must scale with word length so that short words are strict: 'like' must NOT match 'bike', and 'tea' must not match 'sea' or 'key' by fuzz alone. Longer words get more slack.",
+    "matchAnswer accepts 'I like pizza' for category food and reports answer === 'pizza'. It requires 'like' plus one recognised answer word, and rejects an answer containing no recognised word.",
+    "matchBest returns the first alternative that passes the supplied judge, falling back to the first result when none pass.",
+    "Write the full test suite in src/systems/speechMatch.test.mjs using node:test and node:assert/strict, replacing the placeholder test. Cover every bullet listed in the comment block already in that file. Aim for roughly 70 or more assertions.",
+    "Every function must be pure: no DOM access, no window, no Web Speech API, no imports outside node builtins."
+  ],
+  "constraints": [
+    "Do NOT create any new file. Both target files already exist.",
+    "Do NOT modify SPEC.md, package.json, DESIGN_DECISIONS.md, CURRENT_STATE.md, or anything under public/.",
+    "Do NOT add dependencies. node:test and node:assert only.",
+    "Do NOT change any exported name or signature in speechMatch.js.",
+    "Do not inline test code into shell commands; run the declared npm script."
+  ],
+  "notes": "The governing pedagogical rule is in the file header: the matcher must err toward acceptance, because a false rejection teaches a child their correct English was wrong. When a judgement call is close, accept. The one exception is the short-word strictness requirement above, which exists so that genuinely different words are not silently treated as correct. town-builder's src/systems/speech.js has a working reference implementation of normalise, levenshtein and fuzzy hasWord that can be followed, but this module's API is different and the frozen signatures here win.",
+  "startingPoints": [
+    "src/systems/speechMatch.js",
+    "src/systems/speechMatch.test.mjs",
+    "SPEC.md"
+  ],
+  "validation": ["npm test"],
+  "category": "logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "none",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

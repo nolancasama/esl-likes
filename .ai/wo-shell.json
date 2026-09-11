@@ -1,0 +1,53 @@
+{
+  "task": "Build the shared 3D shell for a five-minigame ESL game: vite + three.js bootstrap, screen router, Kenney character loader, follow camera, hold-to-talk speech UI with its fallback ladder, dialogue bubbles, progression and save data, settings, a 3D hub with a stamp book, and scene transitions. The Restaurant minigame is a SEPARATE later work order; this order must define and honour the minigame interface it will plug into, and ship one trivial placeholder minigame to prove that interface works end to end.",
+  "requirements": [
+    "Read SPEC.md first. It is the frozen design and it wins over any assumption. Do not modify it.",
+    "index.html plus src/main.js bootstrap a three.js app filling the viewport, with a DOM overlay layer for all 2D UI. One renderer, one animation loop, one resize handler. Handle devicePixelRatio but cap it at 2 for Chromebook fill-rate.",
+    "src/core/tween.js and src/core/rng.js: port from c:/Users/nolan/recipe-tester/town-builder/src/core/. Keep the same exported API.",
+    "src/systems/characters.js: port the Kenney blocky character loader from town-builder/src/world/characterModels.js. Assets are ALREADY at public/assets/characters/ (18 .glb plus a Textures/ directory). Preserve the resourcePath handling — these .glb files reference textures externally and load untextured white if the directory is not passed. Expose the clip set idle/walk/sprint/emote-yes, per-instance tinting, and a procedural fallback body so a failed asset fetch never blocks startup.",
+    "src/systems/cameraRig.js: a gentle follow camera at a raised three-quarter angle, with named framing presets a minigame can request (e.g. 'follow', 'fixed', 'closeup'). Damped, never snapping. NO mouse look, NO user rotation, NO pointer-lock.",
+    "src/systems/input.js: WASD and arrow keys produce a normalised movement vector; Space is interact. Support held keys, lost focus, and simultaneous keys. Expose a simple query API the minigames poll in update().",
+    "src/systems/speech.js: port the press-and-HOLD mechanics from c:/Users/nolan/recipe-tester/esl-time/src/speech.js — pointer capture, pointerup/cancel/lostpointercapture/leave handling, keyboard parity on Space, a five-second cap, and the mic closed at every seam. Judge interim hypotheses live for SUCCESS ONLY via the existing src/systems/speechMatch.js; a non-match during the hold keeps listening. Do not rewrite speechMatch.js — import and use it.",
+    "src/ui/hud.js: the talk control and its five unmistakable states — mic ready, listening, speech detected, accepted, try again. Large touch targets. Implement the fallback ladder from SPEC.md section 3: after two consecutive failures show the target sentence word by word, tappable to continue, with word-by-word highlighting as it is spoken; and honour a mic-free setting where that route is the only one.",
+    "src/systems/dialogue.js: NPC speech bubbles anchored to a 3D position and projected to screen space, showing the English line large, with a replay button. Must stay readable when the NPC is near the screen edge.",
+    "src/systems/audio.js: SFX plus speech synthesis for NPC lines and the target sentence, using the Web Speech synthesis API with an en-US voice. Entirely optional and nonblocking — the game must be fully playable muted and must never await audio.",
+    "src/systems/progression.js: stamps, best stars per minigame, the child's saved 'I like ___' answers, and zoo photos, behind ONE guarded localStorage key. A corrupt, absent or unparseable save must start a clean game and never throw.",
+    "src/systems/settings.js: volume, mic-free mode, difficulty level, text size. Persisted through progression's save. A Japanese-labelled settings panel in the DOM overlay.",
+    "src/systems/transitions.js: a wipe in/out covering scene teardown and setup so no frame of an empty or half-built scene is ever visible.",
+    "src/scenes/hub.js: a small 3D hub the child walks around, with five signs or doors for Restaurant, Coloring, Drink Stand, Sports and Zoo. Walking up to one and pressing interact enters it. Unbuilt minigames show as coming-soon and are not enterable. The hub greets the child using a saved 'I like ___' answer when one exists.",
+    "src/ui/stampBook.js: a 2D overlay showing the five stamps, earned or not, with star counts. Openable from the hub.",
+    "src/config/lesson.js: the five categories, their answer words, the English target sentences, and ALL Japanese UI strings in one place. No Japanese or English UI text hardcoded anywhere else.",
+    "FROZEN minigame interface — every minigame is a factory taking a context and returning a controller: createX(ctx) => { id, enter(level), update(dt), exit() }. ctx provides { scene, camera, cameraRig, input, speech, audio, dialogue, characters, hud, settings, finish }. finish({ stars, detail }) hands control back to the shell, which awards the stamp and returns to the hub. Minigames own their own scoring and state machines; do NOT build a universal minigame base class or a shared scoring system.",
+    "Ship src/minigames/placeholder/index.js implementing that interface trivially — an empty room, one NPC, ask the question once, finish with 3 stars — wired into the hub, purely to prove the interface and the full loop hub -> minigame -> stamp -> hub.",
+    "UI chrome is Japanese. English appears ONLY where it is the lesson: target sentences, NPC answers, category and answer words, and the minigame names. See SPEC.md section 1.",
+    "npm run build must succeed."
+  ],
+  "constraints": [
+    "Do NOT modify SPEC.md, DESIGN_DECISIONS.md, src/systems/speechMatch.js, src/systems/speechMatch.test.mjs, or anything under public/assets/.",
+    "Do NOT add dependencies beyond three and vite, which are already installed.",
+    "Do NOT build any of the five real minigames. Restaurant is the next work order; Coloring, Drink Stand, Sports and Zoo come later.",
+    "Do NOT build a universal minigame engine, a shared scoring system, or an entity-component framework. Shared code only where it removes real duplication.",
+    "No mouse-look, no pointer lock, no manual camera rotation, no platforming, no precision movement.",
+    "Keep the Chromebook budget in mind: share geometry and materials, cap pixel ratio, avoid per-frame allocation in the animation loop.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "This is the foundation four more minigames will be built on, so the module boundaries matter more than the visuals. The governing product rule is in SPEC.md: the NPC's English answer must be information the player genuinely needs in order to succeed. The speech stack is the highest-risk part of the game — port the proven hold mechanics from esl-time rather than writing new ones, and keep the matcher untouched. Environments are simple procedural geometry with flat bright materials; avoid realism. Record any meaningful design decision you make in DESIGN_DECISIONS.md as an appended dated entry.",
+  "startingPoints": [
+    "SPEC.md",
+    "src/systems/speechMatch.js",
+    "package.json",
+    "public/assets/characters/",
+    "c:/Users/nolan/recipe-tester/town-builder/src/world/characterModels.js",
+    "c:/Users/nolan/recipe-tester/town-builder/src/core/tween.js",
+    "c:/Users/nolan/recipe-tester/esl-time/src/speech.js"
+  ],
+  "validation": ["npm run build", "npm test"],
+  "category": "3d-app",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "decomposed",
+  "executionStyle": "deep-reasoning"
+}

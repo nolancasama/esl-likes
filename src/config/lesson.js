@@ -1,0 +1,148 @@
+export const LESSONS = Object.freeze([
+  {
+    id: 'restaurant',
+    name: 'Restaurant',
+    category: 'food',
+    answers: ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'],
+    question: 'What food do you like?',
+    answerExample: 'I like curry.',
+    available: true,
+  },
+  {
+    id: 'coloring',
+    name: 'Coloring',
+    category: 'color',
+    answers: ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
+    question: 'What color do you like?',
+    answerExample: 'I like blue.',
+    available: false,
+  },
+  {
+    id: 'drink-stand',
+    name: 'Drink Stand',
+    category: 'drink',
+    answers: ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
+    question: 'What drink do you like?',
+    answerExample: 'I like water.',
+    available: false,
+  },
+  {
+    id: 'sports',
+    name: 'Sports',
+    category: 'sport',
+    answers: ['soccer', 'basketball', 'baseball', 'volleyball'],
+    question: 'What sport do you like?',
+    answerExample: 'I like soccer.',
+    available: false,
+  },
+  {
+    id: 'zoo',
+    name: 'Zoo',
+    category: 'animal',
+    answers: ['elephant', 'lion', 'panda', 'monkey', 'giraffe', 'penguin'],
+    question: 'What animal do you like?',
+    answerExample: 'I like panda.',
+    available: false,
+  },
+]);
+
+export const LESSON_BY_ID = Object.freeze(
+  Object.fromEntries(LESSONS.map((lesson) => [lesson.id, lesson])),
+);
+
+export const UI = Object.freeze({
+  appTitle: 'えいごで「すき」をつたえよう',
+  loading: 'よみこみ中…',
+  hub: {
+    title: 'すきなゲームをえらぼう',
+    moveHint: 'WASD / やじるしキーで あるく　スペースで はいる',
+    interact: 'スペースで はいる',
+    comingSoon: 'もうすぐ あそべるよ',
+    practice: 'おためし版',
+    greeting: 'きみは {answer} がすき！',
+    stampBook: 'スタンプブック',
+    settings: 'せってい',
+  },
+  speech: {
+    micReady: 'おしているあいだ はなす',
+    listening: 'きいているよ…',
+    detected: 'こえが きこえたよ',
+    accepted: 'できた！',
+    tryAgain: 'もういちど やってみよう',
+    fallbackIntro: 'ことばを よんで、タップしよう',
+    fallbackContinue: 'よんで つぎへ',
+    unavailable: 'マイクを つかわず よもう',
+  },
+  dialogue: {
+    replay: 'もういちど きく',
+  },
+  stampBook: {
+    title: 'スタンプブック',
+    earned: 'ゲット！',
+    notEarned: 'まだだよ',
+    stars: 'ほし {count}こ',
+    close: 'とじる',
+    photo: 'どうぶつの しゃしん',
+  },
+  settings: {
+    title: 'せってい',
+    open: 'せってい',
+    close: 'とじる',
+    volume: 'おとの おおきさ',
+    micFree: 'マイクを つかわない',
+    micFreeHint: 'ことばを よんで タップします',
+    difficulty: 'むずかしさ',
+    difficultyLevels: ['やさしい', 'ふつう', 'チャレンジ'],
+    textSize: 'もじの おおきさ',
+    textSizes: ['ちいさめ', 'ふつう', 'おおきめ'],
+  },
+  placeholder: {
+    roomName: 'Restaurant',
+    instruction: 'ボタンを おしているあいだ、しつもんしよう',
+    turnaround: 'こんどは きみの ばん！',
+    complete: 'スタンプを ゲット！',
+  },
+  restaurant: {
+    npcAnswer: 'I like {food}.',
+    roomName: 'レストラン',
+    instruction: 'ボタンを おしているあいだ、しつもんしよう',
+    walkToCustomer: 'おきゃくさんに ちかづこう',
+    walkToCounter: 'カウンターに とりに いこう',
+    walkToDeliver: 'おきゃくさんに とどけよう',
+    bellReady: 'りょうりが できたよ！',
+    bellReadyAria: '料理ができました',
+    delivered: 'ありがとう！',
+    wrongDish: 'ちがうみたい…もう一度どうぞ',
+    remindCost: 'もういちど きく（すこし マイナス）',
+    turnaround: 'こんどは きみの ばん！',
+    complete: 'スタンプを ゲット！',
+    tempHot: 'あつあつ！',
+    tempWarm: 'ちょうどいい',
+    tempCold: 'さめてる…',
+    patientLeave: 'またね…',
+    roundEnd: 'おつかれさま！',
+    waitForBell: 'ベルが なるまで まとう',
+    collectDish: 'スペースで りょうりを もつ',
+    deliverDish: 'スペースで とどける',
+    foodNames: {
+      curry: 'カレー',
+      pizza: 'ピザ',
+      hamburger: 'ハンバーガー',
+      noodles: 'ヌードル',
+      sushi: 'すし',
+    },
+  },
+  transition: {
+    label: 'ばめんを きりかえています',
+  },
+  errors: {
+    webgl: 'このブラウザでは 3Dを ひょうじできません。',
+  },
+});
+
+export function formatUi(template, values = {}) {
+  return Object.entries(values).reduce(
+    (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
+    template,
+  );
+}

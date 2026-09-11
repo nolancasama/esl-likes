@@ -1,0 +1,49 @@
+{
+  "id": "esl-likes-slice-1",
+  "task": "Build the shared shell and the Restaurant minigame as a playable vertical slice of a 3D ESL game (three.js), against a frozen SPEC.md",
+  "slices": [
+    {
+      "id": "spec",
+      "task": "Freeze the product design, target language, minigame definitions, scoring and non-negotiables",
+      "keep": true
+    },
+    {
+      "id": "matcher",
+      "task": "Forgiving speech matcher: normalise, tokenise, Levenshtein fuzz, per-category phonetic tolerance tables, and a node:test suite covering accepted and rejected transcripts for all five categories plus the reversed 'I like ___' direction",
+      "dependsOn": ["spec"],
+      "volume": 70,
+      "bounded": true,
+      "exploration": "none",
+      "complexity": "medium",
+      "risk": "medium",
+      "startingPoints": ["SPEC.md", "src/systems/speechMatch.js", "src/systems/speechMatch.test.mjs"],
+      "validation": ["npm test"]
+    },
+    {
+      "id": "shell",
+      "task": "Shared 3D shell: vite app, three.js scene bootstrap, Kenney character loader, follow camera rig, tween, dialogue bubbles, hold-to-talk speech UI with fallback ladder, progression and save data, settings, hub with stamp book, transitions",
+      "dependsOn": ["spec", "matcher"],
+      "volume": 14,
+      "bounded": true,
+      "exploration": "local",
+      "complexity": "hard",
+      "risk": "medium",
+      "expectedCost": "large",
+      "startingPoints": ["SPEC.md", "index.html", "src/main.js"],
+      "validation": ["npm run build"]
+    },
+    {
+      "id": "restaurant",
+      "task": "Restaurant minigame controller: dining room geometry, customers, ordering via speech, kitchen bell and pickup, carrying and delivery from memory, temperature and patience, star scoring, turnaround beat",
+      "dependsOn": ["shell"],
+      "volume": 8,
+      "bounded": true,
+      "exploration": "local",
+      "complexity": "hard",
+      "risk": "medium",
+      "expectedCost": "large",
+      "startingPoints": ["SPEC.md", "src/minigames/restaurant/index.js"],
+      "validation": ["npm run build"]
+    }
+  ]
+}
