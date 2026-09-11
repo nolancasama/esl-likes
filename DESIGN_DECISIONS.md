@@ -175,3 +175,16 @@ every delivery with "left plate to the left table" or "first bell to the first
 customer" without understanding a single answer — which breaks the governing
 rule that the NPC's English must be information the player needs. Now the food
 named in the answer is the only reliable link between a dish and its customer.
+
+## 2026-09-11 — The turnaround fallback offers every answer, not one
+
+In the turnaround the child answers "I like ___." for themselves. The HUD
+fallback (`configureTalk({ choices })`) now shows one read-along button per
+answer, and the one the child taps is what gets saved.
+
+Previously the fallback read out a single fixed sentence ("I like curry.") and
+saved its word as the child's answer. Every child in a mic-free classroom was
+recorded as liking curry, and the hub then told them so — the one moment the
+game claims to have heard the child, and it was false. The fallback still never
+removes the English: the child reads a complete "I like ___." sentence along
+with the audio. They just get to choose which one.

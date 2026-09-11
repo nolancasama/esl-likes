@@ -22,6 +22,10 @@ function installStyles() {
       outline: 6px solid #ffcf33; outline-offset: 4px; }
     .lesson-hud__talk:disabled { cursor: default; opacity: .72; }
     .lesson-hud__talk-icon { font-size: 2rem; line-height: 1; }
+    .lesson-hud__fallback-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+    .lesson-hud__fallback-list.is-choices { max-width: min(94vw, 760px); }
+    .lesson-hud__fallback-list.is-choices .lesson-hud__fallback { width: auto; min-width: 0; flex: 0 1 auto;
+      padding: 12px 18px; font-size: calc(1.2rem * var(--lesson-text-scale, 1)); }
     .lesson-hud__talk[data-state="listening"] { background: #e94f64; transform: translateY(3px);
       box-shadow: 0 3px 0 rgba(28,48,78,.3), 0 6px 18px rgba(28,48,78,.2); }
     .lesson-hud__talk[data-state="detected"] { background: #ef8a17; }
@@ -93,14 +97,17 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
   const fallbackWrap = document.createElement('div');
   fallbackWrap.className = 'lesson-hud__fallback-wrap';
   fallbackWrap.hidden = true;
-  const fallbackButton = document.createElement('button');
-  fallbackButton.className = 'lesson-hud__fallback';
-  fallbackButton.type = 'button';
+  const fallbackList = document.createElement('div');
+  fallbackList.className = 'lesson-hud__fallback-list';
+  const fallbackButton = createFallbackButton();
+  fallbackList.append(fallbackButton);
   const fallbackHint = document.createElement('div');
   fallbackHint.className = 'lesson-hud__fallback-hint';
-  fallbackHint.textContent = strings.fallbackIntro || strings.fallbackHint || '';
+  const readAlongHint = strings.fallbackIntro || strings.fallbackHint || '';
+  const chooseHint = strings.fallbackChoose || readAlongHint;
+  fallbackHint.textContent = readAlongHint;
   fallbackHint.hidden = !fallbackHint.textContent;
-  fallbackWrap.append(fallbackButton, fallbackHint);
+  fallbackWrap.append(fallbackList, fallbackHint);
   element.append(talkButton, fallbackWrap);
   root.append(element);
 
@@ -110,6 +117,9 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     : settings?.micFree);
   let targetSentence = '';
   let onFallbackContinue = null;
+  let choices = [];
+  let activeButton = fallbackButton;
+  let activeSentence = '';
   let animationTimers = [];
   let fallbackRunning = false;
 
@@ -117,20 +127,52 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     for (const timer of animationTimers) clearTimeout(timer);
     animationTimers = [];
     fallbackRunning = false;
-    fallbackButton.disabled = false;
+    setFallbackDisabled(false);
     highlightWord(-1);
   }
 
+  function setFallbackDisabled(disabled) {
+    for (const button of fallbackList.children) button.disabled = disabled;
+  }
+
+  function createFallbackButton() {
+    const button = document.createElement('button');
+    button.className = 'lesson-hud__fallback';
+    button.type = 'button';
+    button.addEventListener('click', () => playReadAlong(button));
+    return button;
+  }
+
+  // One read-along button per sentence. A plain prompt has a single sentence;
+  // a turnaround ("I like ___.") offers one per answer, so a child without a
+  // working microphone still chooses their own answer instead of being handed
+  // the first one on the list.
+  function sentences() {
+    if (choices.length) return choices;
+    return targetSentence ? [{ sentence: targetSentence, value: undefined }] : [];
+  }
+
   function renderWords() {
-    fallbackButton.replaceChildren();
-    const words = targetSentence.trim().split(/\s+/).filter(Boolean);
-    for (const word of words) {
-      const span = document.createElement('span');
-      span.className = 'lesson-hud__fallback-word';
-      span.textContent = word;
-      fallbackButton.append(span);
-    }
-    fallbackButton.setAttribute('aria-label', targetSentence);
+    const entries = sentences();
+    while (fallbackList.children.length > Math.max(1, entries.length)) fallbackList.lastElementChild.remove();
+    while (fallbackList.children.length < entries.length) fallbackList.append(createFallbackButton());
+    if (!entries.length) fallbackButton.replaceChildren();
+    entries.forEach((entry, index) => {
+      const button = fallbackList.children[index];
+      button.replaceChildren();
+      for (const word of entry.sentence.trim().split(/\s+/).filter(Boolean)) {
+        const span = document.createElement('span');
+        span.className = 'lesson-hud__fallback-word';
+        span.textContent = word;
+        button.append(span);
+      }
+      button.setAttribute('aria-label', entry.sentence);
+      if (entry.value === undefined) delete button.dataset.value;
+      else button.dataset.value = entry.value;
+    });
+    fallbackList.classList.toggle('is-choices', choices.length > 0);
+    fallbackHint.textContent = choices.length ? chooseHint : readAlongHint;
+    fallbackHint.hidden = !fallbackHint.textContent;
   }
 
   function setTalkState(nextState) {
@@ -141,7 +183,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
   }
 
   function showFallback() {
-    if (!targetSentence) return;
+    if (!sentences().length) return;
     talkButton.disabled = true;
     talkButton.hidden = true;
     fallbackWrap.hidden = false;
@@ -156,7 +198,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
   }
 
   function highlightWord(index) {
-    const words = fallbackButton.children;
+    const words = activeButton.children;
     for (let i = 0; i < words.length; i += 1) {
       words[i].classList.toggle('is-active', i === index);
     }
@@ -167,7 +209,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
       const boundary = value && typeof value === 'object' ? value : detail;
       if (Number.isInteger(boundary?.wordIndex)) return boundary.wordIndex;
       if (Number.isInteger(boundary?.charIndex)) {
-        const prefix = targetSentence.slice(0, boundary.charIndex).trim();
+        const prefix = activeSentence.slice(0, boundary.charIndex).trim();
         return prefix ? prefix.split(/\s+/).length : 0;
       }
       return Number.isInteger(value) ? value : -1;
@@ -177,18 +219,22 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
       onBoundary: (value, detail) => highlightWord(indexFromBoundary(value, detail)),
     };
     try {
-      if (typeof audio?.speakTarget === 'function') audio.speakTarget(targetSentence, callbacks);
-      else if (typeof audio?.speak === 'function') audio.speak(targetSentence, callbacks);
-      else if (typeof audio?.say === 'function') audio.say(targetSentence, callbacks);
+      if (typeof audio?.speakTarget === 'function') audio.speakTarget(activeSentence, callbacks);
+      else if (typeof audio?.speak === 'function') audio.speak(activeSentence, callbacks);
+      else if (typeof audio?.say === 'function') audio.say(activeSentence, callbacks);
     } catch { /* audio is optional and must never block the route forward */ }
   }
 
-  function playReadAlong() {
+  function playReadAlong(button = fallbackButton) {
     if (fallbackRunning) return;
     clearAnimation();
+    const entry = sentences()[[...fallbackList.children].indexOf(button)];
+    if (!entry) return;
+    activeButton = button;
+    activeSentence = entry.sentence;
     fallbackRunning = true;
-    fallbackButton.disabled = true;
-    const words = [...fallbackButton.children];
+    setFallbackDisabled(true);
+    const words = [...button.children];
     speakTarget();
 
     let elapsed = 0;
@@ -199,13 +245,12 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     animationTimers.push(setTimeout(() => {
       highlightWord(-1);
       fallbackRunning = false;
-      fallbackButton.disabled = false;
+      setFallbackDisabled(false);
       const callback = onFallbackContinue;
-      if (callback) callback();
+      if (callback) callback(entry.value);
     }, elapsed + 120));
   }
 
-  fallbackButton.addEventListener('click', playReadAlong);
   setTalkState(SPEECH_STATE.READY);
 
   const api = {
@@ -218,6 +263,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
       failures = 0;
       targetSentence = options.targetSentence || '';
       onFallbackContinue = options.onFallbackContinue || null;
+      choices = Array.isArray(options.choices) ? options.choices.filter((choice) => choice?.sentence) : [];
       micFree = options.micFree ?? micFree;
       renderWords();
       setTalkState(SPEECH_STATE.READY);

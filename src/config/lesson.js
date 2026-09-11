@@ -70,6 +70,7 @@ export const UI = Object.freeze({
     accepted: 'できた！',
     tryAgain: 'もういちど やってみよう',
     fallbackIntro: 'ことばを よんで、タップしよう',
+    fallbackChoose: 'すきなものを えらんで、よもう',
     fallbackContinue: 'よんで つぎへ',
     unavailable: 'マイクを つかわず よもう',
   },
@@ -145,4 +146,9 @@ export function formatUi(template, values = {}) {
     (text, [key, value]) => text.replaceAll(`{${key}}`, String(value)),
     template,
   );
+}
+
+/** The model answer sentence for one answer word, e.g. "I like pizza." */
+export function likeSentence(answer) {
+  return `I like ${answer}.`;
 }

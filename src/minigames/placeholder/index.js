@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { LESSON_BY_ID, UI } from '../../config/lesson.js';
+import { LESSON_BY_ID, UI, likeSentence } from '../../config/lesson.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
+const answerChoices = () => LESSON.answers.map((answer) => ({ sentence: likeSentence(answer), value: answer }));
 
 /**
  * Interface proof only. This deliberately contains no Restaurant gameplay.
@@ -43,8 +44,11 @@ export function createPlaceholder(ctx) {
     hud.configureTalk({
       targetSentence: sentence,
       micFree,
-      onFallbackContinue: () => {
-        if (active) onAccepted(fallbackAnswer);
+      // In the turnaround the child answers for themselves, so the fallback
+      // offers every "I like ___." instead of reading out one fixed answer.
+      choices: mode === 'answer' ? answerChoices() : null,
+      onFallbackContinue: (value) => {
+        if (active) onAccepted(value || fallbackAnswer);
       },
     });
     hud.show();

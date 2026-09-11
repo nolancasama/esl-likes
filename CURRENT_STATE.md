@@ -1,16 +1,63 @@
 # Current State
 
 ## Status
-New project.
+
+Vertical slice built: the shared 3D shell plus the Restaurant minigame, playable
+end to end. Coloring, Drink Stand, Sports and Zoo are not started; the hub shows
+them as coming soon.
 
 ## What Exists
-Nothing implemented yet.
 
-## Current Work
-Initial project setup.
+- `SPEC.md` — the frozen design for all five minigames. Read it first.
+- Speech matcher (`src/systems/speechMatch.js`) with per-word phonetic
+  tolerance tables, judging both "What ___ do you like?" and "I like ___."
+- Shared shell: three.js bootstrap, hub with five doors in an arc, stamp book,
+  settings (volume, mic-free, difficulty, text size), hold-to-talk HUD with the
+  two-failure fallback ladder, dialogue bubbles, progression and save
+  (localStorage `esl-likes-save-v1`), transitions, Kenney character loader.
+- Minigame interface: `createX(ctx) => { id, enter(level), update(dt), exit() }`.
+  `src/minigames/placeholder/` is the reference implementation; the registry is
+  in `src/main.js`.
+- Restaurant: waiter loop, orders never displayed, remind-at-a-cost, random
+  counter slots and food-based cook times (no spatial or timing shortcut), food
+  temperature, patience, three levels, turnaround.
+- HUD fallback supports `choices`: the turnaround offers every "I like ___." so
+  a mic-free child still chooses their own answer.
 
-## Known Issues
-None yet.
+## Verified
+
+- `npm test` 89/89; `npm run build` clean.
+- `scripts/playthrough.mjs`, headless, mic-free route, level 1: 19/19 checks —
+  hub, enter Restaurant, ask, answer, order absent once the bubble clears, bell,
+  collect, deliver, turnaround with a chosen answer, hub greets with that
+  answer, stamp earned, re-entry leaves no duplicated overlays, no console
+  errors.
+- NOT verified: real speech recognition (needs a Chromebook with a working
+  microphone), and levels 2 and 3 (several concurrent customers) were not driven
+  by automation.
+
+## Known Limits
+
+- Bundle is 642 kB (170 kB gzip), mostly three.js; Vite warns on chunk size.
+- `configureSpeech` is copied into each minigame from the placeholder. Consider a
+  shared helper before the next four minigames copy it again.
+- `likeSentence()` uses the bare answer word ("I like elephant."). Zoo will want
+  natural plurals ("I like elephants.") — decide per-lesson phrasing first.
+- `UI.restaurant.foodNames` is defined but unused.
+- The phonetic variant tables are informed guesses until real classroom
+  transcripts exist.
 
 ## Next Steps
-Define the initial implementation.
+
+1. Manual pass on a real classroom Chromebook with a microphone: hold-to-talk,
+   accepted and try-again states, fallback after two failures, Restaurant at
+   levels 2 and 3.
+2. Decide answer phrasing (plurals) and whether to extract a shared
+   speech-binding helper; both shape the next four minigames.
+3. Build Coloring (SPEC section 5): 3D art room plus a full-screen 2D brush
+   canvas with starred regions.
+
+## Codex / Delegated Work
+
+None in flight. All delegated output so far (matcher, shell, Restaurant) has
+been reviewed, fixed where needed, and committed.
