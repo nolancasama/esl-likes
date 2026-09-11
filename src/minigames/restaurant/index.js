@@ -338,8 +338,11 @@ export function createRestaurant(ctx) {
     player.add(carryAnchor);
     world.add(player);
 
+    // The host stands beside the bell at the open end of the counter, never
+    // behind it: from behind the counter only the top of their head showed, so
+    // the turnaround question seemed to come from a sliver of hair.
     host = characters.create({ model: 'j', tint: 0xffc56d });
-    host.position.set(0, 0, -6.25);
+    host.position.set(5.5, 0, -5.6);
     host.rotation.y = Math.PI;
     host.scale.setScalar(0.82);
     world.add(host);
@@ -821,7 +824,9 @@ export function createRestaurant(ctx) {
     setInstruction(STRINGS.turnaround);
     cameraRig
       .setTarget(host)
-      .setPreset('closeup', { offset: [3.2, 3.1, 4.8], lookOffset: [0, 1.2, 0], damping: 5.5 });
+      // From the room side, so the right wall never blocks the shot, and aimed
+      // low so the host's face sits above the answer buttons, not behind them.
+      .setPreset('closeup', { offset: [-3, 2.4, 4.8], lookOffset: [0, 0.1, 0], damping: 5.5 });
     configureSpeech({
       mode: 'answer',
       sentence: LESSON.answerExample,
