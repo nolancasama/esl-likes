@@ -126,6 +126,28 @@ function maxDistance(len) {
 }
 
 /**
+ * How closely `word` was heard among the tokens: 0 for an exact or listed-variant
+ * hit, the edit distance for a fuzzy hit inside the length-scaled slack, and
+ * Infinity when it was not heard at all.
+ *
+ * @param {string[]} tokens
+ * @param {string} word
+ * @returns {number}
+ */
+function wordDistance(tokens, word) {
+  const w = normalise(word);
+  const variants = VARIANTS[w];
+  let best = Infinity;
+  for (const token of tokens) {
+    const t = normalise(token);
+    if (t === w || (variants && variants.includes(t))) return 0;
+    const d = levenshtein(t, w);
+    if (d <= maxDistance(w.length) && d < best) best = d;
+  }
+  return best;
+}
+
+/**
  * Is `word` present among the spoken tokens, allowing for small mis-hearings
  * and the explicit VARIANTS table? Fuzz slack scales with word length: short
  * words get little or none, so "like" does not match "bike".
@@ -135,28 +157,7 @@ function maxDistance(len) {
  * @returns {boolean}
  */
 export function hasWord(tokens, word) {
-  const w = normalise(word);
-  const variants = VARIANTS[w];
-
-  for (const token of tokens) {
-    const t = normalise(token);
-
-    // Exact match
-    if (t === w) return true;
-
-    // Variant-table match: check if the token matches any accepted variant
-    if (variants) {
-      for (const v of variants) {
-        if (t === v) return true;
-      }
-    }
-
-    // Levenshtein fuzz, scaled by word length
-    const dist = levenshtein(t, w);
-    if (dist <= maxDistance(w.length)) return true;
-  }
-
-  return false;
+  return wordDistance(tokens, word) !== Infinity;
 }
 
 /**
@@ -200,36 +201,36 @@ export function matchAnswer(transcript, category) {
   const text = normalise(transcript);
   const tokens = text ? text.split(' ') : [];
 
-  const like = hasWord(tokens, 'like');
+  // A child may answer in the singular or the plural ("I like lion" / "I like
+  // lions") and both are right. Words of four letters or fewer get no fuzz, so
+  // plural endings are stripped explicitly rather than left to edit distance.
+  const answerTokens = tokens.flatMap((token) => {
+    if (token.length > 3 && token.endsWith('es')) return [token, token.slice(0, -1), token.slice(0, -2)];
+    if (token.length > 2 && token.endsWith('s')) return [token, token.slice(0, -1)];
+    return [token];
+  });
 
+  const like = hasWord(answerTokens, 'like');
+
+  // Choose the CLOSEST answer, not the first one inside the fuzz range:
+  // "baseball" is two edits from "basketball", so first-match recorded the
+  // wrong sport. Multi-word answers ("orange juice") need every part heard.
   const answers = ANSWERS[category] || [];
   let answer = null;
-
+  let bestDistance = Infinity;
   for (const ans of answers) {
     const ansNorm = normalise(ans);
-    const ansParts = ansNorm.split(' ');
-
-    if (ansParts.length > 1) {
-      // Multi-word answer (e.g. "orange juice"):
-      // Accept if all parts are found in the tokens
-      const allPartsFound = ansParts.every(part => hasWord(tokens, part));
-      // Also accept the full phrase as a substring of the text
-      const phraseFound = text.includes(ansNorm);
-      if (allPartsFound || phraseFound) {
-        answer = ans;
-        break;
-      }
-    } else {
-      // Single-word answer
-      if (hasWord(tokens, ans)) {
-        answer = ans;
-        break;
-      }
+    const parts = ansNorm.split(' ');
+    const distance = parts.length > 1 && text.includes(ansNorm)
+      ? 0
+      : parts.reduce((sum, part) => sum + wordDistance(answerTokens, part), 0);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      answer = ans;
     }
   }
 
   const ok = like && answer !== null;
-
   return { ok, like, answer, text, tokens };
 }
 

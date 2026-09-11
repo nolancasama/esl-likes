@@ -223,3 +223,56 @@ camera. Every future minigame should follow this convention.
 `a`–`r`; the hub had asked for `character-a`, which silently fell back to a
 random model, so the child's avatar changed between screens and sessions.
 `chooseKey` now accepts the file-name form and warns on a genuinely unknown key.
+
+## 2026-09-11 — Each vocabulary item defines its own answer sentence
+
+`src/config/lesson.js` holds vocabulary as `{ id, answer }` objects with the
+exact spoken and displayed sentence: "I like hamburgers.", "I like elephants.",
+"I like curry." Games use `answerFor(lesson, id)` and `answerChoices(lesson)`.
+
+Rejected: building answers as `"I like " + label`. Singular and plural cannot be
+inferred safely from a label (curry, sushi, noodles, hamburgers, lions). The
+matcher accepts either form from the child. A test round-trips every NPC
+sentence through the matcher to its own id, which also catches the lesson and
+matcher tables drifting apart — it found that "baseball" matched "basketball".
+
+## 2026-09-11 — The matcher picks the closest answer
+
+`matchAnswer` now returns the answer heard at the smallest edit distance, not
+the first answer inside the fuzz range. Similar vocabulary sits within each
+other's range ("baseball" is two edits from "basketball"), so first-match
+recorded the wrong word. Fuzz and variant tables are unchanged.
+
+## 2026-09-11 — Listening again earns no penalty; first-listen memory is a bonus
+
+Replaces the Restaurant's star deduction for asking again. A delivery made after
+hearing the order only once earns a memory bonus; asking again forfeits only
+that bonus, so a replayed order can still reach full normal credit and three
+stars. Asking again is support, not failure (SPEC section 3).
+
+The control moved off the main interaction: `src/ui/listenAgain.js` is a small
+secondary 🔊 button, reachable with Tab, never bound to Space. It used to be the
+big primary button on Space whenever the child stood by a cooking order, which
+invited habitual presses. A mouse or touch press releases focus so the next
+Space still acts; and `input.js` now lets movement keys through a focused
+button — a clicked button used to freeze the avatar.
+
+Deliberately minimal until classroom behaviour has been observed.
+
+## 2026-09-11 — Shared speech prompts, and `transitions` in the minigame context
+
+`src/systems/speechPrompt.js` (`promptQuestion`, `promptAnswer`) replaces the
+`configureSpeech` block every minigame had copied from the placeholder, before
+Coloring made a third copy. Game policy stays in each minigame.
+
+The minigame context gains `transitions`, so a minigame can wipe between its
+own screens (Coloring: 3D room -> 2D canvas -> 3D room). It is additive; the
+rest of the frozen interface is unchanged.
+
+## 2026-09-11 — Anti-shortcut rule added to SPEC
+
+SPEC now states that no minigame may be reliably solvable through fixed
+positions, sequence, timing, visual cues or other non-language shortcuts, and
+every review must ask "Can a child consistently succeed without understanding
+the NPC's answer?" Prompted by the Restaurant review, where dish placement and
+bell order let children ignore the English.

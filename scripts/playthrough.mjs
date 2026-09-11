@@ -55,6 +55,8 @@ const ui = () => page.evaluate(() => {
       .filter(visible)
       .map((b) => ({ text: b.getAttribute('aria-label') || [...b.children].map((c) => c.textContent).join(' '), value: b.dataset.value ?? null })),
     inRestaurant: Boolean(q('.restaurant-ui')),
+    listen: visible(q('.listen-again')) ? q('.listen-again').textContent.trim() : null,
+    instruction: q('.restaurant-ui .scene-card p')?.textContent.trim() ?? '',
     greeting: q('.greeting')?.textContent.trim() ?? null,
     text: document.body.innerText,
   };
@@ -142,9 +144,22 @@ check('order is NOT displayed once the answer bubble is gone', leaks.length === 
   leaks.length ? `still visible: ${leaks.join(', ')}` : 'bubble cleared, no food text on screen');
 await shot('05-waiting');
 
+// ---- Listening again is secondary, never the Space action --------------
+s = await ui();
+check('🔊 listen-again is offered beside the customer', s.listen, s.listen);
+check('listen-again is not the primary Space action', !s.action || !/きく/.test(s.action), s.action ?? 'no primary action');
+await page.keyboard.press('Space');
+await sleep(300);
+s = await ui();
+check('Space does not replay the answer', !s.bubble);
+await page.click('.listen-again');
+s = await waitFor((u) => u.bubble && /I like/.test(u.bubble), 3000, 'replayed answer');
+check('listen-again replays the exact answer sentence', s && /^I like [a-z ]+\.$/.test(s.bubble), s?.bubble);
+await sleep(2800);
+
 // ---- Collect the dish ---------------------------------------------------
-s = await waitFor((u) => u.notice && /できた/.test(u.notice), 20000, 'bell');
-check('kitchen bell announces the dish', s, s?.notice);
+s = await waitFor((u) => (u.notice && /できた/.test(u.notice)) || /カウンター/.test(u.instruction), 20000, 'dish ready');
+check('kitchen signals the dish is ready', s, s?.notice || s?.instruction);
 await hold(['KeyW'], 1100);
 s = await pulseUntil(['KeyD'], (u) => u.action && /もつ/.test(u.action), 40, 'dish on counter');
 check('dish can be collected at the counter', s, s?.action);

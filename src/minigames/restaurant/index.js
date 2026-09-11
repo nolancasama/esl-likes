@@ -1,14 +1,16 @@
 import * as THREE from 'three';
-import { LESSON_BY_ID, UI, formatUi, likeSentence } from '../../config/lesson.js';
+import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
+import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
+import { createListenAgain } from '../../ui/listenAgain.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
-const answerChoices = () => LESSON.answers.map((answer) => ({ sentence: likeSentence(answer), value: answer }));
 const STRINGS = UI.restaurant;
 const MOVE_SPEED = 5;
 const CUSTOMER_RADIUS_SQ = 2.7 * 2.7;
 const COUNTER_RADIUS_SQ = 1.8 * 1.8;
 const HOT_SECONDS = 9;
 const WARM_SECONDS = 22;
+const MEMORY_BONUS = 1;
 
 const TABLES = Object.freeze([
   Object.freeze({ x: -4.2, z: -1.0, seatX: -4.2, seatZ: -2.05 }),
@@ -88,7 +90,8 @@ export function createRestaurant(ctx) {
   let actionDishCustomer = null;
   let instructionText = '';
   let temperatureText = '';
-  let reminders = 0;
+  let listenAgain = null;
+  let listenCustomer = null;
   let acceptedAnswer = null;
   let unsubscribeSettings = null;
 
@@ -185,6 +188,7 @@ export function createRestaurant(ctx) {
     notice = overlay.querySelector('.restaurant-ui__notice');
     temperature = overlay.querySelector('.restaurant-ui__temperature');
     actionButton.addEventListener('click', performAction);
+    listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
     document.querySelector('#ui-layer').append(overlay);
     setInstruction(STRINGS.walkToCustomer);
   }
@@ -378,6 +382,7 @@ export function createRestaurant(ctx) {
         table,
         food,
         slot: -1,
+        reminded: false,
         state: 'scheduled',
         spawnAt: configured.spawns[index],
         prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
@@ -404,33 +409,6 @@ export function createRestaurant(ctx) {
       .setPreset('follow', { offset: [0, 8.5, 10.5], lookOffset: [0, 1.05, -2.2], damping: 5 });
   }
 
-  function configureSpeech({ mode, sentence, fallbackAnswer, onAccepted }) {
-    const micFree = Boolean(settings.get('micFree'));
-    hud.configureTalk({
-      targetSentence: sentence,
-      micFree,
-      // In the turnaround the child answers for themselves, so the fallback
-      // offers every "I like ___." instead of reading out one fixed answer.
-      choices: mode === 'answer' ? answerChoices() : null,
-      onFallbackContinue: (value) => {
-        if (active) onAccepted(value || fallbackAnswer);
-      },
-    });
-    hud.show();
-    speech.setEnabled(!micFree);
-    speech.setTarget({
-      mode,
-      category: LESSON.category,
-      onState: (state) => hud.setTalkState(state),
-      onAccepted: (result) => onAccepted(result.answer || fallbackAnswer),
-      onFailure: () => hud.recordFailure(),
-      onUnavailable: () => {
-        speech.setEnabled(false);
-        hud.setMicFree(true);
-      },
-    });
-  }
-
   function clearQuestion(keepHud = false) {
     if (!questionCustomer) return;
     questionCustomer = null;
@@ -439,7 +417,7 @@ export function createRestaurant(ctx) {
   }
 
   function showCustomerAnswer(customer) {
-    const text = formatUi(STRINGS.npcAnswer, { food: customer.food });
+    const text = answerFor(LESSON, customer.food);
     dialogueCustomer = customer;
     dialogueRemaining = 2.5;
     dialogue.show({ text, anchor: customer.character, offsetY: 1.65 });
@@ -462,12 +440,7 @@ export function createRestaurant(ctx) {
     if (questionCustomer === customer || speechCooldown > 0 || phase !== 'service') return;
     clearQuestion();
     questionCustomer = customer;
-    configureSpeech({
-      mode: 'question',
-      sentence: LESSON.question,
-      fallbackAnswer: null,
-      onAccepted: () => acceptQuestion(customer),
-    });
+    promptQuestion(ctx, LESSON, { isActive: () => active, onAccepted: () => acceptQuestion(customer) });
     setInstruction(STRINGS.instruction);
   }
 
@@ -544,13 +517,24 @@ export function createRestaurant(ctx) {
     setInstruction(STRINGS.walkToDeliver);
   }
 
+  // Hearing the order again is listening support, not failure: it forfeits only
+  // this customer's memory bonus and never costs normal credit (SPEC 3).
   function remind(customer) {
-    if (!['preparing', 'ready'].includes(customer.state)) return;
-    reminders += 1;
+    if (!canBeReminded(customer.state)) return;
+    customer.reminded = true;
     audio.playSfx('interact');
     customer.character.playAnimation?.('emote-yes');
     showCustomerAnswer(customer);
-    setNotice(STRINGS.remindCost, 1.5);
+  }
+
+  function setListenTarget(customer) {
+    listenCustomer = customer;
+    if (customer) listenAgain?.show();
+    else listenAgain?.hide();
+  }
+
+  function listenAgainPressed() {
+    if (active && phase === 'service' && listenCustomer) remind(listenCustomer);
   }
 
   function deliver(customer) {
@@ -606,7 +590,6 @@ export function createRestaurant(ctx) {
     if (!active || phase !== 'service') return;
     if (actionType === 'collect' && actionDishCustomer) collectDish(actionDishCustomer);
     else if (actionType === 'deliver' && actionCustomer) deliver(actionCustomer);
-    else if (actionType === 'remind' && actionCustomer) remind(actionCustomer);
   }
 
   function canOccupy(x, z) {
@@ -628,7 +611,7 @@ export function createRestaurant(ctx) {
   }
 
   function canBeReminded(state) {
-    return state === 'preparing' || state === 'ready';
+    return state === 'preparing' || state === 'ready' || state === 'carried';
   }
 
   function hasCustomerInState(state) {
@@ -734,10 +717,13 @@ export function createRestaurant(ctx) {
   function updateContext() {
     if (speechCooldown > 0) {
       hideAction();
+      setListenTarget(null);
       return;
     }
 
     const nearbyCustomer = nearestSeatedCustomer();
+    // The 🔊 control sits beside the main action, never in its place (SPEC 3).
+    setListenTarget(nearbyCustomer && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
     if (carried) {
       clearQuestion();
       setInstruction(STRINGS.walkToDeliver);
@@ -761,10 +747,6 @@ export function createRestaurant(ctx) {
     }
 
     clearQuestion();
-    if (nearbyCustomer && canBeReminded(nearbyCustomer.state)) {
-      showAction(STRINGS.remindCost, 'remind', nearbyCustomer);
-      return;
-    }
     hideAction();
 
     if (hasCustomerInState('ready')) setInstruction(STRINGS.walkToCounter);
@@ -793,12 +775,15 @@ export function createRestaurant(ctx) {
   }
 
   function calculateStars() {
-    let score = -reminders * 0.5;
+    // Memory bonus: a delivery made after hearing the order only once. Hearing it
+    // again forfeits just this bonus and never costs normal credit (SPEC 3).
+    let score = 0;
     for (const customer of customers) {
       if (customer.state !== 'delivered') continue;
       score += 4 + customer.temperatureScore + customer.patienceAtDelivery * 2;
+      if (!customer.reminded) score += MEMORY_BONUS;
     }
-    const ratio = Math.max(0, score) / (customers.length * 9);
+    const ratio = score / (customers.length * (9 + MEMORY_BONUS));
     if (ratio >= 0.78) return 3;
     if (ratio >= 0.45) return 2;
     return 1;
@@ -821,6 +806,7 @@ export function createRestaurant(ctx) {
     if (!active || phase === 'turnaround' || completed) return;
     phase = 'turnaround';
     hideAction();
+    setListenTarget(null);
     temperature.hidden = true;
     noticeRemaining = 0;
     notice.hidden = true;
@@ -831,12 +817,7 @@ export function createRestaurant(ctx) {
       // From the open aisle in front of the counter, above chair height, so neither
       // the right wall nor a chair blocks the shot; the host is turned to face it.
       .setPreset('closeup', { offset: [-3.4, 3, 3], lookOffset: [0, 0.6, 0], damping: 5.5 });
-    configureSpeech({
-      mode: 'answer',
-      sentence: LESSON.answerExample,
-      fallbackAnswer: LESSON.answers[0],
-      onAccepted: completeTurnaround,
-    });
+    promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
   }
 
   function updateRoundEnd() {
@@ -852,6 +833,7 @@ export function createRestaurant(ctx) {
     phase = 'round-end';
     clearQuestion();
     hideAction();
+    setListenTarget(null);
     hud.hide();
     setInstruction(STRINGS.roundEnd);
     roundEndRemaining = 1.3;
@@ -884,7 +866,7 @@ export function createRestaurant(ctx) {
     actionDishCustomer = null;
     instructionText = '';
     temperatureText = '';
-    reminders = 0;
+    listenCustomer = null;
     acceptedAnswer = null;
     createOverlay();
     buildWorld();
@@ -962,6 +944,9 @@ export function createRestaurant(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     actionButton?.removeEventListener('click', performAction);
+    listenAgain?.dispose();
+    listenAgain = null;
+    listenCustomer = null;
     overlay?.remove();
     style?.remove();
     overlay = null;

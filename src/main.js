@@ -147,7 +147,8 @@ async function enterMinigame(id) {
   finishing = false;
   try {
     await transitions.run(() => replaceController(() => {
-      // This is the frozen plug-in surface for all five minigames.
+      // This is the frozen plug-in surface for all five minigames. `transitions`
+      // lets a minigame wipe between its own screens (Coloring: 3D -> 2D -> 3D).
       const ctx = {
         scene,
         camera,
@@ -159,6 +160,7 @@ async function enterMinigame(id) {
         characters,
         hud,
         settings,
+        transitions,
         finish: (result) => handleFinish(id, result),
       };
       return factory(ctx);

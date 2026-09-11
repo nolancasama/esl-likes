@@ -518,3 +518,42 @@ test('matchAnswer survives a missing transcript', () => {
     assert.equal(matchAnswer(bad, CATEGORY.food).ok, false);
   }
 });
+
+// Vocabulary answers use natural plurals ("I like lions."), and a child may say
+// either form. Four-letter words get no fuzz, so this must be handled explicitly.
+test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
+  const cases = [
+    ['I like lions', 'animal', 'lion'],
+    ['I like elephants', 'animal', 'elephant'],
+    ['I like pandas', 'animal', 'panda'],
+    ['I like monkeys', 'animal', 'monkey'],
+    ['I like giraffes', 'animal', 'giraffe'],
+    ['I like penguins', 'animal', 'penguin'],
+    ['I like hamburgers', 'food', 'hamburger'],
+  ];
+  for (const [text, category, id] of cases) {
+    const result = matchAnswer(text, category);
+    assert.equal(result.ok, true, text);
+    assert.equal(result.answer, id, text);
+  }
+});
+
+test('matchAnswer still accepts the singular form', () => {
+  assert.equal(matchAnswer('I like lion', 'animal').answer, 'lion');
+  assert.equal(matchAnswer('I like hamburger', 'food').answer, 'hamburger');
+});
+
+test('plural stripping does not invent answers', () => {
+  assert.equal(matchAnswer('I like trees', 'animal').ok, false);
+  assert.equal(matchAnswer('I like buses', 'food').ok, false);
+});
+
+// Similar answers sit inside each other's fuzz range ("baseball" is two edits
+// from "basketball"). The matcher must pick the closest answer, not the first.
+test('matchAnswer picks the closest answer, not the first within fuzz range', () => {
+  assert.equal(matchAnswer('I like baseball', 'sport').answer, 'baseball');
+  assert.equal(matchAnswer('I like basketball', 'sport').answer, 'basketball');
+  assert.equal(matchAnswer('I like bassball', 'sport').answer, 'baseball');
+  assert.equal(matchAnswer('I like apple juice', 'drink').answer, 'apple juice');
+  assert.equal(matchAnswer('I like orange juice', 'drink').answer, 'orange juice');
+});

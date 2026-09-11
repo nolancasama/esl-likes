@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { LESSON_BY_ID, UI, likeSentence } from '../../config/lesson.js';
+import { LESSON_BY_ID, UI } from '../../config/lesson.js';
+import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
-const answerChoices = () => LESSON.answers.map((answer) => ({ sentence: likeSentence(answer), value: answer }));
 
 /**
  * Interface proof only. This deliberately contains no Restaurant gameplay.
@@ -39,33 +39,6 @@ export function createPlaceholder(ctx) {
     return mesh;
   }
 
-  function configureSpeech({ mode, sentence, onAccepted, fallbackAnswer }) {
-    const micFree = Boolean(settings.get('micFree'));
-    hud.configureTalk({
-      targetSentence: sentence,
-      micFree,
-      // In the turnaround the child answers for themselves, so the fallback
-      // offers every "I like ___." instead of reading out one fixed answer.
-      choices: mode === 'answer' ? answerChoices() : null,
-      onFallbackContinue: (value) => {
-        if (active) onAccepted(value || fallbackAnswer);
-      },
-    });
-    hud.show();
-    speech.setEnabled(!micFree);
-    speech.setTarget({
-      mode,
-      category: LESSON.category,
-      onState: (state) => hud.setTalkState(state),
-      onAccepted: (result) => onAccepted(result.answer || fallbackAnswer),
-      onFailure: () => hud.recordFailure(),
-      onUnavailable: () => {
-        speech.setEnabled(false);
-        hud.setMicFree(true);
-      },
-    });
-  }
-
   function complete(answer) {
     if (!active || completed) return;
     completed = true;
@@ -86,12 +59,7 @@ export function createPlaceholder(ctx) {
     if (!active || completed) return;
     instruction.textContent = UI.placeholder.turnaround;
     dialogue.show({ text: LESSON.question, anchor: npc });
-    configureSpeech({
-      mode: 'answer',
-      sentence: LESSON.answerExample,
-      fallbackAnswer: LESSON.answers[0],
-      onAccepted: complete,
-    });
+    promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: complete });
   }
 
   function questionAccepted() {
@@ -164,12 +132,7 @@ export function createPlaceholder(ctx) {
       damping: 4.5,
     });
     createOverlay();
-    configureSpeech({
-      mode: 'question',
-      sentence: LESSON.question,
-      fallbackAnswer: null,
-      onAccepted: questionAccepted,
-    });
+    promptQuestion(ctx, LESSON, { isActive: () => active, onAccepted: questionAccepted });
 
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;

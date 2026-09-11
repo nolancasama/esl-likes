@@ -11,6 +11,17 @@ elementary 3rd graders (~8–9 years old), on classroom Chromebooks.
 
 The grammar never gets harder. Gameplay complexity is the only difficulty axis.
 
+### Vocabulary defines its own answer
+
+Every vocabulary item defines its exact spoken and displayed answer sentence —
+never `"I like " + label`. Singular and plural cannot be inferred safely from a
+label:
+
+    curry     -> "I like curry."        elephant -> "I like elephants."
+    hamburger -> "I like hamburgers."   penguin  -> "I like penguins."
+
+Vocabulary lives in `src/config/lesson.js`, one object per item.
+
 ## The one rule that decides every design question
 
 > The NPC's answer must be information the player genuinely needs in order to
@@ -21,6 +32,27 @@ Second rule, carried over from town-builder and kept verbatim:
 
 > A child who says the sentence well enough for a teacher to understand must
 > always be rewarded. Recognition noise is the game's problem, not the child's.
+
+## The anti-shortcut rule (added 2026-09-11 — applies to every minigame)
+
+> **A minigame must not be reliably solvable through fixed positions, sequence,
+> timing, visual shortcuts, or other non-language cues instead of understanding
+> the NPC's English answer.**
+
+The Restaurant review exposed this: dishes sat on the counter in the same
+left-to-right order as the tables, and bells rang in the order the orders were
+taken, so "left plate, left table" and "first bell, first customer" beat
+listening.
+
+Every minigame review must explicitly ask:
+
+> **"Can a child consistently succeed without understanding the NPC's answer?"**
+
+If yes, change the design. Leaks to check for: a fixed item-to-place mapping;
+outcomes that follow asking, arrival or readiness order; elimination (only one
+option left); colour or appearance cues on the NPC or in the scene that match
+the answer; a default selection that happens to be right; free trial-and-error.
+A lucky one-in-three guess is fine — it is not "consistently succeed".
 
 ---
 
@@ -140,6 +172,18 @@ correct English was wrong, which is far more damaging than a false acceptance.
 
 The fallback never removes the English. It changes speaking to reading along.
 
+### Listening again is support, not failure (revised 2026-09-11)
+
+Every minigame lets the child hear the NPC's answer again (🔊 もういちど きく).
+
+- Asking again never deducts score. Acting correctly after only the first
+  hearing earns a memory bonus; asking again gives up only that bonus, and the
+  task still earns full normal credit.
+- The control is secondary: clearly visible and reachable by keyboard (Tab),
+  but never bound to the main interact key and never the big primary button,
+  so it cannot be pressed by habit.
+- Deliberately minimal until classroom behaviour has been observed.
+
 ### Turnaround beat (ADDED to the original plan)
 
 At the end of every minigame, one NPC turns the question around:
@@ -175,8 +219,9 @@ wide clear pathways. Small enough that crossing it is quick and readable.
 6. Player delivers it to the customer who ordered it, from memory.
 
 The order is NOT displayed on a ticket, a HUD, or above the table. Memory is
-the mechanic. A single "remind me" action re-asks the customer at a small star
-cost — a child who is stuck must always have a way forward.
+the mechanic. A secondary 🔊 もういちど きく control re-asks the customer, so a
+child who is stuck always has a way forward; it forfeits that customer's memory
+bonus and never deducts score (see "Listening again").
 
 ### Scoring
 
@@ -197,40 +242,59 @@ staggered readiness, longer memory gaps.
 
 ## 5. Minigame 2 — Coloring
 
-Calm and creative. No main timer.
+Calm and creative. No timer. Coloring validates the collection's second
+architecture: 3D NPC interaction -> speech -> 2D activity -> scoring -> back to
+3D -> NPC reaction.
 
-Colors: red, blue, yellow, green, pink, purple, orange.
+### v1 scope (deliberately small)
+
+One NPC in a 3D Art Room, one picture (a robot), three large enclosed regions
+(body, arms, eyes), three palette colours (red, blue, yellow). No picture
+library and no difficulty levels yet.
 
 ### Loop
 
-3D art room, walk to the NPCs, ask "What color do you like?", hear the answer,
-transition to a full-screen 2D coloring canvas, color, return to the 3D room,
-give the picture, NPC reacts, and the finished picture is displayed on the art
-room wall for the rest of the session.
+1. Enter the Art Room and walk to the NPC, who holds up a black-and-white
+   picture.
+2. Ask "What color do you like?"; the NPC answers with one of the three
+   colours, e.g. "I like blue."
+3. Transition to a full-screen 2D colouring screen.
+4. Paint with a brush (pointer drag), choosing from a three-swatch palette.
+5. Press できた and see a simple result.
+6. Back in the Art Room, give the picture to the NPC, who reacts happily. The
+   picture hangs on the wall.
+7. Turnaround: the NPC asks the child "What color do you like?" and the child
+   answers "I like ___." with any colour.
 
-### MODIFIED from the original plan
+### The favourite colour must matter (anti-shortcut)
 
-The original scored correct color, coverage and neatness across every region.
-That is fiddly on a trackpad and makes the English do less work. Instead:
+- Each round one region is STARRED. It must be painted in the NPC's favourite
+  colour and carries most of the score.
+- The other two regions are FREE — any colour, scored only for coverage and
+  neatness. Giving them prescribed colours would let a child find the starred
+  colour by elimination (the one colour not used elsewhere), so they
+  deliberately have none.
+- Which region is starred and which colour the NPC likes are chosen
+  independently at random each round, so neither a place nor a colour can be
+  learned by replaying.
+- Nothing may hint at the answer: the star marker uses no palette colour, the
+  NPC and the room carry no matching colour cue, and no swatch is selected by
+  default.
+- 🔊 もういちど きく replays the answer on the colouring screen; it forfeits only
+  the memory bonus.
 
-- The picture has several regions. **One to three of them are STARRED.**
-- Each starred region belongs to one NPC and must be that NPC's favorite color.
-- Every other region is FREE — color it any way you like, unscored.
+### Painting and scoring
 
-Memory load now scales with level (L1 one NPC; L3 three NPCs, three starred
-regions, three colors to keep straight) while the activity stays calm and the
-child still makes something of their own.
-
-### Canvas
-
-Real brush strokes — pointer, touch, or trackpad painting, not only a fill
-bucket. A fill bucket may exist as a convenience; the brush is the primary
-tool. Regions are large, sized for a Chromebook trackpad, with bold black
-boundaries.
-
-Scoring applies to starred regions only: correct color, coverage of the region,
-and approximate neatness. Forgiving — small strokes outside the line cost
-nothing.
+- A large, forgiving brush; strokes are interpolated so fast trackpad movement
+  leaves no gaps. Mouse, touch and Chromebook trackpad (click-drag). No
+  fill-only tool, no pixel accuracy.
+- Scored on a coarse grid, not pixels:
+  - starred region: share of its area in the favourite colour (dominant term);
+  - free regions: coverage in any colour;
+  - neatness: paint well outside every region, ignoring a forgiving margin
+    just beyond the lines;
+  - memory bonus when the answer was never replayed.
+- Painting the starred region in a wrong colour can never reach three stars.
 
 ---
 
@@ -370,3 +434,4 @@ must start a clean game, never crash.
 - Teach mechanics visually. Demonstrate, do not explain.
 - Audio is optional and nonblocking; the game is fully playable muted.
 - The game is fun first and an ESL exercise second.
+- Every minigame passes the anti-shortcut review before it ships.

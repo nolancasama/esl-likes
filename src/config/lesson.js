@@ -1,49 +1,67 @@
+// Every vocabulary item carries its own exact answer sentence (SPEC: "Vocabulary
+// defines its own answer"). Never build one as "I like " + word: singular and
+// plural cannot be inferred safely from the label.
+const say = (id, answer) => Object.freeze({ id, answer });
+
+const VOCABULARY = Object.freeze({
+  food: Object.freeze([
+    say('curry', 'I like curry.'),
+    say('pizza', 'I like pizza.'),
+    say('hamburger', 'I like hamburgers.'),
+    say('noodles', 'I like noodles.'),
+    say('sushi', 'I like sushi.'),
+  ]),
+  color: Object.freeze([
+    say('red', 'I like red.'),
+    say('blue', 'I like blue.'),
+    say('yellow', 'I like yellow.'),
+    say('green', 'I like green.'),
+    say('pink', 'I like pink.'),
+    say('purple', 'I like purple.'),
+    say('orange', 'I like orange.'),
+  ]),
+  drink: Object.freeze([
+    say('water', 'I like water.'),
+    say('milk', 'I like milk.'),
+    say('orange juice', 'I like orange juice.'),
+    say('apple juice', 'I like apple juice.'),
+    say('tea', 'I like tea.'),
+    say('soda', 'I like soda.'),
+  ]),
+  sport: Object.freeze([
+    say('soccer', 'I like soccer.'),
+    say('basketball', 'I like basketball.'),
+    say('baseball', 'I like baseball.'),
+    say('volleyball', 'I like volleyball.'),
+  ]),
+  animal: Object.freeze([
+    say('elephant', 'I like elephants.'),
+    say('lion', 'I like lions.'),
+    say('panda', 'I like pandas.'),
+    say('monkey', 'I like monkeys.'),
+    say('giraffe', 'I like giraffes.'),
+    say('penguin', 'I like penguins.'),
+  ]),
+});
+
+function lesson(fields) {
+  const vocabulary = VOCABULARY[fields.category];
+  return {
+    ...fields,
+    vocabulary,
+    /** Vocabulary ids in order: the values games store and compare. */
+    answers: Object.freeze(vocabulary.map((item) => item.id)),
+    /** The model answer the talk control shows for the turnaround. */
+    answerExample: vocabulary[0].answer,
+  };
+}
+
 export const LESSONS = Object.freeze([
-  {
-    id: 'restaurant',
-    name: 'Restaurant',
-    category: 'food',
-    answers: ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'],
-    question: 'What food do you like?',
-    answerExample: 'I like curry.',
-    available: true,
-  },
-  {
-    id: 'coloring',
-    name: 'Coloring',
-    category: 'color',
-    answers: ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
-    question: 'What color do you like?',
-    answerExample: 'I like blue.',
-    available: false,
-  },
-  {
-    id: 'drink-stand',
-    name: 'Drink Stand',
-    category: 'drink',
-    answers: ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
-    question: 'What drink do you like?',
-    answerExample: 'I like water.',
-    available: false,
-  },
-  {
-    id: 'sports',
-    name: 'Sports',
-    category: 'sport',
-    answers: ['soccer', 'basketball', 'baseball', 'volleyball'],
-    question: 'What sport do you like?',
-    answerExample: 'I like soccer.',
-    available: false,
-  },
-  {
-    id: 'zoo',
-    name: 'Zoo',
-    category: 'animal',
-    answers: ['elephant', 'lion', 'panda', 'monkey', 'giraffe', 'penguin'],
-    question: 'What animal do you like?',
-    answerExample: 'I like panda.',
-    available: false,
-  },
+  lesson({ id: 'restaurant', name: 'Restaurant', category: 'food', question: 'What food do you like?', available: true }),
+  lesson({ id: 'coloring', name: 'Coloring', category: 'color', question: 'What color do you like?', available: false }),
+  lesson({ id: 'drink-stand', name: 'Drink Stand', category: 'drink', question: 'What drink do you like?', available: false }),
+  lesson({ id: 'sports', name: 'Sports', category: 'sport', question: 'What sport do you like?', available: false }),
+  lesson({ id: 'zoo', name: 'Zoo', category: 'animal', question: 'What animal do you like?', available: false }),
 ]);
 
 export const LESSON_BY_ID = Object.freeze(
@@ -77,6 +95,7 @@ export const UI = Object.freeze({
   dialogue: {
     replay: 'もういちど きく',
   },
+  listenAgain: '🔊 もういちど きく',
   stampBook: {
     title: 'スタンプブック',
     earned: 'ゲット！',
@@ -104,7 +123,6 @@ export const UI = Object.freeze({
     complete: 'スタンプを ゲット！',
   },
   restaurant: {
-    npcAnswer: 'I like {food}.',
     roomName: 'レストラン',
     instruction: 'ボタンを おしているあいだ、しつもんしよう',
     walkToCustomer: 'おきゃくさんに ちかづこう',
@@ -114,7 +132,6 @@ export const UI = Object.freeze({
     bellReadyAria: '料理ができました',
     delivered: 'ありがとう！',
     wrongDish: 'ちがうみたい…もう一度どうぞ',
-    remindCost: 'もういちど きく（すこし マイナス）',
     turnaround: 'こんどは きみの ばん！',
     complete: 'スタンプを ゲット！',
     tempHot: 'あつあつ！',
@@ -125,13 +142,6 @@ export const UI = Object.freeze({
     waitForBell: 'ベルが なるまで まとう',
     collectDish: 'スペースで りょうりを もつ',
     deliverDish: 'スペースで とどける',
-    foodNames: {
-      curry: 'カレー',
-      pizza: 'ピザ',
-      hamburger: 'ハンバーガー',
-      noodles: 'ヌードル',
-      sushi: 'すし',
-    },
   },
   transition: {
     label: 'ばめんを きりかえています',
@@ -148,7 +158,15 @@ export function formatUi(template, values = {}) {
   );
 }
 
-/** The model answer sentence for one answer word, e.g. "I like pizza." */
-export function likeSentence(answer) {
-  return `I like ${answer}.`;
+/** The exact answer sentence for one vocabulary item, e.g. "I like hamburgers." */
+export function answerFor(lesson, id) {
+  const item = lesson.vocabulary.find((entry) => entry.id === id);
+  if (!item) throw new Error(`No vocabulary item "${id}" in lesson "${lesson.id}"`);
+  return item.answer;
+}
+
+/** Read-along choices for the turnaround: one exact sentence per vocabulary item. */
+export function answerChoices(lesson, ids = null) {
+  const items = ids ? lesson.vocabulary.filter((item) => ids.includes(item.id)) : lesson.vocabulary;
+  return items.map((item) => ({ sentence: item.answer, value: item.id }));
 }
