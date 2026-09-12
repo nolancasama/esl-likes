@@ -19,6 +19,7 @@ import { createRestaurant } from './minigames/restaurant/index.js';
 import { createColoring } from './minigames/coloring/index.js';
 import { createDrinkStand } from './minigames/drinkStand/index.js';
 import { createSports } from './minigames/sports/index.js';
+import { createZoo } from './minigames/zoo/index.js';
 
 document.title = UI.appTitle;
 
@@ -75,6 +76,7 @@ const minigames = new Map([
   ['coloring', createColoring],
   ['drink-stand', createDrinkStand],
   ['sports', createSports],
+  ['zoo', createZoo],
 ]);
 
 let controller = null;
@@ -167,6 +169,14 @@ async function enterMinigame(id) {
         hud,
         settings,
         transitions,
+        // The WebGL buffer is empty between frames, so a minigame reading the
+        // canvas from an event handler gets a blank image (the Zoo's photos).
+        // Render once and hand the canvas over in the same task instead, which
+        // keeps the cost where it is used rather than on every frame.
+        captureFrame: (draw) => {
+          renderer.render(scene, camera);
+          draw(canvas);
+        },
         finish: (result) => handleFinish(id, result),
       };
       return factory(ctx);

@@ -408,3 +408,45 @@ behind, as in every other minigame. The four zones sat on diagonal corners, so
 reaching one meant holding two keys; they now sit straight ahead, behind, left
 and right of the plaza, which makes each zone one key away and still shows all
 four signs at once.
+
+## 2026-09-12 — Zoo photography uses the rendered scene as the keepsake
+
+The viewfinder evaluates the same procedural animal objects that the child sees
+in the zoo, using their projected bounds for a forgiving centre-and-size score.
+The shutter is disabled until a subject is both visible and large enough, then a
+small crop of the rendered scene is saved as the one carried photo. This keeps
+the viewfinder, recognition silhouettes, scoring and stamp-book reward tied to
+one source of truth while keeping the stored data URL modest.
+
+The normal camera stays world-aligned directly behind the avatar's starting
+forward direction, matching the movement convention already validated in the
+Restaurant and Sports. Dialogue and the final turnaround temporarily use a
+side-on two-shot over the plaza floor so neither character nor speech bubble is
+hidden by the other.
+
+## 2026-09-12 — Zoo: the shutter is never lit unless it can actually shoot
+
+Two bugs found by playing the Zoo, both fixed. Framing state persisted between
+photos, so during the wipe that opens the viewfinder the shutter was already
+enabled with the previous shot's judgement; a press then hit takePhoto's phase
+guard and did nothing. Framing is now reset when the viewfinder opens and
+closes, so the button is lit only when a press will really take a picture. The
+ready threshold also has hysteresis (ready at 0.38, stays ready until 0.30) and
+a short grace window, because the animals wander and a frame hovering at the
+threshold made the shutter blink on and off under the child's finger.
+
+Habitat signs were double-sided planes, so the lettering appeared mirrored from
+behind — backwards English across the zoo. Signs now render their text on the
+front only, with a plain board behind them.
+
+## 2026-09-12 — The shell lends its canvas for one frame: ctx.captureFrame
+
+The Zoo's photos saved blank. A WebGL drawing buffer is empty once the frame is
+composited, so copying `#game-canvas` from a click handler yields nothing. The
+minigame context gained `captureFrame(draw)`: the shell renders the scene once
+and calls back with the canvas in the same task, while the pixels are still
+readable.
+
+Rejected: `preserveDrawingBuffer: true` on the renderer. It would make canvas
+reads work anywhere, but every minigame would pay for it on every frame of every
+session on a classroom Chromebook, for a feature only the Zoo uses.
