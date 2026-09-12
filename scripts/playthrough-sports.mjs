@@ -164,7 +164,9 @@ if (!process.env.ONLY_B) {
     if (i === 0) {
       check('the NPC follows after answering', s);
       check('the answer is not left on screen', s && !/I like/.test(s.body));
-      check('🔊 offered while someone follows', s?.listen);
+      // The control is hidden while the answer plays and re-shown on the next
+      // update tick, so sample until it appears rather than once.
+      check('🔊 offered while someone follows', await h.waitFor((u) => u.listen, 6000, '🔊'));
     }
     if (i === 1) {
       await page.click('.listen-again');

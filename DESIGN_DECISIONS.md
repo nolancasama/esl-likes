@@ -571,3 +571,18 @@ Each parsed material's colour is now converted back with
 `convertLinearToSRGB()`, so the value that reaches the renderer is the value the
 file specified. Rejected: hand-tinting each material, which would have to be
 redone for every model added and would hide the real cause.
+
+## 2026-09-12 — The zoo shutter prefers the pen the child is standing at
+
+`evaluateFraming` chose whichever habitat framed best anywhere in view. With
+seven pens that was invisible; at thirteen, a photo taken at the ALPACA fence
+came back a horse from the neighbouring pen — and the visitor then refused it,
+punishing a child who had understood the English perfectly well.
+
+Framing is now scored with a small distance penalty (`framing - min(.3, away *
+.012)`), so the nearest pen wins ties and near-ties while a deliberately distant
+shot that is genuinely better framed still wins. The readiness threshold still
+uses the raw framing score, so what counts as a good photo is unchanged.
+
+This takes nothing from the anti-shortcut rule: the child must still know which
+animal was asked for. It only makes aiming honest.

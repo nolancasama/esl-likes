@@ -4,8 +4,11 @@
 
 All five minigames are playable end to end: Restaurant, Coloring v1, Drink Stand
 v1, Sports v1 and Zoo v1. The collection is feature complete against SPEC.md.
-The Zoo now holds thirteen animals built from the user's own model packs, and
-the repository is set up to publish to GitHub Pages.
+The Zoo holds thirteen animals built from the user's own model packs, and the
+game is published: <https://nolancasama.github.io/esl-likes/>, deployed from
+`main` by `.github/workflows/pages.yml` with the unit tests gating the deploy.
+Verified live: the HTML, the JS bundle, an animal model and a character all
+load under the `/esl-likes/` base path.
 
 ## What Exists
 
@@ -43,9 +46,9 @@ the repository is set up to publish to GitHub Pages.
   still finishes, capped at two stars).
 - Screenshots reviewed for every habitat: each animal inside its pen, grounded,
   correctly scaled and coloured.
-- Restaurant 23/23, Coloring 25/25, Drink Stand 23/23, Sports 21/21 as of the
-  last run before the thirteen-animal expansion; a fresh regression pass over
-  those four is worth repeating after any further shared-file change.
+- Regression after the thirteen-animal expansion, all against the same build:
+  Restaurant 23/23, Coloring 25/25, Drink Stand 23/23, Sports 21/21. Repeat
+  these after any further change to shared files.
 
 ## Two bugs worth remembering
 
