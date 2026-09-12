@@ -1,0 +1,49 @@
+{
+  "task": "Expand the Zoo from seven animals to thirteen and enlarge the zoo to fit them. Six new animals come from OBJ models already in the repo (fox, wolf, stag, bull, cow, donkey) and the seventh OBJ replaces the current horse with the white horse. SPEC.md section 8 has already been updated with the new animal list and is the frozen truth.",
+  "requirements": [
+    "Read SPEC.md section 8 (Zoo v1) and the anti-shortcut rule, plus the 2026-09-12 DESIGN_DECISIONS entries about the Zoo, the animal list following the models, and skinned glTF cloning. Do not modify SPEC.md.",
+    "The zoo's thirteen animals, in this exact id order: elephant, giraffe, penguin, tiger, deer, alpaca, horse, fox, wolf, stag, bull, cow, donkey.",
+    "Assets are already in the repo; do not download, move, re-encode or rename anything. Existing: public/assets/animals/elephant.glb, giraffe.glb, alpaca.gltf, and Animals.glb (use only its 'tiger', 'deer' and 'pinguin.001' root children now). New: public/assets/animals/obj/{Fox,Wolf,Stag,Bull,Cow,Donkey,Horse_White}.obj each with its matching .mtl beside it.",
+    "Add an OBJ loading path using OBJLoader and MTLLoader from three/examples/jsm (the same examples directory GLTFLoader already comes from — no new dependency). Load the .mtl first and pass its materials to the OBJ loader so the per-material Kd colours survive; these models have no textures. Keep the existing glTF path for the four glTF animals. Both paths must go through the same placement, placeholder and failure handling that exists now: a slow or failed load leaves the pen's placeholder rather than breaking the room.",
+    "OBJ models are static meshes with no rig, which is fine: the zoo animates animals by moving the whole group. They need no SkeletonUtils treatment; keep using SkeletonUtils.clone for the skinned glTF ones.",
+    "Placement stays measured, never hand-tuned: derive each animal's bounding box after loading, scale it to its target height, and sit it on the ground. Measured raw heights of the new OBJ models (they are NOT in a consistent scale): Fox 2.69, Wolf 2.70, Stag 5.37, Bull 4.60, Cow 4.59, Donkey 4.02, Horse_White 4.86; all have feet at y = 0. Choose target heights that read correctly against the existing animals (giraffe 3.65 is the tallest, penguin 1.55 among the smallest) — a fox and a wolf must look smaller than a horse or a bull, and a stag taller than a fox.",
+    "Replace the horse model: the 'horse' habitat now uses obj/Horse_White.obj instead of the 'horse.001' node of Animals.glb. The id and the sentence stay 'horse' / 'I like horses.'",
+    "Vocabulary, keeping the exact-sentence rule (each item defines its own sentence): elephant 'I like elephants.', giraffe 'I like giraffes.', penguin 'I like penguins.', tiger 'I like tigers.', deer 'I like deer.', alpaca 'I like alpacas.', horse 'I like horses.', fox 'I like foxes.', wolf 'I like wolves.', stag 'I like stags.', bull 'I like bulls.', cow 'I like cows.', donkey 'I like donkeys.' Update src/config/lesson.js VOCABULARY.animal and UI.zoo.animalNames (fox キツネ, wolf オオカミ, stag おじか, bull おうし, cow めうし, donkey ロバ), src/systems/speechMatch.js ANSWERS.animal, and src/minigames/zoo/scoring.js ANIMALS. A test guards the lesson list and the matcher list against drift.",
+    "IMPORTANT matcher fix: 'wolves' does not reduce to 'wolf' by plural stripping, and 'wolf' is four letters so it gets no fuzz — a child saying \"I like wolves\" would be rejected. Add an explicit VARIANTS entry for wolf covering at least wolves and wolfs, in src/systems/speechMatch.js, and cover it in src/systems/speechMatch.test.mjs. Check the same for every new word and add variants where the plural does not reduce cleanly ('foxes' -> 'fox' does reduce, so fox needs nothing).",
+    "Enlarge the zoo so thirteen habitats fit without crowding: grow the ground plane, the single looping path, the habitat ring and the world movement limit together, keeping the plaza where it is relative to the loop. Habitats must sit at least far enough apart that no fence, sign or floor overlaps a neighbour (the current pens are ~3.45 radius with signs above them). Keep the one-loop shape: following the path in either direction must still pass every habitat and return to the plaza.",
+    "Because the zoo is bigger, raise the walking speed so crossing it feels no slower than the seven-animal zoo did — time is never the challenge in this minigame. State the old and new speed in your summary.",
+    "Sign icons: the canvas icon function draws a different picture per animal id. Add clear, distinguishable icons for fox, wolf, stag, bull, cow and donkey in the same flat style. Deer and stag must be told apart at a glance on their signs (for example antler size or body colour), because their 3D models look similar.",
+    "The turnaround now offers thirteen sentence buttons. Check that the fallback list still fits at 1366x768 and 1280x720 without overflowing or needing a scroll. If it does not fit, do NOT edit the shared HUD: report it in your summary and leave it.",
+    "Nothing else about the Zoo changes: the loop, the one-carried-photo rule, ctx.captureFrame for snapshots, the viewfinder and its framing threshold, scoring maths, listen-again behaviour, the debug hook shape (window.__eslDebug.zoo), DOM class names, and every anti-shortcut property (animals uniformly random per visitor, repeats allowed, nothing pointing the way).",
+    "exit() must dispose everything newly loaded, including OBJ geometries and materials, and entering the Zoo twice must not leak or duplicate models.",
+    "npm test and npm run build must both pass. Capture 1366x768 screenshots of every habitat that has a new or changed animal (fox, wolf, stag, bull, cow, donkey, horse) plus one wide shot of the enlarged zoo, and state what you checked about scale, grounding and facing."
+  ],
+  "constraints": [
+    "Do NOT modify SPEC.md, src/ui/*, src/scenes/hub.js, src/styles.css, scripts/ (Claude maintains the playthrough harness), or any other minigame. In src/systems the only permitted edits are ANSWERS.animal and the VARIANTS table in speechMatch.js, plus its test file.",
+    "Do NOT add dependencies. three and vite only; OBJLoader and MTLLoader come from three/examples/jsm.",
+    "Do NOT change the zoo's scoring maths, framing measure, or anti-shortcut behaviour.",
+    "Do NOT re-encode, move or rename the model files, and do not fetch anything from the network.",
+    "Source-edit hygiene: edit files with structured file tools. If a shell-based edit fails on quoting or escaping, stop editing through the shell for that change and use the file tools; never escalate through nested shell/python/regex patches.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "Context: the zoo already works and is reviewed; this is an expansion plus a horse swap, not a redesign. Keep the diff inside src/minigames/zoo/, src/config/lesson.js and its test, and the two lists in speechMatch.js and its test. The OBJ models were chosen over the same pack's glTF versions deliberately: 779 KB for all seven instead of 21.9 MB, and the zoo never plays their clips anyway — note that reasoning if you record a decision. Traps already paid for in this project: skinned glTF must be cloned with SkeletonUtils (see DESIGN_DECISIONS); an untextured model whose materials are all one flat grey reads as a white blob; characters and their bubbles must never be hidden behind scenery; a failed asset load must degrade rather than break the scene. Append dated DESIGN_DECISIONS entries for the OBJ loading path, the enlarged layout, and anything you decide about scaling. List every file you touched.",
+  "startingPoints": [
+    "SPEC.md",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/scoring.js",
+    "src/config/lesson.js",
+    "src/config/lesson.test.mjs",
+    "src/systems/speechMatch.js",
+    "src/systems/speechMatch.test.mjs"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "3d-gameplay",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

@@ -14,7 +14,7 @@ import { chromium } from 'playwright';
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/zoo';
 const SAVE_KEY = 'esl-likes-save-v1';
-const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'dog', 'cat'];
+const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'horse', 'alpaca'];
 // Adjust to the class names the minigame actually uses.
 const SEL = {
   viewfinder: '.zoo-viewfinder',
@@ -187,6 +187,8 @@ async function photograph(h, animal, tag = '') {
 }
 
 async function showPhoto(h, index) {
+  // A refusal or a thank-you plays out before the game accepts input again.
+  await h.waitFor((u) => u.debug?.phase === 'playing', 8000);
   const s = await h.ui();
   const v = s.debug.visitors[index];
   await h.walkTo(v.x, v.z, 1.1);
@@ -203,8 +205,8 @@ if (!process.env.ONLY_B) {
   check('hub -> Zoo', s?.debug);
   await h.sleep(1500);
   s = await h.ui();
-  check('debug snapshot exposes six habitats and no wanted animals',
-    s.debug?.habitats.length === 6 && !JSON.stringify(s.debug).match(/want|favou?rite/i),
+  check('debug snapshot exposes every habitat and no wanted animals',
+    s.debug?.habitats.length === 7 && !JSON.stringify(s.debug).match(/want|favou?rite/i),
     JSON.stringify(s.debug?.habitats.map((x) => x.id)));
   check('nothing points the way (no marker/arrow/minimap in the overlay)',
     !/やじるし|→|arrow|minimap/i.test(s.body));
@@ -244,7 +246,7 @@ if (!process.env.ONLY_B) {
 
   s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
   const values = s?.fallback.map((f) => f.value) ?? [];
-  check('turnaround offers all six animal sentences', values.length === 6 && values.includes('tiger'), s?.fallback.map((f) => f.text).join(' | '));
+  check('turnaround offers every animal sentence', values.length === 7 && values.includes('tiger'), s?.fallback.map((f) => f.text).join(' | '));
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
   await page.click('.lesson-hud__fallback[data-value="tiger"]');
   s = await h.waitFor((u) => !u.debug && u.greeting !== null, 15000, 'hub');
@@ -296,7 +298,13 @@ if (!process.env.ONLY_B) {
       refusal = { bubble: s?.bubble, english: /I like/.test(s?.body ?? ''), served: s?.debug?.visitors[q.index]?.served };
       await page.screenshot({ path: `${OUT}-07-wrong-animal.png` });
     }
-    await photograph(h, q.animal);
+    // Retry the correct photo until it is actually in hand: the camera will not
+    // open while the refusal is still playing, and a shot can miss the frame.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await h.waitFor((u) => u.debug?.phase === 'playing', 8000, 'play to resume');
+      const shot = await photograph(h, q.animal, `-B${attempt}`);
+      if (shot?.carried === q.animal) break;
+    }
     await showPhoto(h, q.index);
   }
   check('a wrong animal is refused in Japanese with no English repeat',

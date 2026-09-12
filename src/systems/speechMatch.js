@@ -55,7 +55,7 @@ export const ANSWERS = {
   color:  ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
   drink:  ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
   sport:  ['soccer', 'basketball', 'baseball', 'volleyball'],
-  animal: ['elephant', 'giraffe', 'penguin', 'tiger', 'dog', 'cat'],
+  animal: ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'horse', 'alpaca'],
 };
 
 /**

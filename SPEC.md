@@ -462,12 +462,12 @@ First-try share under one half caps the result at two stars.
 
 The exploratory finale, and the largest space — but navigable, not sprawling.
 
-Animals: elephant, giraffe, penguin, tiger, dog, cat.
+Animals: elephant, giraffe, penguin, tiger, deer, horse, alpaca.
 
 ### Environment (v1, decided 2026-09-12)
 
 An entrance plaza, where visitors wait, and one looping path that passes all
-six habitats and returns to the plaza, so wandering always arrives somewhere
+seven habitats and returns to the plaza, so wandering always arrives somewhere
 useful. Each habitat has a slow-moving blocky animal and a large sign with a
 picture and its English word. Landmarks (the plaza fountain, a tall tree, a
 striped gate) keep the child oriented. The follow camera sits directly behind

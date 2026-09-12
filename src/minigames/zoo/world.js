@@ -9,8 +9,9 @@ export const HABITAT_POSITIONS = Object.freeze([
   Object.freeze({ id: 'giraffe', x: -16.4, z: 2.5 }),
   Object.freeze({ id: 'penguin', x: -12, z: -9.5 }),
   Object.freeze({ id: 'tiger', x: -3.8, z: -12.8 }),
-  Object.freeze({ id: 'dog', x: 7.2, z: -12 }),
-  Object.freeze({ id: 'cat', x: 16, z: 4.7 }),
+  Object.freeze({ id: 'deer', x: 7.2, z: -12 }),
+  Object.freeze({ id: 'alpaca', x: 15, z: -6 }),
+  Object.freeze({ id: 'horse', x: 16, z: 4.7 }),
 ]);
 
 const ANIMAL_VISUALS = Object.freeze({
@@ -18,8 +19,9 @@ const ANIMAL_VISUALS = Object.freeze({
   giraffe: Object.freeze({ ground: 0xdab96a, fence: 0x9c7140 }),
   penguin: Object.freeze({ ground: 0x9bcdd5, fence: 0x648d99 }),
   tiger: Object.freeze({ ground: 0xc9a967, fence: 0x755338 }),
-  dog: Object.freeze({ ground: 0x8eb875, fence: 0x6f5b43 }),
-  cat: Object.freeze({ ground: 0x9fc58f, fence: 0x786052 }),
+  deer: Object.freeze({ ground: 0x8eb875, fence: 0x6f5b43 }),
+  horse: Object.freeze({ ground: 0xa8c882, fence: 0xb08850 }),
+  alpaca: Object.freeze({ ground: 0xd8cf9a, fence: 0x8a6f4e }),
 });
 
 const ANIMAL_MODELS = Object.freeze({
@@ -34,8 +36,12 @@ const ANIMAL_MODELS = Object.freeze({
   giraffe: Object.freeze({ file: 'giraffe.glb', targetHeight: 3.65 }),
   penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.55 }),
   tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65 }),
-  dog: Object.freeze({ file: 'Animals.glb', node: 'dog.001', targetHeight: 1.05 }),
-  cat: Object.freeze({ file: 'Animals.glb', node: 'kitty.001', targetHeight: 0.72 }),
+  deer: Object.freeze({ file: 'Animals.glb', node: 'deer', targetHeight: 2 }),
+  horse: Object.freeze({ file: 'Animals.glb', node: 'horse.001', targetHeight: 2.2 }),
+  // A .gltf rather than .glb: its buffers and colours are embedded, so the same
+  // fetch-and-parse path loads it. Its materials are already distinct browns, so
+  // unlike the elephant it needs no tint.
+  alpaca: Object.freeze({ file: 'alpaca.gltf', targetHeight: 1.7 }),
 });
 
 function publicPath(path) {
@@ -104,25 +110,40 @@ function drawAnimalIcon(context, id, x, y) {
       context.lineTo(sx + 8, -5);
       context.stroke();
     }
-  } else if (id === 'dog') {
-    fillRect('#b77a49', -63, -18, 96, 53);
-    fillCircle('#c98e5a', 45, -19, 33);
-    fillRect('#6d4932', 18, -57, 17, 35);
-    fillCircle('#f1d1a1', 58, -10, 13);
-  } else {
-    fillRect('#b7a394', -58, -16, 88, 49);
-    fillCircle('#b7a394', 43, -20, 31);
-    context.fillStyle = '#b7a394';
+  } else if (id === 'deer') {
+    fillRect('#b07d4c', -58, -14, 92, 50);
+    fillCircle('#c08f5c', 46, -20, 30);
+    context.strokeStyle = '#6d4a2c';
+    context.lineWidth = 11;
+    for (const dir of [-1, 1]) {
+      context.beginPath();
+      context.moveTo(40 + dir * 6, -44);
+      context.lineTo(46 + dir * 20, -80);
+      context.moveTo(43 + dir * 13, -63);
+      context.lineTo(60 + dir * 24, -70);
+      context.stroke();
+    }
+  } else if (id === 'horse') {
+    fillRect('#8a5a34', -62, -12, 100, 52);
+    fillCircle('#9c6a3f', 48, -22, 30);
+    context.fillStyle = '#3f2a1b';
+    context.fillRect(4, -52, 44, 15);
+    context.strokeStyle = '#3f2a1b';
+    context.lineWidth = 12;
     context.beginPath();
-    context.moveTo(19, -42);
-    context.lineTo(25, -72);
-    context.lineTo(40, -47);
-    context.lineTo(55, -72);
-    context.lineTo(66, -40);
-    context.fill();
+    context.moveTo(-62, -6);
+    context.lineTo(-80, 34);
     context.stroke();
+  } else {
+    fillRect('#c8a97e', -44, -4, 72, 46);
+    fillRect('#c8a97e', 4, -58, 26, 60);
+    fillCircle('#dcc19b', 24, -70, 23);
+    context.fillStyle = '#dcc19b';
     context.beginPath();
-    context.arc(-48, 2, 36, 0.45 * Math.PI, 1.65 * Math.PI);
+    context.moveTo(10, -86);
+    context.lineTo(15, -106);
+    context.lineTo(26, -88);
+    context.fill();
     context.stroke();
   }
   context.restore();

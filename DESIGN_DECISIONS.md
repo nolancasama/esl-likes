@@ -503,3 +503,19 @@ zoo's lights. Its materials are now coloured by name (body, dark, ivory tusks).
 Tinting is safe here precisely because the model carries no texture — the
 opposite of the Kenney rule, where tinting a textured character turns its skin
 grey.
+
+## 2026-09-12 — Seven zoo animals, and none of them pets
+
+Dog and cat were wrong for a zoo, so the zoo now teaches seven animals:
+elephant, giraffe, penguin, tiger, deer, horse and alpaca. Deer and horse were
+already sitting unused inside `Animals.glb`, so they cost nothing and match the
+tiger and penguin exactly; the alpaca comes from `animalz.zip` as a rigged,
+self-contained glTF whose materials are already distinct browns.
+
+Seven is not a problem: colours already teach seven words. "deer" also earns its
+place as the clearest case of the vocabulary rule — its plural is "deer", which
+no amount of label inference would produce, so the item defines the sentence
+"I like deer." itself.
+
+The seventh pen sits in the gap on the loop at (15, -6), about ten units from
+each neighbour, so no fence or sign overlaps another.

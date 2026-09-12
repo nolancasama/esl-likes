@@ -39,8 +39,9 @@ const VOCABULARY = Object.freeze({
     say('giraffe', 'I like giraffes.'),
     say('penguin', 'I like penguins.'),
     say('tiger', 'I like tigers.'),
-    say('dog', 'I like dogs.'),
-    say('cat', 'I like cats.'),
+    say('deer', 'I like deer.'),
+    say('horse', 'I like horses.'),
+    say('alpaca', 'I like alpacas.'),
   ]),
 });
 
@@ -215,8 +216,9 @@ export const UI = Object.freeze({
       giraffe: 'キリン',
       penguin: 'ペンギン',
       tiger: 'トラ',
-      dog: 'いぬ',
-      cat: 'ねこ',
+      deer: 'しか',
+      horse: 'うま',
+      alpaca: 'アルパカ',
     },
   },
   restaurant: {

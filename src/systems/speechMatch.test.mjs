@@ -205,7 +205,7 @@ test('ANSWERS sport matches SPEC.md', () => {
 });
 
 test('ANSWERS animal matches SPEC.md', () => {
-  assert.deepEqual(ANSWERS.animal, ['elephant', 'giraffe', 'penguin', 'tiger', 'dog', 'cat']);
+  assert.deepEqual(ANSWERS.animal, ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'horse', 'alpaca']);
 });
 
 // ---------------------------------------------------------------------------
@@ -520,16 +520,18 @@ test('matchAnswer survives a missing transcript', () => {
 });
 
 // Vocabulary answers use natural plurals ("I like tigers."), and a child may say
-// either form. Short words get little or no fuzz — "dog" and "cat" get none at
-// all — so plural endings are stripped explicitly rather than left to distance.
+// either form. "deer" is its own plural, and short words get little or no fuzz,
+// so plural endings are stripped explicitly rather than left to edit distance.
 test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
   const cases = [
     ['I like elephants', 'animal', 'elephant'],
     ['I like giraffes', 'animal', 'giraffe'],
     ['I like penguins', 'animal', 'penguin'],
     ['I like tigers', 'animal', 'tiger'],
-    ['I like dogs', 'animal', 'dog'],
-    ['I like cats', 'animal', 'cat'],
+    ['I like deer', 'animal', 'deer'],
+    ['I like deers', 'animal', 'deer'],
+    ['I like horses', 'animal', 'horse'],
+    ['I like alpacas', 'animal', 'alpaca'],
     ['I like hamburgers', 'food', 'hamburger'],
   ];
   for (const [text, category, id] of cases) {
@@ -541,7 +543,7 @@ test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
 
 test('matchAnswer still accepts the singular form', () => {
   assert.equal(matchAnswer('I like tiger', 'animal').answer, 'tiger');
-  assert.equal(matchAnswer('I like dog', 'animal').answer, 'dog');
+  assert.equal(matchAnswer('I like horse', 'animal').answer, 'horse');
   assert.equal(matchAnswer('I like hamburger', 'food').answer, 'hamburger');
 });
 

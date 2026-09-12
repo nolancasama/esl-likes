@@ -3,8 +3,9 @@ export const ANIMALS = Object.freeze([
   'giraffe',
   'penguin',
   'tiger',
-  'dog',
-  'cat',
+  'deer',
+  'horse',
+  'alpaca',
 ]);
 
 function randomIndex(length, rng) {
