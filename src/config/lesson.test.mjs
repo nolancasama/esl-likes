@@ -26,6 +26,24 @@ test('natural plurals are defined per item, never inferred from the label', () =
   assert.equal(answerFor(LESSON_BY_ID.coloring, 'blue'), 'I like blue.');
 });
 
+test('the Zoo keeps its frozen animal order and exact sentences', () => {
+  assert.deepEqual(LESSON_BY_ID.zoo.vocabulary.map(({ id, answer }) => ({ id, answer })), [
+    { id: 'elephant', answer: 'I like elephants.' },
+    { id: 'giraffe', answer: 'I like giraffes.' },
+    { id: 'penguin', answer: 'I like penguins.' },
+    { id: 'tiger', answer: 'I like tigers.' },
+    { id: 'deer', answer: 'I like deer.' },
+    { id: 'alpaca', answer: 'I like alpacas.' },
+    { id: 'horse', answer: 'I like horses.' },
+    { id: 'fox', answer: 'I like foxes.' },
+    { id: 'wolf', answer: 'I like wolves.' },
+    { id: 'stag', answer: 'I like stags.' },
+    { id: 'bull', answer: 'I like bulls.' },
+    { id: 'cow', answer: 'I like cows.' },
+    { id: 'donkey', answer: 'I like donkeys.' },
+  ]);
+});
+
 test('the matcher answer tables match the lesson vocabulary', () => {
   for (const lesson of LESSONS) {
     assert.deepEqual(ANSWERS[lesson.category], [...lesson.answers], lesson.category);

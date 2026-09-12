@@ -205,7 +205,10 @@ test('ANSWERS sport matches SPEC.md', () => {
 });
 
 test('ANSWERS animal matches SPEC.md', () => {
-  assert.deepEqual(ANSWERS.animal, ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'horse', 'alpaca']);
+  assert.deepEqual(ANSWERS.animal, [
+    'elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
+    'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey',
+  ]);
 });
 
 // ---------------------------------------------------------------------------
@@ -530,8 +533,15 @@ test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
     ['I like tigers', 'animal', 'tiger'],
     ['I like deer', 'animal', 'deer'],
     ['I like deers', 'animal', 'deer'],
-    ['I like horses', 'animal', 'horse'],
     ['I like alpacas', 'animal', 'alpaca'],
+    ['I like horses', 'animal', 'horse'],
+    ['I like foxes', 'animal', 'fox'],
+    ['I like wolves', 'animal', 'wolf'],
+    ['I like wolfs', 'animal', 'wolf'],
+    ['I like stags', 'animal', 'stag'],
+    ['I like bulls', 'animal', 'bull'],
+    ['I like cows', 'animal', 'cow'],
+    ['I like donkeys', 'animal', 'donkey'],
     ['I like hamburgers', 'food', 'hamburger'],
   ];
   for (const [text, category, id] of cases) {
@@ -539,6 +549,10 @@ test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
     assert.equal(result.ok, true, text);
     assert.equal(result.answer, id, text);
   }
+});
+
+test('wolf explicitly accepts irregular and recogniser plural forms', () => {
+  assert.deepEqual(VARIANTS.wolf, ['wolf', 'wolves', 'wolfs']);
 });
 
 test('matchAnswer still accepts the singular form', () => {

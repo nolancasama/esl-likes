@@ -7,9 +7,9 @@ import { createZooWorld } from './world.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
-const MOVE_SPEED = 6;
+const MOVE_SPEED = 13.5;
 const TALK_RADIUS_SQ = 3.2 * 3.2;
-const WORLD_LIMIT = 25.2;
+const WORLD_LIMIT = 41;
 const NPC_MODELS = Object.freeze('bcdefghijklmnopqr'.split(''));
 const DIFFICULTY = Object.freeze({
   1: Object.freeze({ count: 3, concurrent: 1 }),
@@ -17,12 +17,12 @@ const DIFFICULTY = Object.freeze({
   3: Object.freeze({ count: 6, concurrent: 3 }),
 });
 const VISITOR_SPOTS = Object.freeze([
-  Object.freeze({ x: -2.4, z: 14.8 }),
-  Object.freeze({ x: 0.0, z: 14.2 }),
-  Object.freeze({ x: 2.0, z: 15.0 }),
-  Object.freeze({ x: -1.5, z: 11.4 }),
-  Object.freeze({ x: 1.5, z: 11.1 }),
-  Object.freeze({ x: 0.0, z: 9.3 }),
+  Object.freeze({ x: -2.4, z: 29.8 }),
+  Object.freeze({ x: 0.0, z: 29.2 }),
+  Object.freeze({ x: 2.0, z: 30.0 }),
+  Object.freeze({ x: -1.5, z: 26.4 }),
+  Object.freeze({ x: 1.5, z: 26.1 }),
+  Object.freeze({ x: 0.0, z: 24.3 }),
 ]);
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -206,13 +206,13 @@ export function createZoo(ctx) {
 
   function buildCharacters() {
     player = characters.create({ model: characters.playerModel });
-    player.position.set(0, 0.08, 18.8);
+    player.position.set(0, 0.08, 33.8);
     player.rotation.y = Math.PI;
     player.scale.setScalar(0.84);
     zooWorld.group.add(player);
 
     keeper = characters.create({ model: 'r' });
-    keeper.position.set(2.2, 0.08, 18.5);
+    keeper.position.set(2.2, 0.08, 33.5);
     keeper.scale.setScalar(0.82);
     keeper.visible = false;
     zooWorld.group.add(keeper);
@@ -268,7 +268,7 @@ export function createZoo(ctx) {
   }
 
   function canOccupy(x, z) {
-    if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > 25.5) return false;
+    if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return false;
     return true;
   }
 
@@ -310,7 +310,7 @@ export function createZoo(ctx) {
     });
   }
 
-  function setTwoShot(npcObject) {
+  function setTwoShot(npcObject, { distance = 5, height = 3.25, lookHeight = 1 } = {}) {
     let dx = player.position.x - npcObject.position.x;
     let dz = player.position.z - npcObject.position.z;
     const length = Math.hypot(dx, dz) || 1;
@@ -322,8 +322,8 @@ export function createZoo(ctx) {
     let sideZ = dx;
     if (sideZ < 0) { sideX = -sideX; sideZ = -sideZ; }
     cameraRig.setTarget(null).setPreset('fixed', {
-      position: [midpointX + sideX * 5 + dx * 1.2, 3.25, midpointZ + sideZ * 5 + dz * 1.2],
-      lookAt: [midpointX, 1.0, midpointZ],
+      position: [midpointX + sideX * distance + dx * 1.2, height, midpointZ + sideZ * distance + dz * 1.2],
+      lookAt: [midpointX, lookHeight, midpointZ],
       damping: 7,
     });
   }
@@ -515,7 +515,14 @@ export function createZoo(ctx) {
       const visible = projectedCenter.z >= -1 && projectedCenter.z <= 1
         && frame.x >= .12 && frame.x <= .88 && frame.y >= .1 && frame.y <= .84
         && diameter >= .11;
-      if (visible && (!best || framing > best.framing)) best = { habitat, framing, frame };
+      // Prefer the pen the child is standing at. With thirteen habitats a
+      // neighbour can frame better than the animal in front of them, so a photo
+      // taken at the ALPACA fence came back a horse — and the visitor then
+      // refused it. Distance only breaks ties: a deliberately distant shot still
+      // wins if it is framed considerably better.
+      const away = Math.hypot(player.position.x - habitat.x, player.position.z - habitat.z);
+      const score = framing - Math.min(.3, away * .012);
+      if (visible && (!best || score > best.score)) best = { habitat, framing, frame, score };
     }
     framedSubject = best;
     // Hysteresis: the animals wander, so a frame hovering at the threshold made
@@ -662,13 +669,20 @@ export function createZoo(ctx) {
     if (!active || phase !== 'round-end') return;
     phase = 'turnaround';
     keeper.visible = true;
-    keeper.position.set(clamp(player.position.x + 1.8, -3.2, 3.2), 0.08, clamp(player.position.z - 1.1, 16.0, 21.2));
+    // Out on the open plaza, clear of the entrance arch at z 32.15 and the
+    // fountain at x 3.45: standing in the gateway filled the shot with striped
+    // posts and hid the keeper behind the answer buttons.
+    keeper.position.set(clamp(player.position.x + 1.8, -2.4, 1.9), 0.08, clamp(player.position.z - 1.1, 25.2, 28.4));
     faceToward(keeper, player.position.x, player.position.z);
     faceToward(player, keeper.position.x, keeper.position.z);
     keeper.playAnimation?.('idle');
     dialogue.show({ text: LESSON.question, anchor: keeper, offsetY: 1.9 });
     setInstruction(STRINGS.turnaround);
-    setTwoShot(keeper);
+    // Thirteen answers fill four rows of buttons across the middle of the
+    // screen, so the pair has to sit in the upper third: close in, camera near
+    // head height, aimed low so the characters ride high in frame with their
+    // bubble above the grid.
+    setTwoShot(keeper, { distance: 4.6, height: 2.4, lookHeight: .25 });
     promptAnswer(ctx, LESSON, {
       isActive: () => active && phase === 'turnaround',
       onAccepted: completeTurnaround,

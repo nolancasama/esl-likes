@@ -88,7 +88,7 @@ test('seeded show-every-animal-in-turn sessions reach three stars under one perc
   );
 });
 
-test('several hundred seeded animal draws cover all six animals', () => {
+test('several hundred seeded animal draws cover all thirteen animals', () => {
   const rng = seededRng(0x12345678);
   const drawn = new Set();
 

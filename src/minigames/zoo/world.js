@@ -1,17 +1,25 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const TAU = Math.PI * 2;
 
 export const HABITAT_POSITIONS = Object.freeze([
-  Object.freeze({ id: 'elephant', x: -10.5, z: 10.8 }),
-  Object.freeze({ id: 'giraffe', x: -16.4, z: 2.5 }),
-  Object.freeze({ id: 'penguin', x: -12, z: -9.5 }),
-  Object.freeze({ id: 'tiger', x: -3.8, z: -12.8 }),
-  Object.freeze({ id: 'deer', x: 7.2, z: -12 }),
-  Object.freeze({ id: 'alpaca', x: 15, z: -6 }),
-  Object.freeze({ id: 'horse', x: 16, z: 4.7 }),
+  Object.freeze({ id: 'elephant', x: -25.28, z: 18 }),
+  Object.freeze({ id: 'giraffe', x: -31.32, z: 8.8 }),
+  Object.freeze({ id: 'penguin', x: -32.94, z: -1.63 }),
+  Object.freeze({ id: 'tiger', x: -29.91, z: -11.83 }),
+  Object.freeze({ id: 'deer', x: -22.63, z: -20.37 }),
+  Object.freeze({ id: 'alpaca', x: -12.18, z: -26.03 }),
+  Object.freeze({ id: 'horse', x: 0, z: -28 }),
+  Object.freeze({ id: 'fox', x: 12.18, z: -26.03 }),
+  Object.freeze({ id: 'wolf', x: 22.63, z: -20.37 }),
+  Object.freeze({ id: 'stag', x: 29.91, z: -11.83 }),
+  Object.freeze({ id: 'bull', x: 32.94, z: -1.63 }),
+  Object.freeze({ id: 'cow', x: 31.32, z: 8.8 }),
+  Object.freeze({ id: 'donkey', x: 25.28, z: 18 }),
 ]);
 
 const ANIMAL_VISUALS = Object.freeze({
@@ -20,8 +28,14 @@ const ANIMAL_VISUALS = Object.freeze({
   penguin: Object.freeze({ ground: 0x9bcdd5, fence: 0x648d99 }),
   tiger: Object.freeze({ ground: 0xc9a967, fence: 0x755338 }),
   deer: Object.freeze({ ground: 0x8eb875, fence: 0x6f5b43 }),
-  horse: Object.freeze({ ground: 0xa8c882, fence: 0xb08850 }),
   alpaca: Object.freeze({ ground: 0xd8cf9a, fence: 0x8a6f4e }),
+  horse: Object.freeze({ ground: 0xa8c882, fence: 0xb08850 }),
+  fox: Object.freeze({ ground: 0x9cc47f, fence: 0x79533d }),
+  wolf: Object.freeze({ ground: 0x91b09a, fence: 0x596878 }),
+  stag: Object.freeze({ ground: 0x9eb974, fence: 0x6f513b }),
+  bull: Object.freeze({ ground: 0xc4ad78, fence: 0x57483c }),
+  cow: Object.freeze({ ground: 0xb3cb86, fence: 0x715d4a }),
+  donkey: Object.freeze({ ground: 0xb9bd91, fence: 0x6d6255 }),
 });
 
 const ANIMAL_MODELS = Object.freeze({
@@ -37,11 +51,17 @@ const ANIMAL_MODELS = Object.freeze({
   penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.55 }),
   tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65 }),
   deer: Object.freeze({ file: 'Animals.glb', node: 'deer', targetHeight: 2 }),
-  horse: Object.freeze({ file: 'Animals.glb', node: 'horse.001', targetHeight: 2.2 }),
   // A .gltf rather than .glb: its buffers and colours are embedded, so the same
   // fetch-and-parse path loads it. Its materials are already distinct browns, so
   // unlike the elephant it needs no tint.
   alpaca: Object.freeze({ file: 'alpaca.gltf', targetHeight: 1.7 }),
+  horse: Object.freeze({ file: 'obj/Horse_White.obj', materialFile: 'obj/Horse_White.mtl', format: 'obj', targetHeight: 2.2 }),
+  fox: Object.freeze({ file: 'obj/Fox.obj', materialFile: 'obj/Fox.mtl', format: 'obj', targetHeight: 1.05 }),
+  wolf: Object.freeze({ file: 'obj/Wolf.obj', materialFile: 'obj/Wolf.mtl', format: 'obj', targetHeight: 1.35 }),
+  stag: Object.freeze({ file: 'obj/Stag.obj', materialFile: 'obj/Stag.mtl', format: 'obj', targetHeight: 2.45 }),
+  bull: Object.freeze({ file: 'obj/Bull.obj', materialFile: 'obj/Bull.mtl', format: 'obj', targetHeight: 2.35 }),
+  cow: Object.freeze({ file: 'obj/Cow.obj', materialFile: 'obj/Cow.mtl', format: 'obj', targetHeight: 2.2 }),
+  donkey: Object.freeze({ file: 'obj/Donkey.obj', materialFile: 'obj/Donkey.mtl', format: 'obj', targetHeight: 1.9 }),
 });
 
 function publicPath(path) {
@@ -124,15 +144,114 @@ function drawAnimalIcon(context, id, x, y) {
       context.stroke();
     }
   } else if (id === 'horse') {
-    fillRect('#8a5a34', -62, -12, 100, 52);
-    fillCircle('#9c6a3f', 48, -22, 30);
-    context.fillStyle = '#3f2a1b';
+    fillRect('#f1eee4', -62, -12, 100, 52);
+    fillCircle('#faf8ef', 48, -22, 30);
+    context.fillStyle = '#b9b8b2';
     context.fillRect(4, -52, 44, 15);
-    context.strokeStyle = '#3f2a1b';
+    context.strokeStyle = '#b9b8b2';
     context.lineWidth = 12;
     context.beginPath();
     context.moveTo(-62, -6);
     context.lineTo(-80, 34);
+    context.stroke();
+  } else if (id === 'fox') {
+    fillRect('#df6d2f', -58, -12, 84, 45);
+    fillCircle('#e97832', 39, -22, 29);
+    context.fillStyle = '#e97832';
+    context.beginPath();
+    context.moveTo(22, -42);
+    context.lineTo(27, -78);
+    context.lineTo(45, -49);
+    context.lineTo(58, -76);
+    context.lineTo(62, -38);
+    context.fill();
+    context.stroke();
+    context.strokeStyle = '#df6d2f';
+    context.lineWidth = 22;
+    context.beginPath();
+    context.moveTo(-58, -1);
+    context.quadraticCurveTo(-96, -45, -76, 31);
+    context.stroke();
+  } else if (id === 'wolf') {
+    fillRect('#78848d', -60, -15, 91, 49);
+    fillCircle('#87939b', 43, -25, 31);
+    context.fillStyle = '#87939b';
+    context.beginPath();
+    context.moveTo(20, -45);
+    context.lineTo(25, -82);
+    context.lineTo(45, -51);
+    context.lineTo(60, -80);
+    context.lineTo(65, -43);
+    context.fill();
+    context.stroke();
+    context.strokeStyle = '#59636b';
+    context.lineWidth = 13;
+    context.beginPath();
+    context.moveTo(-60, -8);
+    context.lineTo(-84, -37);
+    context.stroke();
+  } else if (id === 'stag') {
+    fillRect('#754a2c', -60, -13, 94, 50);
+    fillCircle('#835634', 46, -23, 30);
+    context.strokeStyle = '#4c321f';
+    context.lineWidth = 9;
+    for (const dir of [-1, 1]) {
+      context.beginPath();
+      context.moveTo(42 + dir * 7, -46);
+      context.lineTo(44 + dir * 27, -101);
+      for (const [py, reach] of [[-62, 22], [-78, 29], [-93, 34]]) {
+        context.moveTo(44 + dir * (12 + (Math.abs(py) - 62) * 0.28), py);
+        context.lineTo(44 + dir * reach, py - 15);
+      }
+      context.stroke();
+    }
+  } else if (id === 'bull') {
+    fillRect('#554537', -65, -17, 102, 55);
+    fillCircle('#615043', 47, -22, 32);
+    context.fillStyle = '#e5d39b';
+    context.beginPath();
+    context.moveTo(29, -43);
+    context.quadraticCurveTo(2, -72, -6, -48);
+    context.moveTo(61, -43);
+    context.quadraticCurveTo(91, -72, 96, -45);
+    context.stroke();
+    context.fill();
+    context.strokeStyle = '#26354b';
+    context.lineWidth = 10;
+    context.beginPath();
+    context.moveTo(-65, -8);
+    context.lineTo(-88, -36);
+    context.stroke();
+  } else if (id === 'cow') {
+    fillRect('#f2eee2', -65, -17, 102, 55);
+    fillCircle('#f7f2e6', 47, -22, 32);
+    context.fillStyle = '#5c5149';
+    context.fillRect(-45, -17, 28, 32);
+    context.beginPath();
+    context.arc(47, -28, 13, 0, TAU);
+    context.fill();
+    context.fillStyle = '#e7a9a4';
+    context.beginPath();
+    context.ellipse(55, -8, 22, 13, 0, 0, TAU);
+    context.fill();
+    context.stroke();
+  } else if (id === 'donkey') {
+    fillRect('#8d8a82', -59, -13, 90, 49);
+    fillCircle('#9b9890', 43, -24, 29);
+    context.fillStyle = '#9b9890';
+    context.beginPath();
+    context.moveTo(25, -45);
+    context.lineTo(21, -94);
+    context.lineTo(39, -50);
+    context.lineTo(53, -94);
+    context.lineTo(59, -43);
+    context.fill();
+    context.stroke();
+    context.strokeStyle = '#4f4b46';
+    context.lineWidth = 12;
+    context.beginPath();
+    context.moveTo(-59, -8);
+    context.lineTo(-78, 28);
     context.stroke();
   } else {
     fillRect('#c8a97e', -44, -4, 72, 46);
@@ -209,16 +328,16 @@ export function createZooWorld({ labels = {} } = {}) {
   const gateWhite = makeMaterial(0xfff7df);
   const dark = makeMaterial(0x29384a);
 
-  addMesh(group, box, grass, 0, -0.24, 0.8, 42, 0.5, 38);
+  addMesh(group, box, grass, 0, -0.24, 0.8, 100, 0.5, 96);
 
   // One continuous, overlapping path loop. The plaza intersects the southern
   // side, so following either direction always visits every habitat and returns.
-  const pathSegments = 72;
+  const pathSegments = 144;
   for (let index = 0; index < pathSegments; index += 1) {
     const angle = (index / pathSegments) * TAU;
     const nextAngle = ((index + 1) / pathSegments) * TAU;
-    const point = new THREE.Vector2(Math.sin(angle) * 13.4, Math.cos(angle) * 9.9);
-    const next = new THREE.Vector2(Math.sin(nextAngle) * 13.4, Math.cos(nextAngle) * 9.9);
+    const point = new THREE.Vector2(Math.sin(angle) * 29.4, Math.cos(angle) * 24.9);
+    const next = new THREE.Vector2(Math.sin(nextAngle) * 29.4, Math.cos(nextAngle) * 24.9);
     const length = point.distanceTo(next) + 0.22;
     const slab = addMesh(
       group,
@@ -234,30 +353,30 @@ export function createZooWorld({ labels = {} } = {}) {
     slab.rotation.y = Math.atan2(next.x - point.x, next.y - point.y);
   }
 
-  const plaza = addMesh(group, lowCylinder, plazaMaterial, 0, 0.015, 12.6, 5.5, 0.14, 5.5);
+  const plaza = addMesh(group, lowCylinder, plazaMaterial, 0, 0.015, 27.6, 5.5, 0.14, 5.5);
   plaza.rotation.y = Math.PI / 16;
 
   // Fountain is offset so it is a clear landmark without blocking the avatar,
   // visitors, or the path mouth.
-  addMesh(group, lowCylinder, stone, 3.45, 0.25, 13.05, 2.05, 0.5, 2.05);
-  addMesh(group, lowCylinder, water, 3.45, 0.51, 13.05, 1.67, 0.08, 1.67);
-  addMesh(group, cylinder, stoneDark, 3.45, 0.98, 13.05, 0.32, 1.45, 0.32);
-  const fountainTop = addMesh(group, sphere, water, 3.45, 1.82, 13.05, 0.32, 0.5, 0.32);
+  addMesh(group, lowCylinder, stone, 3.45, 0.25, 28.05, 2.05, 0.5, 2.05);
+  addMesh(group, lowCylinder, water, 3.45, 0.51, 28.05, 1.67, 0.08, 1.67);
+  addMesh(group, cylinder, stoneDark, 3.45, 0.98, 28.05, 0.32, 1.45, 0.32);
+  const fountainTop = addMesh(group, sphere, water, 3.45, 1.82, 28.05, 0.32, 0.5, 0.32);
   animations.push({ kind: 'fountain', object: fountainTop });
 
   // A tall, unmistakable tree on the opposite side of the entrance plaza.
-  addMesh(group, cylinder, bark, -4.35, 2.25, 13.15, 0.85, 4.5, 0.85);
-  addMesh(group, sphere, leaf, -4.35, 5.15, 13.15, 3.3, 3.2, 3.3);
-  addMesh(group, sphere, leafLight, -3.25, 5.6, 12.85, 2.15, 2.1, 2.15);
+  addMesh(group, cylinder, bark, -4.35, 2.25, 28.15, 0.85, 4.5, 0.85);
+  addMesh(group, sphere, leaf, -4.35, 5.15, 28.15, 3.3, 3.2, 3.3);
+  addMesh(group, sphere, leafLight, -3.25, 5.6, 27.85, 2.15, 2.1, 2.15);
 
   // Striped entrance gate. The clear centre span is wide enough for movement.
   for (const x of [-2.8, 2.8]) {
     for (let stripe = 0; stripe < 5; stripe += 1) {
-      addMesh(group, box, stripe % 2 ? gateWhite : gateRed, x, 0.45 + stripe * 0.9, 17.15, 0.62, 0.9, 0.62);
+      addMesh(group, box, stripe % 2 ? gateWhite : gateRed, x, 0.45 + stripe * 0.9, 32.15, 0.62, 0.9, 0.62);
     }
   }
   for (let stripe = 0; stripe < 7; stripe += 1) {
-    addMesh(group, box, stripe % 2 ? gateWhite : gateRed, -2.55 + stripe * 0.85, 4.58, 17.15, 0.86, 0.62, 0.62);
+    addMesh(group, box, stripe % 2 ? gateWhite : gateRed, -2.55 + stripe * 0.85, 4.58, 32.15, 0.86, 0.62, 0.62);
   }
 
   function createSign(id, habitatGroup, worldX, worldZ) {
@@ -388,7 +507,7 @@ export function createZooWorld({ labels = {} } = {}) {
     return habitat;
   });
 
-  function disposeModelSource(root) {
+  function disposeModelSource(root, extraMaterials = []) {
     const sourceGeometries = new Set();
     const sourceMaterials = new Set();
     const sourceTextures = new Set();
@@ -404,6 +523,9 @@ export function createZooWorld({ labels = {} } = {}) {
         }
       }
     });
+    for (const material of extraMaterials) {
+      if (material) sourceMaterials.add(material);
+    }
     for (const texture of sourceTextures) texture.dispose();
     for (const material of sourceMaterials) material.dispose();
     for (const geometry of sourceGeometries) geometry.dispose();
@@ -411,11 +533,9 @@ export function createZooWorld({ labels = {} } = {}) {
 
   function placeModel(habitat, sourceObject) {
     const config = ANIMAL_MODELS[habitat.id];
-    // Every animal but the elephant is skinned, and Object3D.clone() does not
-    // rebind a skeleton: the meshes kept rendering from the source rig near the
-    // file's origin, so the tiger stood out on the grass and the dog, cat and
-    // penguin never appeared in their pens at all.
-    const sourceClone = cloneSkinned(sourceObject);
+    // The glTF animals may be skinned, and Object3D.clone() does not rebind a
+    // skeleton. OBJ animals are static meshes and can use a normal deep clone.
+    const sourceClone = config.format === 'obj' ? sourceObject.clone(true) : cloneSkinned(sourceObject);
     sourceClone.updateMatrixWorld(true);
     const rawBounds = new THREE.Box3().setFromObject(sourceClone);
     const rawSize = rawBounds.getSize(new THREE.Vector3());
@@ -451,12 +571,46 @@ export function createZooWorld({ labels = {} } = {}) {
     applyPhotoBounds(habitat, content);
   }
 
-  async function loadFile(file) {
-    const path = `assets/animals/${file}`;
+  async function fetchAsset(path, responseType) {
     const response = await fetch(publicPath(path), { cache: 'force-cache', signal: modelAbort.signal });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return responseType === 'text' ? response.text() : response.arrayBuffer();
+  }
+
+  async function loadGltf(file) {
+    const path = `assets/animals/${file}`;
     const loader = new GLTFLoader();
-    return loader.parseAsync(await response.arrayBuffer(), publicPath('assets/animals/'));
+    const gltf = await loader.parseAsync(await fetchAsset(path, 'arrayBuffer'), publicPath('assets/animals/'));
+    return { scene: gltf.scene, materials: [] };
+  }
+
+  async function loadObj(config) {
+    const materialPath = `assets/animals/${config.materialFile}`;
+    const modelPath = `assets/animals/${config.file}`;
+    const resourcePath = publicPath('assets/animals/obj/');
+    let materials = null;
+    try {
+      // Parse and prepare the MTL before the OBJ so its per-part Kd colours are
+      // assigned while OBJLoader builds the otherwise textureless meshes.
+      const materialText = await fetchAsset(materialPath, 'text');
+      materials = new MTLLoader().parse(materialText, resourcePath);
+      materials.preload();
+      // These files carry Blender's LINEAR Kd values, but MTLLoader reads Kd as
+      // sRGB and converts it down again. That second conversion turned the white
+      // horse grey, the fox maroon and the cow nearly black. Undo it so the
+      // colours the file actually specifies are the ones that render.
+      for (const material of Object.values(materials.materials)) {
+        material.color?.convertLinearToSRGB();
+      }
+      const modelText = await fetchAsset(modelPath, 'text');
+      const scene = new OBJLoader().setMaterials(materials).parse(modelText);
+      return { scene, materials: Object.values(materials.materials) };
+    } catch (error) {
+      if (materials) {
+        for (const material of Object.values(materials.materials)) material.dispose();
+      }
+      throw error;
+    }
   }
 
   function findModelNode(root, name) {
@@ -472,15 +626,16 @@ export function createZooWorld({ labels = {} } = {}) {
 
   function loadAnimals() {
     if (loadPromise) return loadPromise;
-    const files = [...new Set(Object.values(ANIMAL_MODELS).map((config) => config.file))];
-    loadPromise = Promise.all(files.map(async (file) => {
+    const configs = [...new Map(Object.values(ANIMAL_MODELS).map((config) => [config.file, config])).values()];
+    loadPromise = Promise.all(configs.map(async (fileConfig) => {
+      const { file } = fileConfig;
       try {
-        const asset = await loadFile(file);
+        const asset = fileConfig.format === 'obj' ? await loadObj(fileConfig) : await loadGltf(file);
         if (disposed) {
-          disposeModelSource(asset.scene);
+          disposeModelSource(asset.scene, asset.materials);
           return;
         }
-        modelSources.add(asset.scene);
+        modelSources.add(asset);
         for (const habitat of habitats) {
           const config = ANIMAL_MODELS[habitat.id];
           if (config.file !== file) continue;
@@ -526,7 +681,7 @@ export function createZooWorld({ labels = {} } = {}) {
     disposed = true;
     modelAbort.abort();
     group.removeFromParent();
-    for (const source of modelSources) disposeModelSource(source);
+    for (const source of modelSources) disposeModelSource(source.scene, source.materials);
     for (const texture of textures) texture.dispose();
     for (const material of materials) material.dispose();
     for (const geometry of geometries) geometry.dispose();

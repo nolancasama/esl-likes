@@ -42,6 +42,7 @@ export const VARIANTS = {
   drink:  ['drink', 'dring', 'drinks', 'junk', 'trink', 'dorinku', 'drinku', 'dorink'],
   sport:  ['sport', 'spot', 'sports', 'spore', 'support', 'supotsu', 'supo', 'sportu'],
   animal: ['animal', 'anime', 'animals', 'aniaml', 'enemal', 'animaru', 'animol', 'anemal'],
+  wolf:   ['wolf', 'wolves', 'wolfs'],
   what:   ['what', 'wat', 'hwat', 'watt', 'wot', 'but', 'watto', 'whatto', 'hut'],
   like:   ['like', 'lick', 'light', 'rike', 'raiku', 'laiku', 'riku'],
 };
@@ -55,7 +56,7 @@ export const ANSWERS = {
   color:  ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
   drink:  ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
   sport:  ['soccer', 'basketball', 'baseball', 'volleyball'],
-  animal: ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'horse', 'alpaca'],
+  animal: ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse', 'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey'],
 };
 
 /**

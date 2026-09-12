@@ -519,3 +519,55 @@ no amount of label inference would produce, so the item defines the sentence
 
 The seventh pen sits in the gap on the loop at (15, -6), about ten units from
 each neighbour, so no fence or sign overlaps another.
+
+## 2026-09-12 — Zoo OBJ animals load through their colour materials
+
+Fox, wolf, stag, bull, cow, donkey and the replacement white horse load from
+their OBJ files after the matching MTL has loaded, and OBJLoader receives that
+material library so the textureless models retain their per-part Kd colours.
+They are static meshes, so ordinary deep clones are sufficient; SkeletonUtils
+remains mandatory only for the potentially skinned glTF animals. Both formats
+share the same measured placement and placeholder-first failure path, and their
+source geometry and materials are owned and disposed by each Zoo instance.
+
+The OBJ versions are deliberate: all seven total 779 KB instead of 21.9 MB for
+the equivalent glTF files, and the Zoo moves whole animal groups rather than
+playing the pack's animation clips. A failed or aborted MTL or OBJ fetch leaves
+the photographable placeholder and cannot attach a late model after exit.
+
+## 2026-09-12 — Thirteen habitats use a larger single loop
+
+Thirteen habitat centres are evenly measured around a 33 by 28 ellipse with a
+100-degree entrance gap. Neighbouring centres stay at least about 10.6 units
+apart, clearing the 3.45-radius floors, fences and offset signs. The continuous
+path grows to a 29.4 by 24.9 ellipse with 144 overlapping slabs; the plaza,
+fountain, tree, gate and waiting visitors move together so the plaza remains
+tangent to the southern loop mouth. The ground grows from 42 by 38 to 100 by 96
+and the movement limit from about 25 to 41.
+
+The longer plaza-to-farthest-habitat distance is about 2.2 times the old one,
+so walking speed rises from 6 to 13.5. Crossing the expanded zoo therefore
+takes no longer even though exploration now offers nearly twice as many pens.
+
+## 2026-09-12 — New Zoo animals keep believable measured heights
+
+All animals continue to derive a bounding box after loading, scale uniformly
+from its measured height and sit on the ground from its measured minimum Y.
+The replacement white horse targets 2.2 units; fox 1.05, wolf 1.35, stag 2.45,
+bull 2.35, cow 2.2 and donkey 1.9. These targets account for the source OBJ
+heights ranging from 2.69 to 5.37 units without trusting their inconsistent
+authoring scale: fox and wolf read smaller than horse and bull, stag is clearly
+taller than fox, and giraffe remains tallest at 3.65.
+
+## 2026-09-12 — OBJ animals: undo MTLLoader's second colour conversion
+
+The Quaternius OBJ models arrived far too dark: the white horse rendered grey,
+the fox maroon, the cow nearly black, while the glTF animals beside them looked
+right. Their .mtl files carry Blender's LINEAR Kd values (Horse_White's coat is
+0.354, which is about 0.63 in sRGB), but MTLLoader interprets Kd as sRGB and
+converts it down to linear a second time, roughly cubing the brightness.
+
+Each parsed material's colour is now converted back with
+`convertLinearToSRGB()`, so the value that reaches the renderer is the value the
+file specified. Rejected: hand-tinting each material, which would have to be
+redone for every model added and would hide the real cause.

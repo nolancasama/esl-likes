@@ -1,0 +1,90 @@
+# えいごで「すき」をつたえよう — ESL Likes
+
+A 3D English game for Japanese elementary classrooms, built around one sentence
+pattern and nothing else:
+
+    "What ___ do you like?"   — the child asks
+    "I like ___."             — the child hears, acts on, and finally says
+
+Five minigames share one three.js world, one speech system and one stamp book.
+The grammar never gets harder; only the game around it does.
+
+| Minigame | What the child does |
+|---|---|
+| **Restaurant** | Ask a customer, remember the order, carry the dish to the right table |
+| **Coloring** | Ask an artist their favourite colour, paint the starred part of a robot |
+| **Drink Stand** | Ask, pour and serve at a busy counter, ending in a RUSH |
+| **Sports** | Ask friends their sport and lead them to the right zone |
+| **Zoo** | Ask a visitor, find the animal, photograph it and bring the photo back |
+
+## The rule that decides every design question
+
+> The NPC's answer must be information the child genuinely needs. If a child can
+> win without understanding the English, the minigame is wrong.
+
+Every minigame is reviewed against it before shipping. Answers are random and
+independent each round, nothing on screen points at the answer, and guessing is
+possible but costly — a child who ignores the English can finish, but cannot
+reliably earn three stars. The other half of the rule matters just as much:
+
+> A child who says the sentence well enough for a teacher to understand must
+> always be rewarded. Recognition noise is the game's problem, not the child's.
+
+So the speech matcher is deliberately forgiving — phonetic variants for
+Japanese-accented English, singular or plural, closest-match selection — and
+after two failures the sentence appears to read aloud instead. There is a
+mic-free mode for rooms where microphones do not work, and no dead ends
+anywhere.
+
+## Running it
+
+```
+npm install
+npm run dev          # play at the printed localhost address
+npm run dev -- --host   # also reachable from Chromebooks on the same wifi
+npm test             # unit tests: vocabulary, matcher, per-game scoring
+npm run build        # production build
+```
+
+Controls are WASD or arrow keys, Space to interact, hold to talk. Nothing else
+is required to play.
+
+### Scripted playthroughs
+
+`scripts/playthrough*.mjs` drive each minigame end to end in a real browser
+(Playwright, mic-free), checking both that the game can be completed and that
+ignoring the English cannot reach full marks. They need a build and a local
+server:
+
+```
+npm run build
+npx vite preview --port 5199
+node scripts/playthrough-zoo.mjs http://localhost:5199/ .tmp/zoo
+```
+
+## Documents
+
+- `SPEC.md` — the frozen design, including the anti-shortcut rule.
+- `DESIGN_DECISIONS.md` — why things are the way they are.
+- `CURRENT_STATE.md` — what is true right now, and what still needs a
+  classroom Chromebook to verify.
+
+## Assets and credits
+
+- **Characters** — Kenney *Blocky Characters* (CC0). <https://kenney.nl>
+- **Fox, wolf, stag, bull, cow, donkey, white horse, alpaca** — Quaternius
+  low-poly animals (CC0). <https://www.patreon.com/quaternius>
+- **Elephant** — generated with a Blender script by the project owner.
+- **Tiger, deer, penguin** — ithappy *Animals FREE*, from the Unity Asset Store.
+- **Giraffe** — Styloo, <https://styloo.itch.io/>.
+
+  Those last two packs are included here at the project owner's decision. Note
+  for anyone reusing this repository: the Unity Asset Store EULA permits using
+  assets inside an application but not redistributing the asset files
+  themselves, and the Styloo pack states no licence at all. If you fork this,
+  replace `Animals.glb` and `giraffe.glb` with your own models or CC0
+  equivalents — the game already falls back to a placeholder for any model it
+  cannot load.
+
+See `public/assets/animals/README.md` for per-file provenance and the two model
+quirks worth knowing (mixed scales, and an elephant whose origin is centred).
