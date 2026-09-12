@@ -264,6 +264,7 @@ export function createZoo(ctx) {
     scene.fog = null;
     scene.add(zooWorld.group);
     buildCharacters();
+    zooWorld.loadAnimals();
   }
 
   function canOccupy(x, z) {

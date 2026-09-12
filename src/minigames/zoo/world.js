@@ -1,24 +1,46 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const TAU = Math.PI * 2;
 
 export const HABITAT_POSITIONS = Object.freeze([
   Object.freeze({ id: 'elephant', x: -10.5, z: 10.8 }),
-  Object.freeze({ id: 'lion', x: -16.4, z: 2.5 }),
-  Object.freeze({ id: 'panda', x: -12, z: -9.5 }),
-  Object.freeze({ id: 'monkey', x: -3.8, z: -12.8 }),
-  Object.freeze({ id: 'giraffe', x: 7.2, z: -12 }),
-  Object.freeze({ id: 'penguin', x: 16, z: 4.7 }),
+  Object.freeze({ id: 'giraffe', x: -16.4, z: 2.5 }),
+  Object.freeze({ id: 'penguin', x: -12, z: -9.5 }),
+  Object.freeze({ id: 'tiger', x: -3.8, z: -12.8 }),
+  Object.freeze({ id: 'dog', x: 7.2, z: -12 }),
+  Object.freeze({ id: 'cat', x: 16, z: 4.7 }),
 ]);
 
 const ANIMAL_VISUALS = Object.freeze({
-  elephant: Object.freeze({ ground: 0xb8c990, fence: 0x8d7356, radius: 1.45 }),
-  lion: Object.freeze({ ground: 0xd9bd72, fence: 0x9c7140, radius: 1.3 }),
-  panda: Object.freeze({ ground: 0x78ad70, fence: 0x735942, radius: 1.25 }),
-  monkey: Object.freeze({ ground: 0x7ea56d, fence: 0x735942, radius: 1.2 }),
-  giraffe: Object.freeze({ ground: 0xdab96a, fence: 0x9c7140, radius: 2.15 }),
-  penguin: Object.freeze({ ground: 0x9bcdd5, fence: 0x648d99, radius: 1.2 }),
+  elephant: Object.freeze({ ground: 0xb8c990, fence: 0x78644d }),
+  giraffe: Object.freeze({ ground: 0xdab96a, fence: 0x9c7140 }),
+  penguin: Object.freeze({ ground: 0x9bcdd5, fence: 0x648d99 }),
+  tiger: Object.freeze({ ground: 0xc9a967, fence: 0x755338 }),
+  dog: Object.freeze({ ground: 0x8eb875, fence: 0x6f5b43 }),
+  cat: Object.freeze({ ground: 0x9fc58f, fence: 0x786052 }),
 });
+
+const ANIMAL_MODELS = Object.freeze({
+  elephant: Object.freeze({
+    file: 'elephant.glb',
+    targetHeight: 2.45,
+    // This model carries no texture and ships three materials all set to the
+    // same flat 0.8 grey, so it reads as a white blob under the zoo's lights.
+    // Colouring by material name is safe precisely because there is no texture.
+    tint: Object.freeze({ 'Elephant Gray': 0x9aa4a9, Dark: 0x4b5258, Ivory: 0xf0e7d2 }),
+  }),
+  giraffe: Object.freeze({ file: 'giraffe.glb', targetHeight: 3.65 }),
+  penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.55 }),
+  tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65 }),
+  dog: Object.freeze({ file: 'Animals.glb', node: 'dog.001', targetHeight: 1.05 }),
+  cat: Object.freeze({ file: 'Animals.glb', node: 'kitty.001', targetHeight: 0.72 }),
+});
+
+function publicPath(path) {
+  return `${import.meta.env?.BASE_URL || './'}${path}`;
+}
 
 function drawAnimalIcon(context, id, x, y) {
   context.save();
@@ -49,24 +71,6 @@ function drawAnimalIcon(context, id, x, y) {
     context.lineTo(75, 55);
     context.stroke();
     fillCircle('#c3c9cd', 28, -20, 24);
-  } else if (id === 'lion') {
-    fillRect('#dca34d', -68, -18, 100, 52);
-    fillCircle('#8d5b35', 46, -18, 42);
-    fillCircle('#dfa950', 46, -18, 26);
-  } else if (id === 'panda') {
-    fillRect('#f4f1e8', -62, -24, 96, 60);
-    fillCircle('#f4f1e8', 46, -20, 36);
-    fillCircle('#222833', 26, -48, 13);
-    fillCircle('#222833', 66, -48, 13);
-    fillCircle('#222833', 34, -23, 9);
-    fillCircle('#222833', 58, -23, 9);
-  } else if (id === 'monkey') {
-    fillRect('#865537', -48, -22, 77, 61);
-    fillCircle('#865537', 42, -25, 32);
-    fillCircle('#d7a06b', 47, -21, 19);
-    context.beginPath();
-    context.arc(-42, 5, 44, 0.45 * Math.PI, 1.65 * Math.PI);
-    context.stroke();
   } else if (id === 'giraffe') {
     fillRect('#e9bb4e', -64, 4, 82, 38);
     fillRect('#e9bb4e', 2, -68, 26, 88);
@@ -75,7 +79,7 @@ function drawAnimalIcon(context, id, x, y) {
     for (const [sx, sy] of [[-43, 17], [-12, 9], [11, -46], [12, -14], [38, -72]]) {
       context.fillRect(sx, sy, 13, 13);
     }
-  } else {
+  } else if (id === 'penguin') {
     fillCircle('#202a35', 0, 0, 52);
     context.fillStyle = '#f4f4ec';
     context.beginPath();
@@ -88,6 +92,37 @@ function drawAnimalIcon(context, id, x, y) {
     context.lineTo(47, 2);
     context.closePath();
     context.fill();
+    context.stroke();
+  } else if (id === 'tiger') {
+    fillRect('#e79838', -68, -20, 103, 55);
+    fillCircle('#e79838', 46, -17, 34);
+    context.strokeStyle = '#513722';
+    context.lineWidth = 13;
+    for (const sx of [-48, -15, 32, 55]) {
+      context.beginPath();
+      context.moveTo(sx, -37);
+      context.lineTo(sx + 8, -5);
+      context.stroke();
+    }
+  } else if (id === 'dog') {
+    fillRect('#b77a49', -63, -18, 96, 53);
+    fillCircle('#c98e5a', 45, -19, 33);
+    fillRect('#6d4932', 18, -57, 17, 35);
+    fillCircle('#f1d1a1', 58, -10, 13);
+  } else {
+    fillRect('#b7a394', -58, -16, 88, 49);
+    fillCircle('#b7a394', 43, -20, 31);
+    context.fillStyle = '#b7a394';
+    context.beginPath();
+    context.moveTo(19, -42);
+    context.lineTo(25, -72);
+    context.lineTo(40, -47);
+    context.lineTo(55, -72);
+    context.lineTo(66, -40);
+    context.fill();
+    context.stroke();
+    context.beginPath();
+    context.arc(-48, 2, 36, 0.45 * Math.PI, 1.65 * Math.PI);
     context.stroke();
   }
   context.restore();
@@ -102,7 +137,10 @@ export function createZooWorld({ labels = {} } = {}) {
   const materials = new Set();
   const textures = new Set();
   const canvases = new Set();
+  const modelSources = new Set();
   const animations = [];
+  const modelAbort = new AbortController();
+  let loadPromise = null;
   let elapsed = 0;
   let disposed = false;
 
@@ -229,12 +267,15 @@ export function createZooWorld({ labels = {} } = {}) {
     // plain board instead.
     const material = ownMaterial(new THREE.MeshBasicMaterial({ map: texture }));
     const inward = new THREE.Vector2(-worldX, -worldZ).normalize();
-    const sign = addMesh(habitatGroup, plane, material, inward.x * 3.3, 3.0, inward.y * 3.3);
+    const tangent = new THREE.Vector2(-inward.y, inward.x);
+    const signX = inward.x * 3.3 + tangent.x * 3.5;
+    const signZ = inward.y * 3.3 + tangent.y * 3.5;
+    const sign = addMesh(habitatGroup, plane, material, signX, 3.0, signZ);
     sign.rotation.y = Math.atan2(inward.x, inward.y);
     const backing = addMesh(habitatGroup, plane, ownMaterial(new THREE.MeshBasicMaterial({ color: 0xf3f6fa })),
-      inward.x * 3.34, 3.0, inward.y * 3.34);
+      signX + inward.x * 0.04, 3.0, signZ + inward.y * 0.04);
     backing.rotation.y = sign.rotation.y + Math.PI;
-    addMesh(habitatGroup, cylinder, dark, inward.x * 3.3, 1.45, inward.y * 3.3, 0.15, 2.9, 0.15);
+    addMesh(habitatGroup, cylinder, dark, signX, 1.45, signZ, 0.15, 2.9, 0.15);
     return sign;
   }
 
@@ -251,120 +292,27 @@ export function createZooWorld({ labels = {} } = {}) {
     }
   }
 
-  function createElephant(parent) {
-    const animal = new THREE.Group();
-    const gray = makeMaterial(0x929da5);
-    const grayLight = makeMaterial(0xb7c0c4);
-    const ivory = makeMaterial(0xfff2c9);
-    addMesh(animal, box, gray, 0, 1.3, 0, 2.15, 1.2, 1.12);
-    for (const x of [-0.72, 0.72]) for (const z of [-0.34, 0.34]) addMesh(animal, box, gray, x, 0.48, z, 0.42, 1.05, 0.42);
-    addMesh(animal, box, gray, 0, 1.62, 0.9, 1.05, 1.02, 0.82);
-    addMesh(animal, box, grayLight, -0.64, 1.68, 0.83, 0.34, 0.9, 0.72);
-    addMesh(animal, box, grayLight, 0.64, 1.68, 0.83, 0.34, 0.9, 0.72);
-    addMesh(animal, box, gray, 0, 0.98, 1.43, 0.3, 1.55, 0.3);
-    const leftTusk = addMesh(animal, cylinder, ivory, -0.31, 1.12, 1.48, 0.08, 0.65, 0.08);
-    const rightTusk = addMesh(animal, cylinder, ivory, 0.31, 1.12, 1.48, 0.08, 0.65, 0.08);
-    leftTusk.rotation.x = rightTusk.rotation.x = -0.18;
-    parent.add(animal);
-    return animal;
+  const placeholderMaterial = makeMaterial(0x91a0aa, { transparent: true, opacity: 0.82 });
+
+  function createPlaceholder(targetHeight) {
+    const placeholder = new THREE.Group();
+    const bodyHeight = targetHeight * 0.58;
+    addMesh(placeholder, box, placeholderMaterial, 0, bodyHeight * 0.5, 0,
+      targetHeight * 0.62, bodyHeight, targetHeight * 0.36);
+    addMesh(placeholder, sphere, placeholderMaterial, 0, targetHeight * 0.72, targetHeight * 0.2,
+      targetHeight * 0.22, targetHeight * 0.22, targetHeight * 0.22);
+    return placeholder;
   }
 
-  function createLion(parent) {
-    const animal = new THREE.Group();
-    const gold = makeMaterial(0xd79b43);
-    const mane = makeMaterial(0x7e4d2d);
-    const muzzle = makeMaterial(0xf0c476);
-    addMesh(animal, box, gold, 0, 1.05, 0, 1.8, 0.95, 0.9);
-    for (const x of [-0.62, 0.62]) for (const z of [-0.27, 0.27]) addMesh(animal, box, gold, x, 0.42, z, 0.3, 0.9, 0.3);
-    addMesh(animal, box, mane, 0, 1.45, 0.8, 1.2, 1.25, 0.45);
-    addMesh(animal, box, gold, 0, 1.47, 1.08, 0.83, 0.82, 0.7);
-    addMesh(animal, box, muzzle, 0, 1.28, 1.5, 0.52, 0.34, 0.24);
-    const tail = addMesh(animal, box, gold, -1.02, 1.15, -0.32, 0.16, 0.16, 1.1);
-    tail.rotation.x = 0.45;
-    addMesh(animal, sphere, mane, -1.02, 1.55, -0.79, 0.22, 0.22, 0.22);
-    parent.add(animal);
-    return animal;
+  function applyPhotoBounds(habitat, object) {
+    object.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    const size = bounds.getSize(new THREE.Vector3());
+    const center = bounds.getCenter(new THREE.Vector3());
+    habitat.animal.worldToLocal(center);
+    habitat.photoTarget.position.copy(center);
+    habitat.photoRadius = Math.max(0.18, Math.max(size.x, size.z) * 0.5);
   }
-
-  function createPanda(parent) {
-    const animal = new THREE.Group();
-    const white = makeMaterial(0xf2f0e8);
-    const black = makeMaterial(0x20252b);
-    addMesh(animal, box, white, 0, 1.05, 0, 1.45, 1.15, 0.92);
-    for (const x of [-0.54, 0.54]) for (const z of [-0.26, 0.26]) addMesh(animal, box, black, x, 0.42, z, 0.34, 0.82, 0.34);
-    addMesh(animal, box, white, 0, 1.56, 0.72, 1.05, 0.91, 0.68);
-    addMesh(animal, box, black, -0.35, 1.7, 1.08, 0.27, 0.31, 0.12);
-    addMesh(animal, box, black, 0.35, 1.7, 1.08, 0.27, 0.31, 0.12);
-    addMesh(animal, sphere, black, -0.45, 2.03, 0.73, 0.25, 0.25, 0.25);
-    addMesh(animal, sphere, black, 0.45, 2.03, 0.73, 0.25, 0.25, 0.25);
-    parent.add(animal);
-    return animal;
-  }
-
-  function createMonkey(parent) {
-    const animal = new THREE.Group();
-    const brown = makeMaterial(0x7a4d31);
-    const tan = makeMaterial(0xd8a06a);
-    addMesh(animal, box, brown, 0, 1.08, 0, 1.12, 1.12, 0.74);
-    addMesh(animal, box, brown, 0, 1.66, 0.55, 0.86, 0.82, 0.64);
-    addMesh(animal, box, tan, 0, 1.58, 0.9, 0.56, 0.48, 0.16);
-    for (const x of [-0.72, 0.72]) {
-      const arm = addMesh(animal, box, brown, x, 0.91, 0.08, 0.28, 1.42, 0.28);
-      arm.rotation.z = x < 0 ? -0.25 : 0.25;
-      addMesh(animal, box, brown, x * 0.58, 0.34, -0.13, 0.32, 0.72, 0.32);
-    }
-    const tailOne = addMesh(animal, box, brown, -0.68, 1.08, -0.64, 0.18, 0.18, 1.0);
-    tailOne.rotation.x = -0.55;
-    const tailTwo = addMesh(animal, box, brown, -0.68, 1.51, -1.02, 0.18, 0.92, 0.18);
-    tailTwo.rotation.z = -0.28;
-    parent.add(animal);
-    return animal;
-  }
-
-  function createGiraffe(parent) {
-    const animal = new THREE.Group();
-    const yellow = makeMaterial(0xe3b447);
-    const brown = makeMaterial(0x88512d);
-    const darkBrown = makeMaterial(0x5d3c2c);
-    addMesh(animal, box, yellow, 0, 1.48, 0, 1.65, 0.86, 0.82);
-    for (const x of [-0.56, 0.56]) for (const z of [-0.23, 0.23]) addMesh(animal, box, yellow, x, 0.65, z, 0.25, 1.45, 0.25);
-    addMesh(animal, box, yellow, 0, 2.66, 0.43, 0.43, 2.25, 0.43);
-    addMesh(animal, box, yellow, 0, 3.72, 0.7, 0.72, 0.55, 0.9);
-    for (const x of [-0.2, 0.2]) addMesh(animal, cylinder, darkBrown, x, 4.18, 0.7, 0.08, 0.45, 0.08);
-    for (const [x, y, z] of [[-0.44, 1.65, 0.43], [0.35, 1.45, -0.43], [0, 2.35, 0.66], [0, 3.0, 0.66], [0.2, 3.78, 1.15]]) {
-      addMesh(animal, box, brown, x, y, z, 0.28, 0.28, 0.1);
-    }
-    parent.add(animal);
-    return animal;
-  }
-
-  function createPenguin(parent) {
-    const animal = new THREE.Group();
-    const black = makeMaterial(0x202936);
-    const white = makeMaterial(0xf4f5ef);
-    const orange = makeMaterial(0xef9832);
-    addMesh(animal, box, black, 0, 1.0, 0, 1.05, 1.55, 0.82);
-    addMesh(animal, box, white, 0, 0.97, 0.44, 0.67, 1.1, 0.08);
-    addMesh(animal, box, black, 0, 1.72, 0.16, 0.83, 0.72, 0.7);
-    const beak = addMesh(animal, box, orange, 0, 1.65, 0.67, 0.38, 0.18, 0.5);
-    beak.rotation.x = Math.PI / 10;
-    for (const x of [-0.4, 0.4]) {
-      const flipper = addMesh(animal, box, black, x, 1.05, 0, 0.22, 1.0, 0.48);
-      flipper.rotation.z = x < 0 ? -0.32 : 0.32;
-      addMesh(animal, box, orange, x * 0.55, 0.17, 0.2, 0.52, 0.13, 0.67);
-    }
-    parent.add(animal);
-    return animal;
-  }
-
-  const animalFactories = {
-    elephant: createElephant,
-    lion: createLion,
-    panda: createPanda,
-    monkey: createMonkey,
-    giraffe: createGiraffe,
-    penguin: createPenguin,
-  };
 
   const habitats = HABITAT_POSITIONS.map((position, index) => {
     const visual = ANIMAL_VISUALS[position.id];
@@ -376,14 +324,22 @@ export function createZooWorld({ labels = {} } = {}) {
     floor.rotation.y = Math.PI / 8;
     addFence(habitatGroup, visual);
     const sign = createSign(position.id, habitatGroup, position.x, position.z);
-    const animal = animalFactories[position.id](habitatGroup);
+    const animal = new THREE.Group();
     animal.name = `zoo-animal-${position.id}`;
     animal.userData.animalId = position.id;
-    animal.rotation.y = Math.atan2(-position.x, -position.z);
+    const facing = Math.atan2(-position.x, -position.z);
+    const inward = new THREE.Vector2(-position.x, -position.z).normalize();
+    const tangent = new THREE.Vector2(-inward.y, inward.x);
+    const baseX = -tangent.x * 0.85;
+    const baseZ = -tangent.y * 0.85;
+    animal.position.set(baseX, 0, baseZ);
+    animal.rotation.y = facing;
+    habitatGroup.add(animal);
     const photoTarget = new THREE.Object3D();
     photoTarget.name = `zoo-photo-target-${position.id}`;
-    photoTarget.position.set(0, position.id === 'giraffe' ? 2.15 : 1.2, 0);
     animal.add(photoTarget);
+    const placeholder = createPlaceholder(ANIMAL_MODELS[position.id].targetHeight);
+    animal.add(placeholder);
     animations.push({
       kind: 'animal',
       object: animal,
@@ -392,18 +348,131 @@ export function createZooWorld({ labels = {} } = {}) {
       radiusX: 0.55 + (index % 2) * 0.18,
       radiusZ: 0.34 + ((index + 1) % 2) * 0.15,
       baseY: 0,
+      baseX,
+      baseZ,
+      facing,
     });
-    return {
+    const habitat = {
       id: position.id,
       x: position.x,
       z: position.z,
       group: habitatGroup,
       animal,
       photoTarget,
-      photoRadius: visual.radius,
+      photoRadius: 0,
       sign,
+      placeholder,
     };
+    applyPhotoBounds(habitat, placeholder);
+    return habitat;
   });
+
+  function disposeModelSource(root) {
+    const sourceGeometries = new Set();
+    const sourceMaterials = new Set();
+    const sourceTextures = new Set();
+    root.traverse((object) => {
+      if (!object.isMesh) return;
+      if (object.geometry) sourceGeometries.add(object.geometry);
+      const meshMaterials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of meshMaterials) {
+        if (!material) continue;
+        sourceMaterials.add(material);
+        for (const value of Object.values(material)) {
+          if (value?.isTexture) sourceTextures.add(value);
+        }
+      }
+    });
+    for (const texture of sourceTextures) texture.dispose();
+    for (const material of sourceMaterials) material.dispose();
+    for (const geometry of sourceGeometries) geometry.dispose();
+  }
+
+  function placeModel(habitat, sourceObject) {
+    const config = ANIMAL_MODELS[habitat.id];
+    // Every animal but the elephant is skinned, and Object3D.clone() does not
+    // rebind a skeleton: the meshes kept rendering from the source rig near the
+    // file's origin, so the tiger stood out on the grass and the dog, cat and
+    // penguin never appeared in their pens at all.
+    const sourceClone = cloneSkinned(sourceObject);
+    sourceClone.updateMatrixWorld(true);
+    const rawBounds = new THREE.Box3().setFromObject(sourceClone);
+    const rawSize = rawBounds.getSize(new THREE.Vector3());
+    if (!Number.isFinite(rawSize.y) || rawSize.y <= 0) {
+      throw new Error(`${habitat.id} has invalid bounds`);
+    }
+
+    const content = new THREE.Group();
+    const scale = config.targetHeight / rawSize.y;
+    const center = rawBounds.getCenter(new THREE.Vector3());
+    content.scale.setScalar(scale);
+    content.position.set(-center.x * scale, -rawBounds.min.y * scale, -center.z * scale);
+    content.add(sourceClone);
+    if (config.tint) {
+      sourceClone.traverse((object) => {
+        if (!object.isMesh || !object.material) return;
+        const sources = Array.isArray(object.material) ? object.material : [object.material];
+        const tinted = sources.map((material) => {
+          const colour = config.tint[material.name];
+          if (colour === undefined) return material;
+          const copy = ownMaterial(material.clone());
+          copy.color.setHex(colour);
+          return copy;
+        });
+        object.material = tinted.length === 1 ? tinted[0] : tinted;
+      });
+    }
+    content.updateMatrixWorld(true);
+
+    habitat.animal.remove(habitat.placeholder);
+    habitat.animal.add(content);
+    habitat.model = content;
+    applyPhotoBounds(habitat, content);
+  }
+
+  async function loadFile(file) {
+    const path = `assets/animals/${file}`;
+    const response = await fetch(publicPath(path), { cache: 'force-cache', signal: modelAbort.signal });
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    const loader = new GLTFLoader();
+    return loader.parseAsync(await response.arrayBuffer(), publicPath('assets/animals/'));
+  }
+
+  function findModelNode(root, name) {
+    const exact = root.getObjectByName(name);
+    if (exact) return exact;
+    const normalisedName = name.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    let match = null;
+    root.traverse((object) => {
+      if (!match && object.name.replace(/[^a-z0-9]/gi, '').toLowerCase() === normalisedName) match = object;
+    });
+    return match;
+  }
+
+  function loadAnimals() {
+    if (loadPromise) return loadPromise;
+    const files = [...new Set(Object.values(ANIMAL_MODELS).map((config) => config.file))];
+    loadPromise = Promise.all(files.map(async (file) => {
+      try {
+        const asset = await loadFile(file);
+        if (disposed) {
+          disposeModelSource(asset.scene);
+          return;
+        }
+        modelSources.add(asset.scene);
+        for (const habitat of habitats) {
+          const config = ANIMAL_MODELS[habitat.id];
+          if (config.file !== file) continue;
+          const sourceObject = config.node ? findModelNode(asset.scene, config.node) : asset.scene;
+          if (!sourceObject) throw new Error(`${file} is missing ${config.node}`);
+          placeModel(habitat, sourceObject);
+        }
+      } catch (error) {
+        if (!disposed) console.warn(`[zoo] ${file} unavailable; keeping animal placeholders.`, error);
+      }
+    }));
+    return loadPromise;
+  }
 
   // Gentle landmark labels are intentionally absent: habitat signs are the
   // only directional information, and none is connected to a visitor request.
@@ -421,21 +490,22 @@ export function createZooWorld({ labels = {} } = {}) {
         continue;
       }
       const angle = elapsed * animation.speed + animation.phase;
-      const x = Math.cos(angle) * animation.radiusX;
-      const z = Math.sin(angle) * animation.radiusZ;
+      const x = animation.baseX + Math.cos(angle) * animation.radiusX;
+      const z = animation.baseZ + Math.sin(angle) * animation.radiusZ;
       const previousX = animation.object.position.x;
       const previousZ = animation.object.position.z;
-      animation.object.position.set(x, animation.baseY + Math.sin(elapsed * 2 + animation.phase) * 0.025, z);
-      const dx = x - previousX;
-      const dz = z - previousZ;
-      if (Math.abs(dx) + Math.abs(dz) > 0.00001) animation.object.rotation.y = Math.atan2(dx, dz);
+      animation.object.position.set(x, animation.baseY, z);
+      const moved = Math.abs(x - previousX) + Math.abs(z - previousZ) > 0.00001;
+      if (moved) animation.object.rotation.y = animation.facing + Math.sin(angle * 1.7) * 0.1;
     }
   }
 
   function dispose() {
     if (disposed) return;
     disposed = true;
+    modelAbort.abort();
     group.removeFromParent();
+    for (const source of modelSources) disposeModelSource(source);
     for (const texture of textures) texture.dispose();
     for (const material of materials) material.dispose();
     for (const geometry of geometries) geometry.dispose();
@@ -447,8 +517,9 @@ export function createZooWorld({ labels = {} } = {}) {
     materials.clear();
     geometries.clear();
     canvases.clear();
+    modelSources.clear();
     animations.length = 0;
   }
 
-  return { group, habitats, update, dispose };
+  return { group, habitats, loadAnimals, update, dispose };
 }

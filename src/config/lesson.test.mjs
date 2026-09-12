@@ -22,7 +22,7 @@ test('natural plurals are defined per item, never inferred from the label', () =
   assert.equal(answerFor(LESSON_BY_ID.restaurant, 'curry'), 'I like curry.');
   assert.equal(answerFor(LESSON_BY_ID.restaurant, 'noodles'), 'I like noodles.');
   assert.equal(answerFor(LESSON_BY_ID.zoo, 'elephant'), 'I like elephants.');
-  assert.equal(answerFor(LESSON_BY_ID.zoo, 'lion'), 'I like lions.');
+  assert.equal(answerFor(LESSON_BY_ID.zoo, 'cat'), 'I like cats.');
   assert.equal(answerFor(LESSON_BY_ID.coloring, 'blue'), 'I like blue.');
 });
 

@@ -464,3 +464,42 @@ The target grammar is untouched: it is still "What animal do you like?" and
 "I like ___." with six countable animals, and dog and cat are words Japanese
 third graders meet early. Rejected: keeping the old list and dressing a tiger as
 a lion, which teaches the wrong word for the picture on the sign.
+
+## 2026-09-12 — Zoo models scale by animal and load behind placeholders
+
+Each real animal is measured from its loaded bounding box, centred horizontally,
+and grounded from the measured minimum Y. This handles the elephant's centred
+origin without a special-case lift and keeps replacement assets from inheriting
+hand-written offsets. Target heights are 3.65 for the giraffe, 2.45 for the
+elephant, 1.65 for the tiger, 1.55 for the penguin, 1.05 for the dog and 0.72
+for the cat. The deliberately per-animal targets restore believable relative
+scale while fitting inside the existing fences. The photo target is the placed
+bounds centre and its radius is half the largest horizontal extent.
+
+The Zoo builds immediately with a simple, photographable placeholder in every
+habitat, then loads the three supplied glTF files asynchronously and swaps in
+clones that share each source's geometry and untouched textured materials. A
+failed or slow file leaves its placeholders usable, so loading never blocks the
+lesson. Each Zoo instance owns and disposes its glTF sources, and late loads are
+aborted or discarded on exit so re-entering cannot attach duplicate animals.
+Animals keep a grounded, gentle wander while their +z-facing models stay turned
+toward the visitor path. The existing boards stay path-facing but sit toward one
+fence edge, with the animals idling slightly toward the other, so the real
+silhouettes and their English signs remain visible together from the loop.
+
+## 2026-09-12 — Skinned glTF animals must be cloned with SkeletonUtils
+
+Five of the six zoo animals are skinned meshes (all four taken from
+`Animals.glb`, plus the giraffe). They were instantiated with
+`Object3D.clone(true)`, which copies meshes but does not rebind their skeleton,
+so each one kept rendering from the source rig near the file's origin: the tiger
+stood out on the grass and the dog, cat and penguin never appeared in their pens
+at all. They are now cloned with `SkeletonUtils.clone` from three's own examples
+— no new dependency.
+
+The elephant is the exception: it has no skin, no texture, and three materials
+all set to the same flat 0.8 grey, so it blew out to a white blob under the
+zoo's lights. Its materials are now coloured by name (body, dark, ivory tusks).
+Tinting is safe here precisely because the model carries no texture — the
+opposite of the Kenney rule, where tinting a textured character turns its skin
+grey.

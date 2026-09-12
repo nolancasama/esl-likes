@@ -36,11 +36,11 @@ const VOCABULARY = Object.freeze({
   ]),
   animal: Object.freeze([
     say('elephant', 'I like elephants.'),
-    say('lion', 'I like lions.'),
-    say('panda', 'I like pandas.'),
-    say('monkey', 'I like monkeys.'),
     say('giraffe', 'I like giraffes.'),
     say('penguin', 'I like penguins.'),
+    say('tiger', 'I like tigers.'),
+    say('dog', 'I like dogs.'),
+    say('cat', 'I like cats.'),
   ]),
 });
 
@@ -212,11 +212,11 @@ export const UI = Object.freeze({
     complete: 'スタンプを ゲット！',
     animalNames: {
       elephant: 'ぞう',
-      lion: 'ライオン',
-      panda: 'パンダ',
-      monkey: 'さる',
       giraffe: 'キリン',
       penguin: 'ペンギン',
+      tiger: 'トラ',
+      dog: 'いぬ',
+      cat: 'ねこ',
     },
   },
   restaurant: {
