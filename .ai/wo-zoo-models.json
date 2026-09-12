@@ -1,0 +1,45 @@
+{
+  "task": "Replace the Zoo's procedural blocky animals with the real 3D models now in public/assets/animals/, and change the zoo vocabulary from elephant/lion/panda/monkey/giraffe/penguin to elephant/giraffe/penguin/tiger/dog/cat to match the models that exist. SPEC.md section 8 has already been updated with the new animal list and is the frozen truth.",
+  "requirements": [
+    "Read SPEC.md section 8 (Zoo v1) and the anti-shortcut rule, plus the 2026-09-12 DESIGN_DECISIONS entries about the Zoo and about the animal list following the models. Do not modify SPEC.md.",
+    "Assets already in the repo, do not download or move anything: public/assets/animals/elephant.glb (one elephant), public/assets/animals/giraffe.glb (one giraffe), public/assets/animals/Animals.glb (a pack whose scene root children are named tiger, horse.001, dog.001, deer, kitty.001, pinguin.001, chicken.001 — use tiger, dog.001, kitty.001 and pinguin.001; ignore horse, deer and chicken).",
+    "Vocabulary change, keeping the exact-sentence rule (every item defines its own sentence, natural plurals): src/config/lesson.js VOCABULARY.animal becomes elephant 'I like elephants.', giraffe 'I like giraffes.', penguin 'I like penguins.', tiger 'I like tigers.', dog 'I like dogs.', cat 'I like cats.'. Update UI.zoo.animalNames to ぞう / キリン / ペンギン / トラ / いぬ / ねこ. Update src/systems/speechMatch.js ANSWERS.animal to the same six ids (a test guards these two lists against drift). Update src/minigames/zoo/scoring.js ANIMALS. Update the animal assertion in src/config/lesson.test.mjs that currently expects 'lion' so the suite still covers a real id.",
+    "Zoo world (src/minigames/zoo/world.js): habitat ids become elephant, giraffe, penguin, tiger, dog, cat. Keep the existing habitat positions and the looping path; give each habitat ground and fence colours that suit its animal. Delete the procedural createElephant/createLion/createPanda/createMonkey/createGiraffe/createPenguin builders and everything that only served them.",
+    "Load the models with GLTFLoader, following the pattern in src/systems/characters.js (shared source geometry, cloned instances). Loading is ASYNCHRONOUS while the zoo world is built synchronously, so: start loading when the minigame is entered, show a simple placeholder in each habitat until its model arrives, and swap it in when it loads. A slow or failed load must never block or break the room — the zoo must stay completable with placeholders, exactly as character loading is optional to first paint (see DESIGN_DECISIONS).",
+    "Placement, measured per model rather than hand-tuned: derive each animal's bounding box (THREE.Box3.setFromObject) after loading, then scale it to a sensible size for the habitat and sit it ON the ground. Two measured quirks: elephant.glb has its origin at the model's CENTRE (y from -0.92 to +0.92), so it must be lifted by half its height, while giraffe/tiger/dog/kitty/pinguin have their feet at y = 0. Raw model heights are elephant 1.84, giraffe 1.45, tiger 1.28, pinguin 1.28, dog 0.79, kitty 0.22 — they are NOT in a consistent scale, so scale each to a believable relative size (a giraffe must read as the tallest, the cat as the smallest) while staying comfortably inside its fence.",
+    "Facing is unknown and cannot be read from the files: verify it in a screenshot and rotate each model so it faces the visitor path, the way Kenney models face +z at rotation 0. Do not leave an animal facing away from the child.",
+    "photoTarget and photoRadius must be derived from the placed model's bounding box (centre for the target, roughly half the largest horizontal extent for the radius) instead of the current hand-written per-animal constants, so the viewfinder's framing test stays honest for every animal.",
+    "Keep the animals gently animated as they are now (slow wander or idle motion inside the fence). The packs' own animation clips are optional: use them only if they load cleanly, otherwise keep the existing procedural motion.",
+    "Nothing else about the Zoo changes: the loop, the one-carried-photo rule, ctx.captureFrame for snapshots, the viewfinder and its framing threshold, scoring maths, the listen-again behaviour, the debug hook shape (window.__eslDebug.zoo), DOM class names, and every anti-shortcut property (animals uniformly random per visitor, repeats allowed, nothing pointing the way).",
+    "exit() must dispose the loaded glTF scenes, geometries, materials and textures it owns, and entering the Zoo twice must not leak or duplicate models.",
+    "npm test and npm run build must both pass. Capture 1366x768 screenshots of each of the six habitats with its sign, plus one viewfinder shot framing an animal, and state in your summary what you checked about scale, grounding and facing."
+  ],
+  "constraints": [
+    "Do NOT modify SPEC.md, src/systems/* other than the ANSWERS.animal list in speechMatch.js, src/ui/*, src/scenes/hub.js, src/styles.css, scripts/ (Claude maintains the playthrough harness), or any other minigame.",
+    "Do NOT add dependencies. three and vite only; GLTFLoader comes from three/examples/jsm as characters.js already does.",
+    "Do NOT change the zoo's scoring maths, framing measure, or anti-shortcut behaviour.",
+    "Do NOT re-encode, re-export, move or rename the .glb files, and do not fetch anything from the network.",
+    "Source-edit hygiene: edit files with structured file tools. If a shell-based edit fails on quoting or escaping, stop editing through the shell for that change and use the file tools; never escalate through nested shell/python/regex patches.",
+    "Do not inline code into shell commands; run the declared npm scripts."
+  ],
+  "notes": "Why the vocabulary changed: the user supplied real models that cover only three of the original six animals, so the word list follows the assets rather than mixing detailed models with procedural blocks (see the DESIGN_DECISIONS entry). The target grammar is unchanged. The zoo is otherwise finished and reviewed, so this order is a swap of the animal layer plus a rename, not a redesign — keep the diff inside src/minigames/zoo/, src/config/lesson.js, src/config/lesson.test.mjs and the one list in speechMatch.js. Model facts measured before this order: sizes and origins are listed in the requirements; the cat is tiny (0.22) and the elephant's origin is centred, which are the two things most likely to look wrong if scaled naively. Traps already paid for in this project: characters and their bubbles must never be hidden behind scenery; textured models must not be tinted; a failed asset load must degrade rather than break the scene. Append a dated DESIGN_DECISIONS entry for anything you decide about scaling or loading. List every file you touched.",
+  "startingPoints": [
+    "SPEC.md",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/scoring.js",
+    "src/systems/characters.js",
+    "src/config/lesson.js",
+    "src/config/lesson.test.mjs",
+    "src/systems/speechMatch.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "3d-gameplay",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

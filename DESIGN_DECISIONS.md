@@ -450,3 +450,17 @@ readable.
 Rejected: `preserveDrawingBuffer: true` on the renderer. It would make canvas
 reads work anywhere, but every minigame would pay for it on every frame of every
 session on a classroom Chromebook, for a feature only the Zoo uses.
+
+## 2026-09-12 — Zoo animals follow the models we actually have
+
+The zoo's six animals change from elephant, lion, panda, monkey, giraffe,
+penguin to elephant, giraffe, penguin, tiger, dog, cat. The user supplied real
+3D models, and those cover only three of the original six; a lion, panda and
+monkey do not exist in the set. Rather than run a zoo where half the animals are
+detailed models and half are procedural blocks, the vocabulary follows the
+assets so every habitat holds a real animal.
+
+The target grammar is untouched: it is still "What animal do you like?" and
+"I like ___." with six countable animals, and dog and cat are words Japanese
+third graders meet early. Rejected: keeping the old list and dressing a tiger as
+a lion, which teaches the wrong word for the picture on the sign.

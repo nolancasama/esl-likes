@@ -14,7 +14,7 @@ import { chromium } from 'playwright';
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/zoo';
 const SAVE_KEY = 'esl-likes-save-v1';
-const ANIMALS = ['elephant', 'lion', 'panda', 'monkey', 'giraffe', 'penguin'];
+const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'dog', 'cat'];
 // Adjust to the class names the minigame actually uses.
 const SEL = {
   viewfinder: '.zoo-viewfinder',
@@ -244,16 +244,16 @@ if (!process.env.ONLY_B) {
 
   s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
   const values = s?.fallback.map((f) => f.value) ?? [];
-  check('turnaround offers all six animal sentences', values.length === 6 && values.includes('panda'), s?.fallback.map((f) => f.text).join(' | '));
+  check('turnaround offers all six animal sentences', values.length === 6 && values.includes('tiger'), s?.fallback.map((f) => f.text).join(' | '));
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
-  await page.click('.lesson-hud__fallback[data-value="panda"]');
+  await page.click('.lesson-hud__fallback[data-value="tiger"]');
   s = await h.waitFor((u) => !u.debug && u.greeting !== null, 15000, 'hub');
   check('finishes back to the hub', s);
   await h.sleep(1200);
   s = await h.ui();
-  check('hub greets with the animal the child chose', s.greeting?.includes('panda'), s.greeting);
+  check('hub greets with the animal the child chose', s.greeting?.includes('tiger'), s.greeting);
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
-  check('stamp and answer persisted', saved?.stamps?.zoo === true && saved?.answers?.animal === 'panda',
+  check('stamp and answer persisted', saved?.stamps?.zoo === true && saved?.answers?.animal === 'tiger',
     JSON.stringify({ stamps: saved?.stamps, answers: saved?.answers }));
   check('listening + one replay = 3 stars', saved?.bestStars?.zoo === 3, JSON.stringify(saved?.bestStars));
   const photo = saved?.zooPhotos?.zoo ?? saved?.zooPhotos?.animal ?? null;

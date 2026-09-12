@@ -462,7 +462,7 @@ First-try share under one half caps the result at two stars.
 
 The exploratory finale, and the largest space — but navigable, not sprawling.
 
-Animals: elephant, lion, panda, monkey, giraffe, penguin.
+Animals: elephant, giraffe, penguin, tiger, dog, cat.
 
 ### Environment (v1, decided 2026-09-12)
 
