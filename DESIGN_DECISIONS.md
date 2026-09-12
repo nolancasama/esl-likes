@@ -384,3 +384,27 @@ already put spaces between phrases, so keep-all breaks only there;
 `overflow-wrap: anywhere` stays as the guard against a single overlong token.
 Coloring solved this locally for its result title; the Sports review showed it
 belonged in the shared bubble.
+
+## 2026-09-12 — Zoo v1: the camera holds one photo, and nothing points the way
+
+The child's camera keeps a single photo; a new shot replaces it. Without that,
+the obvious shortcut is to photograph all six animals and show them to the
+visitor one by one, which wins without understanding the answer. With it, every
+extra attempt costs a walk back to a habitat, and showing the wrong animal also
+loses the dominant first-try credit. The zoo still never becomes a dead end.
+
+Habitat positions stay fixed, as a real zoo's would, because knowing where the
+pandas live is not a shortcut — which animal is wanted is what the sentence
+carries. For the same reason there is no arrow, marker or minimap pointing at
+the wanted habitat: that would replace the English entirely. Orientation comes
+from a single looping path, landmarks and signage instead.
+
+## 2026-09-12 — Sports: camera behind the avatar, zones on the axes
+
+User feedback after playing: the controls felt awkward. Two causes, both
+layout. The follow camera sat off to one side (offset x 8.8), so pressing
+forward moved the avatar diagonally across the screen; it now sits directly
+behind, as in every other minigame. The four zones sat on diagonal corners, so
+reaching one meant holding two keys; they now sit straight ahead, behind, left
+and right of the plaza, which makes each zone one key away and still shows all
+four signs at once.

@@ -464,34 +464,68 @@ The exploratory finale, and the largest space — but navigable, not sprawling.
 
 Animals: elephant, lion, panda, monkey, giraffe, penguin.
 
-### Environment
+### Environment (v1, decided 2026-09-12)
 
-Clear looping paths, readable signage, six recognizable habitats, and landmarks
-for orientation. A child must never feel lost. Paths loop, so wandering always
-returns somewhere useful.
+An entrance plaza, where visitors wait, and one looping path that passes all
+six habitats and returns to the plaza, so wandering always arrives somewhere
+useful. Each habitat has a slow-moving blocky animal and a large sign with a
+picture and its English word. Landmarks (the plaza fountain, a tall tree, a
+striped gate) keep the child oriented. The follow camera sits directly behind
+the avatar so that pressing forward always moves up the screen.
 
 ### Loop
 
-An NPC asks for help, the player asks "What animal do you like?", hears "I like
-elephants.", explores, finds the habitat, **takes a photo**, returns, shows the
-NPC, and gets a reaction.
+1. A visitor at the plaza asks for help. The child asks "What animal do you
+   like?" and hears "I like elephants." The bubble then disappears, and nothing
+   records the answer.
+2. The child explores, finds that habitat, and takes a photo.
+3. Back at the plaza, the child shows the photo to the visitor. The right
+   animal earns a delighted reaction and the visitor leaves happy.
+4. The wrong animal: the visitor says in Japanese that it is not their
+   favourite, without repeating the English, and waits for another try.
+5. 🔊 もういちど きく replays that visitor's answer and forfeits only their
+   memory bonus.
+6. After the last visitor comes the turnaround: "What animal do you like?" /
+   "I like ___." with any of the six animals.
 
 ### Photo mechanic (ADDED — the original had no real action)
 
-Pressing the camera opens a 2D viewfinder overlay. The animal must be framed
-inside it — reasonably centered and large enough — before the shutter works.
-This makes the photo an action rather than walking onto a trigger tile. The
-snapshot is kept and shown in the stamp book.
+Pressing the camera opens a 2D viewfinder overlay over the 3D view. The animal
+must be framed inside it — reasonably centred and large enough — before the
+shutter works. Aiming is forgiving and coarse: turn and step closer, never
+pixel-accurate. The snapshot is kept and shown in the stamp book.
 
-Forgetting is fine: walk back and ask the NPC again, at no cost. Wrong animal:
-the NPC says it is not their favorite, and the player tries again with no
-penalty.
+**The camera holds one photo at a time.** A new shot replaces the old one.
+This is what stops "photograph all six, then show them in turn" from replacing
+listening, and it is also why the photo is worth taking carefully.
 
-Time is never the challenge here.
+### Difficulty
+
+L1 3 requests, one visitor at a time. L2 4 requests with two visitors waiting.
+L3 6 requests with three, so several animals are held in memory at once. Time
+is never the challenge here, and there is no failure state.
+
+### Anti-shortcut review (applied before building)
+
+- Free trial and error is the real risk. Carrying only one photo makes a tour
+  cost a full walk back to the habitat for every attempt, and showing the wrong
+  animal loses the dominant first-try credit. Nothing is removed from the
+  choice, so elimination never narrows it.
+- Each visitor's animal is uniformly random and independent of their model,
+  waiting spot, asking order and the other visitors; repeats are allowed.
+- Visitors carry nothing animal-related, and no habitat is highlighted. Habitat
+  positions stay fixed, as a real zoo's would: knowing where the pandas live is
+  not a shortcut, because which animal is wanted is what the English carries.
+- Nothing points the way. There is no marker, arrow or minimap pointing at the
+  wanted habitat, because that would replace the sentence entirely.
 
 ### Scoring
 
-Correct animal, photo quality (framing), and requests completed.
+Computed in a pure module from per-request records. Showing the correct animal
+first is the dominant term; showing it after a wrong attempt earns part credit.
+Photo framing (reasonably centred, large enough) adds a little, so a careless
+shot is worth less than a good one. A memory bonus goes to visitors never
+replayed. First-try share under one half caps the result at two stars.
 
 ---
 

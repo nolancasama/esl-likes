@@ -13,11 +13,13 @@ const FOLLOW_GAP = 1.35;
 const FIELD_LIMIT = 13.6;
 const NPC_MODELS = Object.freeze('bcdefghijklmnopqr'.split(''));
 
+// Straight ahead, behind, left and right of the plaza rather than on diagonals:
+// with the follow camera behind the avatar, each zone is then one key away.
 const CORNERS = Object.freeze([
-  Object.freeze({ x: -9.5, z: -9.5 }),
-  Object.freeze({ x: 9.5, z: -9.5 }),
-  Object.freeze({ x: -9.5, z: 9.5 }),
-  Object.freeze({ x: 9.5, z: 9.5 }),
+  Object.freeze({ x: 0, z: -11 }),
+  Object.freeze({ x: 11, z: 0 }),
+  Object.freeze({ x: 0, z: 11 }),
+  Object.freeze({ x: -11, z: 0 }),
 ]);
 
 const DIFFICULTY = Object.freeze({
@@ -391,7 +393,7 @@ export function createSports(ctx) {
     scene.add(world);
     resetTrail();
     cameraRig.setTarget(cameraFocus).setPreset('follow', {
-      offset: [12, 16, 20],
+      offset: [0, 16, 20],
       lookOffset: [0, 0.9, 0],
       damping: 5,
     });
@@ -520,7 +522,7 @@ export function createSports(ctx) {
   function restoreFollowCamera() {
     overviewCamera = false;
     cameraRig.setTarget(cameraFocus).setPreset('follow', {
-      offset: [8.8, 10.8, 12.2], lookOffset: [0, 0.9, -1.2], damping: 5,
+      offset: [0, 11.4, 13.2], lookOffset: [0, 0.9, -1.2], damping: 5,
     });
   }
 
