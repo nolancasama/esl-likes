@@ -20,6 +20,10 @@ export function createAudio(settings = {}) {
   let context = null;
   let masterGain = null;
   let ducked = false;
+  // Service minigames duck their own effects while the child is speaking: in a
+  // classroom, game sound from the speakers bleeds into the microphone. Speech
+  // synthesis sets its volume per utterance, so the NPC's answer stays clear.
+  let focusDucked = false;
   let destroyed = false;
 
   function ensureContext() {
@@ -39,7 +43,7 @@ export function createAudio(settings = {}) {
 
   function syncVolume() {
     if (!masterGain || !context) return;
-    const level = readVolume(settings) * (ducked ? 0.35 : 1);
+    const level = readVolume(settings) * (ducked ? 0.35 : 1) * (focusDucked ? 0.25 : 1);
     masterGain.gain.setTargetAtTime(level, context.currentTime, 0.015);
   }
 
@@ -138,5 +142,11 @@ export function createAudio(settings = {}) {
     masterGain = null;
   }
 
-  return { speak, stop, playSfx, syncVolume, destroy };
+  /** Duck (true) or restore (false) sound effects for a protected speech moment. */
+  function setFocusDuck(active) {
+    focusDucked = Boolean(active);
+    syncVolume();
+  }
+
+  return { speak, stop, playSfx, syncVolume, setFocusDuck, destroy };
 }

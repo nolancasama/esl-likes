@@ -75,7 +75,10 @@ child's L2 is not the skill being taught here.
 ### Controls (identical in every 3D minigame)
 
 - WASD / arrow keys to move. Nothing else is required to play.
-- One interact key (Space) and one talk control (hold).
+- One interact key (Space) and one talk control (hold). In the two service
+  minigames (Restaurant, Drink Stand) the primary way to talk is to stop and
+  face an eligible customer: after a short dwell the conversation starts by
+  itself (see §3 "Dwell to talk"); hold-to-talk remains the manual fallback.
 - Camera follows gently from a raised three-quarter angle. NO mandatory mouse
   look, NO manual rotation, NO precision movement, NO platforming.
 - Interaction zones are large and forgiving — a generous radius, not a
@@ -126,6 +129,40 @@ approach from `town-builder/src/systems/speech.js`.
 Interim hypotheses are judged live, for SUCCESS ONLY — a correct sentence is
 accepted the instant the recognizer reports it, without waiting for release. A
 non-match during the hold keeps listening.
+
+### Dwell to talk (ADDED 2026-09-13 — Restaurant and Drink Stand only)
+
+Rush-hour play is "run → stop at a customer → speak → run again". In the two
+service minigames a conversation starts when the child deliberately stops:
+
+- the player is inside the customer's normal talk radius, the customer is
+  eligible (a raised hand / an unasked window customer), the player is not
+  moving, and is facing the customer within about ±55°, continuously for
+  `AUTO_TALK_DWELL_MS` (1200 ms). Passing by never starts anything.
+- The dwell locks its customer; a nearer neighbour cannot steal it. After a
+  click-to-walk the avatar turns to face the clicked customer and the dwell
+  starts with no extra click.
+- A simple progress ring fills on that customer and they turn slightly toward
+  the player. Moving or turning away cancels it at once, with no penalty.
+- When the dwell completes the conversation **commits**: speech focus begins,
+  effects duck, a soft ready chime plays and the microphone opens by itself for
+  one bounded session (it ends on silence or the usual cap). In mic-free mode
+  the read-and-tap fallback opens instead.
+- The microphone is opened automatically only when permission is already
+  granted or a hold has worked in this session, so no browser permission popup
+  appears mid-game; otherwise the commit leaves the normal hold control waiting.
+- Holding the talk control during the dwell commits immediately (manual
+  fallback). Listen Again stays an explicit button, never a dwell.
+- An asked customer never auto-triggers again. After a failed or cancelled
+  attempt the dwell stays disarmed until the child moves or leaves the radius,
+  then a one-second neutral pause — the microphone can never keep reopening
+  while a child stands still. Manual hold stays available throughout.
+- The camera does not move: the Restaurant's whole-room frame and the Drink
+  Stand's fixed view are what keep every demand and station visible.
+- `AUTO_TALK_ENABLED` switches the behaviour off, restoring proximity prompts.
+
+The microphone is still never continuously open: each automatic session is one
+bounded attempt that the child chose by stopping.
 
 ### Visible states (all five must be unmistakable)
 
@@ -201,7 +238,9 @@ The matcher for this direction requires `like` plus any one category word.
 > **While the child is speaking, the game stops pressing them.**
 
 Speaking English must never cost a child anything in a game about speaking
-English. Whenever a required speech interaction is open — the talk prompt
+English. Speech focus begins when a conversation commits (a dwell completes, a hold
+starts, or the fallback opens), never merely because the child walked into a
+talk radius or is still dwelling. Whenever a required speech interaction is open — the talk prompt
 showing, the button held, recognition running, a retry after a failed
 recognition, or the read-and-tap fallback — every source of service pressure
 pauses or nearly pauses:
@@ -327,13 +366,48 @@ Never one customer. With a single recipient the only ready dish obviously
 belongs to them, and the English answer becomes unnecessary — the anti-shortcut
 rule fails at the easiest level, where it matters most.
 
-- **L1** — 3 customers seated, one active order at a time, one ready dish at a
-  time, very generous patience. The answer must still be remembered, because
+- **L1** — warm-up shift: 3 tables, one live order at a time, 5 customers in
+  total, very generous patience. The answer must still be remembered, because
   three people could have asked for it.
-- **L2** — 4 customers, 2–3 orders live at once, overlapping preparation,
-  readiness out of asking order, possibly two ready dishes.
-- **L3** — about 5 customers, 3–4 orders overlapping, staggered preparation,
-  several ready dishes, moderate but still forgiving patience.
+- **L2** — rush: 4 tables, up to 3 live orders, 7 customers in total,
+  overlapping preparation, readiness out of asking order, two ready dishes common.
+- **L3** — rush hour: 5 tables, up to 4 live orders, 8 customers in total;
+  hands go up while the player carries food, several ready dishes are normal,
+  moderate but still forgiving patience.
+
+The live-order limit counts a raised hand as well as a taken order (revised
+2026-09-13), and sits at the top of each range so Normal never plays as one
+order at a time.
+
+### Service shift (revised 2026-09-13)
+
+A session is a short service shift, not a fixed list that empties the room.
+When a customer is served or gives up, their table frees and, after a short
+randomised delay, a new customer walks in and sits with a new, independently
+random food; a table never predicts a food. The shift ends when its customer
+total has been resolved (served or left), so the room stays busy until the
+last few customers.
+
+A small service director, driven only by the service clock, shapes the shift:
+
+- **Warm-up** — about the first 18 seconds of service time, at most two
+  demands at once, gentler delays.
+- **Rush** — arrivals and hands overlap; bells, raised hands and ready dishes
+  coexist; idle stretches are cut short.
+- **Final push** — once the last customers are seated: shorter replacement and
+  hand-raise delays and a small ラストスパート！ cue. No sudden spike.
+
+The director staggers hands (a newly seated customer settles about 1–2.5
+seconds before raising a hand), spaces bells so dishes never ring on the same
+frame, briefly holds new events after speech focus ends so the child is not
+ambushed the instant they finish speaking, and keeps enough randomness that
+shifts do not feel scripted. Because it reads only the service clock, speech
+focus freezes it entirely. A small progress counter is allowed; a large
+countdown is not. Nothing is ever a game over: a shift always ends, because
+patience eventually resolves every customer.
+
+Rejected for now: continuous ambience (in a classroom it bleeds into the
+microphone during recognition) and footstep sounds (noise for no information).
 
 Carrying two dishes at once is deliberately NOT in this revision: it adds a
 carry-slot state machine and delivery ambiguity for little pedagogical gain.
@@ -464,13 +538,22 @@ plainly readable at 1366x768.
 
 ### Difficulty
 
-Customers per session: L1 5, L2 5, L3 5 or 6 (revised 2026-09-12 down from
-6/7/8 — asking the same question eight times is repetition, not practice; five
-askings plus the turnaround is enough). At most 1, 2 or 3 customers stand at
-windows at once; anyone beyond that waits in a visible line, not yet asked,
-with their patience paused. Every session ends with a RUSH: the last three
-customers arrive in quick succession, announced by a large ラッシュ！ banner. It
-is a finale, never a fail state.
+A session is a short, intense service rush (revised 2026-09-13). Customers per
+session: L1 5, L2 6, L3 7. Every customer is a real asking — there are no
+filler customers — so repetition stays bounded. At most 1, 2 or 3 windows are
+in use at once; anyone beyond that waits in a visible line, not yet asked,
+with their patience paused.
+
+A small director, driven only by the service clock, keeps the stand busy after
+a short warm-up: a freed window is refilled from the line at once, and the line
+is topped up so that during the rush someone is usually waiting behind the
+windows. The final ラッシュ！ is a real phase, not only a banner: the remaining
+customers arrive in quick succession, the line visibly grows and the cue sounds
+quicken. It is a finale, never a fail state. Speech focus freezes the director
+with everything else; when the answer ends, the rush resumes.
+
+Drink Stand stays immediate: no kitchen delays, no tray, no temperature and no
+person-order memory beyond the customers currently at the windows.
 
 Patience is a visible, generous meter above each customer at a window. A
 customer whose patience runs out waves and leaves. Play continues, and there is

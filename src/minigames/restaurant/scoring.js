@@ -38,6 +38,7 @@ const DELIVERY_POINTS = Object.freeze({
 });
 
 const MAX_POINTS_PER_CUSTOMER = 10;
+export const FIRST_TRY_SHARE_CAP = 0.5;
 
 /**
  * Score a completed session from customer-resolution records.
@@ -74,7 +75,7 @@ export function scoreSession(records) {
   const firstTryShare = customerCount === 0 ? 0 : firstTryCount / customerCount;
 
   let stars = ratio >= 0.75 ? 3 : ratio >= 0.4 ? 2 : 1;
-  if (firstTryShare < 0.5 && stars === 3) stars = 2;
+  if (firstTryShare < FIRST_TRY_SHARE_CAP && stars === 3) stars = 2;
 
   return {
     earned,

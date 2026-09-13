@@ -1,0 +1,58 @@
+{
+  "task": "Add the shared dwell-to-talk foundation to esl-likes: a pure tested dwell state machine (src/systems/talkDwell.js), interaction timing constants (src/config/interaction.js), a bounded programmatic listenOnce() path plus permission gating in src/systems/speech.js, and a browser speech mock helper for playthroughs — without changing existing hold-to-talk behaviour or any minigame.",
+  "notes": [
+    "READ FIRST: SPEC.md §3 'Interaction', the new §3 'Dwell to talk (ADDED 2026-09-13)', §3 'Protected speech focus', and the DESIGN_DECISIONS.md entry '2026-09-13 — Dwell to talk in the service games'. That is the frozen contract. This order builds only the shared foundation; two later orders integrate it into Restaurant and Drink Stand, so the API below is a contract — implement it exactly, and justify any deviation in your summary.",
+    "CONFIG — create src/config/interaction.js exporting: AUTO_TALK_ENABLED = true; AUTO_TALK_DWELL_MS = 1200; AUTO_TALK_FACING_DEGREES = 55; AUTO_TALK_REARM_MS = 1000. One place for these values; no scattered literals.",
+    "DWELL MODULE — create src/systems/talkDwell.js, PURE (no DOM, no three.js, no timers), exporting createTalkDwell({ dwellMs = AUTO_TALK_DWELL_MS, facingDegrees = AUTO_TALK_FACING_DEGREES, rearmMs = AUTO_TALK_REARM_MS } = {}). It returns { update(dt, input), commit(), reset(), notifyAccepted(id), notifyEnded(id, outcome), get phase, get targetId, get progress }. dt is seconds of REAL frame time (callers pass the render dt, not service time). input = { candidates: [{ id, x, z, radiusSq }], player: { x, z, forwardX, forwardZ }, moving: boolean, lockedTargetId: id | null }. phase is 'idle' | 'dwelling' | 'ready' | 'committed'. Semantics: (1) no dwell while moving; (2) without a lockedTargetId, choose the candidate whose radius contains the player and whose direction is closest to the player's forward within ±facingDegrees; with a lockedTargetId (click-to-walk), only that candidate may be chosen; (3) once dwelling, KEEP the target — do not switch because another candidate becomes closer or better faced; cancel (progress 0, phase idle) if the target leaves the candidate list, the player leaves its radius, turns beyond the tolerance, or moves; (4) progress rises from 0 to 1 over dwellMs; at 1 phase becomes 'ready' and stays ready (no auto-restart) until the caller calls commit() (phase 'committed') or the conditions break; (5) notifyAccepted(id) makes id permanently ineligible for the life of the instance and returns to idle; (6) notifyEnded(id, 'failed' | 'cancelled') returns to idle and DISARMS id until the player is observed moving or outside id's radius, and after that until rearmMs of non-moving time has passed — so a child standing still can never loop; (7) reset() clears everything (minigame exit). Facing is computed from forward vectors, tolerant of unnormalised input and a zero vector (treat zero forward as not facing). Numerically safe for dt 0, negative or huge.",
+    "SPEECH — extend src/systems/speech.js additively. HoldToTalk gains listen(): start one recognition session WITHOUT a pointer or key (same recognition settings, same live-result success judging); it finishes when the engine ends on its own (continuous = false ends after speech/silence — today onend is ignored while active, so in this automatic mode onend must finish the session like a release), or at the existing MAX_HOLD_MS cap, delivering onResult exactly like a released hold. During an automatic session a Space keydown/pointerdown must not start a second session; a Space keyup or pointer release ends it like a hold release. cancel(), setEnabled(false), window blur and visibility changes still close it. The facade createSpeechSystem() gains listenOnce() → boolean (false when there is no target, speech is disabled, unsupported, or a session is already active; true when a session started) and autoListenAllowed() → boolean: true when a recognition session has already started successfully in this page without a not-allowed error, or when navigator.permissions.query({ name: 'microphone' }) reported 'granted' (query once at creation, cache the answer, treat any error/absence as not granted); a DENIED/not-allowed outcome sets it false. Existing hold-to-talk behaviour, events and state emissions must be unchanged for every caller that never calls listen()/listenOnce().",
+    "BROWSER MOCK — create scripts/lib/mockSpeech.mjs exporting a function that returns an init-script (for Playwright page.addInitScript) installing a controllable fake window.SpeechRecognition / webkitSpeechRecognition and a permissions.query stub. Control surface on window.__mockSpeech: queue transcripts to be reported (interim then final) or silence, set permission 'granted' | 'prompt' | 'denied', and read counters (starts, aborts, stops, lastStartAt). Each fake session honours continuous=false by firing onend after its scripted result or silence. Keep it small and documented; the game orders will use it and must prove it (a scripted correct sentence is accepted; scripted silence ends in try-again and does not restart).",
+    "UNIT TESTS (node:test + node:assert/strict, house style): src/systems/talkDwell.test.mjs covering at least — entering a radius while moving does not dwell; standing still and facing for the dwell duration reaches ready; moving during the dwell cancels and resets; turning beyond the tolerance cancels; a better-faced or closer neighbour cannot steal a dwelling target; lockedTargetId restricts the choice to the clicked customer; notifyAccepted prevents any future dwell on that id; notifyEnded('failed') while standing still never re-arms, re-arms only after movement/leaving radius plus rearmMs; ready does not self-restart; dt edge cases. src/systems/speech.test.mjs (create it) using minimal global stubs for window/document/performance and a fake recognition class — covering listenOnce refusing without a target, starting with one, finishing on the engine's own end with the result judged, try-again on a failed automatic session without restarting, cap behaviour, autoListenAllowed from a granted permission and after a successful session, false after denial, and that a plain pointer hold still starts and stops exactly as before.",
+    "SCOPE: this order does not touch any minigame, the HUD, or speechPrompt.js behaviour. If you find speechPrompt.js needs a tiny additive helper to expose listenOnce to minigames, add it additively and say so; otherwise leave it.",
+    "Validation: npm test and npm run build. Behavioural acceptance is owned by the controller (Claude will run the five existing playthroughs to prove no regression); your sandbox cannot start the preview, so do not try."
+  ],
+  "requirements": [
+    "src/config/interaction.js exports AUTO_TALK_ENABLED, AUTO_TALK_DWELL_MS (1200), AUTO_TALK_FACING_DEGREES (55) and AUTO_TALK_REARM_MS (1000)",
+    "src/systems/talkDwell.js is pure and implements createTalkDwell with update/commit/reset/notifyAccepted/notifyEnded and phase/targetId/progress exactly as specified",
+    "A dwell requires in-radius, eligible, not moving, facing within tolerance, continuously for the dwell duration; passing by never dwells",
+    "A dwelling or ready target is locked and cannot be stolen by a neighbour; lockedTargetId restricts selection to the click-to-walk customer",
+    "Accepted ids never dwell again; failed or cancelled ids stay disarmed while the player stands still and re-arm only after movement or leaving the radius plus the re-arm pause",
+    "HoldToTalk.listen() runs one bounded programmatic session that ends on the engine's own end or the cap and reports like a released hold, without disturbing pointer/Space hold behaviour",
+    "The speech facade exposes listenOnce() and autoListenAllowed() with the specified permission gating and no mid-game permission request",
+    "Hold-to-talk behaviour and events are unchanged for every existing caller",
+    "scripts/lib/mockSpeech.mjs provides a controllable fake SpeechRecognition and permissions stub for Playwright",
+    "src/systems/talkDwell.test.mjs and src/systems/speech.test.mjs cover the listed cases; npm test passes including all existing tests; npm run build is clean"
+  ],
+  "constraints": [
+    "Do NOT modify any file under src/minigames/, src/ui/hud.js, src/config/lesson.js, src/systems/audio.js, src/systems/speechFocus.js, src/systems/speechMatch.js, SPEC.md or the playthrough scenario scripts",
+    "Do not change recognition language, alternatives, the matcher, MAX_HOLD_MS, the fallback ladder or any pedagogical rule",
+    "Never open a continuously listening microphone and never request microphone permission automatically",
+    "No npm dependencies",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert the uncommitted changes already in the working tree — they are the input to this task"
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "DESIGN_DECISIONS.md",
+    "src/systems/speech.js",
+    "src/systems/speechPrompt.js",
+    "src/systems/speechFocus.test.mjs",
+    "src/minigames/drinkStand/fill.test.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant", "npm run playthrough:drink-stand", "npm run playthrough:coloring", "npm run playthrough:sports", "npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough"
+  },
+  "category": "core-logic",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

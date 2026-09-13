@@ -122,10 +122,10 @@ async function collectScreenshots(runDirectory) {
     .sort();
 }
 
-function runScenario(script, url, outputPrefix) {
+function runScenario(script, url, outputPrefix, extraArgs = []) {
   return new Promise((resolve) => {
     let spawnError = null;
-    scenarioProcess = spawn(process.execPath, [script, url, outputPrefix], {
+    scenarioProcess = spawn(process.execPath, [script, url, outputPrefix, ...extraArgs], {
       cwd: PROJECT_ROOT,
       stdio: 'inherit',
     });
@@ -141,6 +141,7 @@ function runScenario(script, url, outputPrefix) {
 
 async function main() {
   const scenario = process.argv[2];
+  const extraArgs = process.argv.slice(3);
   const script = SCENARIOS[scenario];
   if (!script) {
     console.error(`Unknown scenario "${scenario ?? ''}". Valid scenarios: ${Object.keys(SCENARIOS).join(', ')}`);
@@ -187,10 +188,10 @@ async function main() {
   const startedAt = new Date();
   try {
     await waitForPreview(url, () => previewError);
-    const result = await runScenario(script, url, relativePrefix);
+    const result = await runScenario(script, url, relativePrefix, extraArgs);
     const endedAt = new Date();
     const screenshots = await collectScreenshots(runDirectory);
-    const command = `node ${script} ${url} ${relativePrefix}`;
+    const command = `node ${script} ${url} ${relativePrefix}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`;
     const manifest = {
       scenario,
       command,

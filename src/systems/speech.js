@@ -30,7 +30,13 @@ export function speechSupported() {
  * adapter: matching and attempt/fallback policy live above it.
  */
 export class HoldToTalk {
-  constructor(button, { onResult, onLiveResult, onState, onUnavailable } = {}) {
+  constructor(button, {
+    onResult,
+    onLiveResult,
+    onState,
+    onUnavailable,
+    onStarted,
+  } = {}) {
     if (!button?.addEventListener) {
       throw new TypeError('HoldToTalk requires a button-like EventTarget.');
     }
@@ -40,15 +46,17 @@ export class HoldToTalk {
     this.onLiveResult = onLiveResult || (() => {});
     this.onState = onState || (() => {});
     this.onUnavailable = onUnavailable || (() => {});
+    this.onStarted = onStarted || (() => {});
     this.enabled = true;
     this.active = false;
     this.pointerId = null;
     this.recognition = null;
-    this.startedAt = 0;
+    this.startedAt = null;
     this.alternatives = [];
     this.timeout = null;
     this.finishTimer = null;
     this.finished = false;
+    this.automatic = false;
 
     this._pointerDown = (event) => {
       if (event.button !== undefined && event.button !== 0) return;
@@ -158,25 +166,26 @@ export class HoldToTalk {
       }
     };
     recognition.onend = () => {
-      if (!this.active) this._finish();
+      if (!this.active || this.automatic) this._finish();
     };
     return recognition;
   }
 
-  _start() {
-    if (!this.enabled || this.active) return;
+  _start(automatic = false) {
+    if (!this.enabled || this.active) return false;
     if (!speechSupported()) {
       this._giveUp(MIC.UNSUPPORTED);
-      return;
+      return false;
     }
 
     this.recognition = this._createRecognition();
     if (!this.recognition) {
       this._giveUp(MIC.UNSUPPORTED);
-      return;
+      return false;
     }
 
     this.active = true;
+    this.automatic = Boolean(automatic);
     this.finished = false;
     this.alternatives = [];
     this.startedAt = performance.now();
@@ -188,9 +197,17 @@ export class HoldToTalk {
 
     try {
       this.recognition.start();
+      this.onStarted({ automatic: this.automatic });
+      return true;
     } catch {
       this._giveUp(MIC.ERROR);
+      return false;
     }
+  }
+
+  /** Start one bounded recognition session without requiring a physical hold. */
+  listen() {
+    return this._start(true);
   }
 
   _stop() {
@@ -205,15 +222,16 @@ export class HoldToTalk {
   }
 
   _finish() {
-    if (this.finished || !this.startedAt) return;
+    if (this.finished || this.startedAt === null) return;
     this.finished = true;
     this.active = false;
+    this.automatic = false;
     clearTimeout(this.timeout);
     clearTimeout(this.finishTimer);
     this.timeout = null;
     this.finishTimer = null;
     const duration = Math.max(0, performance.now() - this.startedAt);
-    this.startedAt = 0;
+    this.startedAt = null;
     this.onState(MIC.IDLE);
     this.onResult([...this.alternatives], { duration });
     this.recognition = null;
@@ -226,8 +244,9 @@ export class HoldToTalk {
       try { this.recognition.abort(); } catch { /* already closed */ }
     }
     this.active = false;
+    this.automatic = false;
     this.finished = true;
-    this.startedAt = 0;
+    this.startedAt = null;
     clearTimeout(this.timeout);
     clearTimeout(this.finishTimer);
     this.timeout = null;
@@ -244,8 +263,9 @@ export class HoldToTalk {
       try { this.recognition.abort(); } catch { /* already closed */ }
     }
     this.active = false;
+    this.automatic = false;
     this.finished = true;
-    this.startedAt = 0;
+    this.startedAt = null;
     clearTimeout(this.timeout);
     clearTimeout(this.finishTimer);
     this.timeout = null;
@@ -281,6 +301,24 @@ export function createSpeechSystem() {
   let target = null;
   let enabled = true;
   let state = SPEECH_STATE.READY;
+  let permissionGranted = false;
+  let permissionDenied = false;
+  let recognitionStarted = false;
+
+  // This is a read-only permission check: it never prompts. Keep the cached
+  // result synchronous for callers and update it when the one query settles.
+  try {
+    const permissions = typeof navigator !== 'undefined' ? navigator.permissions : null;
+    if (permissions?.query) {
+      Promise.resolve(permissions.query({ name: 'microphone' }))
+        .then((status) => {
+          permissionGranted = status?.state === 'granted';
+        })
+        .catch(() => {});
+    }
+  } catch {
+    // Missing/unsupported Permissions API is deliberately treated as prompt.
+  }
 
   const emitState = (next, detail) => {
     state = next;
@@ -329,7 +367,16 @@ export function createSpeechSystem() {
         emitState(SPEECH_STATE.TRY_AGAIN, result);
         target.onFailure?.(result, meta);
       },
+      onStarted: () => {
+        recognitionStarted = true;
+        permissionDenied = false;
+      },
       onUnavailable: (reason) => {
+        if (reason === MIC.DENIED) {
+          recognitionStarted = false;
+          permissionGranted = false;
+          permissionDenied = true;
+        }
         emitState(SPEECH_STATE.TRY_AGAIN, reason);
         target?.onUnavailable?.(reason);
       },
@@ -362,6 +409,15 @@ export function createSpeechSystem() {
     cancel() {
       hold?.cancel();
       if (target) emitState(SPEECH_STATE.READY);
+    },
+    listenOnce() {
+      if (!target || target.accepted || !enabled || !hold || hold.active
+        || !speechSupported() || permissionDenied
+        || (!permissionGranted && !recognitionStarted)) return false;
+      return hold.listen();
+    },
+    autoListenAllowed() {
+      return !permissionDenied && (permissionGranted || recognitionStarted);
     },
     isSupported: speechSupported,
     get state() { return state; },

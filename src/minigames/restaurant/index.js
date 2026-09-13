@@ -2,8 +2,11 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor, formatUi } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createSpeechFocus } from '../../systems/speechFocus.js';
+import { createTalkDwell } from '../../systems/talkDwell.js';
+import { AUTO_TALK_ENABLED } from '../../config/interaction.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import { advanceRefusalLock, pickFood, scoreSession } from './scoring.js';
+import { createRestaurantDirector } from './director.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
 const STRINGS = UI.restaurant;
@@ -14,6 +17,8 @@ const COUNTER_RADIUS_SQ = 1.8 * 1.8;
 const HOT_SECONDS = 9;
 const WARM_SECONDS = 22;
 const REFUSAL_SECONDS = 5;
+const EATING_SECONDS = 3.2;
+const CUSTOMER_WALK_SPEED = 10;
 // Click-to-walk steers past any table lying across its straight line.
 const STEER_RADIUS = 1.45;
 const STEER_CLEARANCE = 1.75;
@@ -32,12 +37,12 @@ const TABLES = Object.freeze([
 const FOOD_PREP_SECONDS = Object.freeze({ curry: 11, pizza: 9, hamburger: 7.5, noodles: 6, sushi: 4.5 });
 
 const DIFFICULTY = Object.freeze({
-  1: Object.freeze({ count: 3, activeOrders: [1, 1], prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
+  1: Object.freeze({ count: 3, total: 5, activeOrderLimit: 1, prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
   // The budget counts a raised hand as well as a taken order, so a budget of 2
   // could never hold "one cooking, one ready, one waiting to order" at once and
   // Normal played close to one-at-a-time. Use the top of each SPEC range.
-  2: Object.freeze({ count: 4, activeOrders: [3, 3], prepScale: 0.85, patience: 130, preOrderDrain: 0.12 }),
-  3: Object.freeze({ count: 5, activeOrders: [4, 4], prepScale: 1.3, patience: 115, preOrderDrain: 0.2 }),
+  2: Object.freeze({ count: 4, total: 7, activeOrderLimit: 3, prepScale: 0.85, patience: 130, preOrderDrain: 0.12 }),
+  3: Object.freeze({ count: 5, total: 8, activeOrderLimit: 4, prepScale: 1.3, patience: 115, preOrderDrain: 0.2 }),
 });
 
 const CUSTOMER_TINTS = Object.freeze([0xff7d63, 0x54b8ff, 0xb36bff, 0x4bd596, 0xffcf45]);
@@ -71,6 +76,8 @@ export function createRestaurant(ctx) {
   let notice = null;
   let temperature = null;
   let comboPop = null;
+  let phasePill = null;
+  let progressText = null;
   let readyCue = null;
   let bellDome = null;
   let canvas = null;
@@ -82,8 +89,11 @@ export function createRestaurant(ctx) {
   let difficulty = 1;
   let elapsed = 0;
   let serviceElapsed = 0;
+  let serviceDirector = null;
+  let directorPhase = 'warmup';
+  let shiftTotal = 0;
   let activeOrderLimit = 1;
-  let nextOrderCueAt = 0;
+  let focusReleasedAgo = Infinity;
   let speechCooldown = 0;
   let noticeRemaining = 0;
   let dialogueRemaining = 0;
@@ -103,6 +113,11 @@ export function createRestaurant(ctx) {
   let unsubscribeSettings = null;
   let combo = 0;
   let comboRemaining = 0;
+  let phasePillRemaining = 0;
+  let movementActive = false;
+  let clickTalkTargetId = null;
+  let questionCommitted = false;
+  let lastSpeechState = 'ready';
   let debugRootCreated = false;
 
   const customers = [];
@@ -118,6 +133,22 @@ export function createRestaurant(ctx) {
   const pointer = new THREE.Vector2();
   const steerAim = new THREE.Vector2();
   const focus = createSpeechFocus();
+  const dwell = createTalkDwell();
+  const directorTableView = TABLES.map(() => ({ occupied: false, customer: null }));
+  const directorCustomerView = [];
+  const dwellCandidates = [];
+  const dwellCandidatePool = [];
+  const dwellPlayer = { x: 0, z: 0, forwardX: 0, forwardZ: 1 };
+  const dwellInput = { candidates: dwellCandidates, player: dwellPlayer, moving: false, lockedTargetId: null };
+  const directorView = {
+    tables: directorTableView,
+    customers: directorCustomerView,
+    liveOrders: 0,
+    focusReleasedAgo: Infinity,
+    progress: { done: 0 },
+  };
+  let sharedDish = null;
+  let customerVisuals = null;
 
   const ownGeometry = (geometry) => {
     geometries.add(geometry);
@@ -193,6 +224,13 @@ export function createRestaurant(ctx) {
       .restaurant-ui__combo { position: absolute; left: 50%; top: 31%; transform: translateX(-50%) rotate(-4deg);
         color: #ffd43b; -webkit-text-stroke: .13rem #55380b; filter: drop-shadow(0 .3rem 0 #fff);
         font: 1000 calc(clamp(1.8rem, 4vw, 3rem) * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .restaurant-ui__phase { position: absolute; left: 50%; top: 5.25rem; transform: translateX(-50%);
+        padding: .38rem .85rem; border: .16rem solid #fff; border-radius: 999px;
+        background: #ef8a17; color: #fff; box-shadow: 0 .22rem 0 rgb(35 49 71 / .24);
+        font: 900 calc(.92rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .restaurant-ui__progress { display: inline-block; margin-top: .38rem; padding: .28rem .62rem;
+        border-radius: 999px; background: #273858; color: #fff;
+        font: 800 calc(.88rem * var(--ui-scale, 1)) system-ui, sans-serif; }
       @media (max-width: 44rem) { .restaurant-ui__temperature { right: 50%; bottom: 5.9rem; transform: translateX(50%); } }
     `;
     document.head.append(style);
@@ -201,10 +239,11 @@ export function createRestaurant(ctx) {
     overlay.className = 'restaurant-ui';
     overlay.innerHTML = `
       <div class="top-bar">
-        <section class="scene-card"><h1></h1><p></p></section>
+        <section class="scene-card"><h1></h1><p></p><div class="restaurant-ui__progress" role="status"></div></section>
       </div>
       <div class="restaurant-ui__notice" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__combo" role="status" aria-live="polite" hidden></div>
+      <div class="restaurant-ui__phase" role="status" aria-live="polite" hidden></div>
       <button class="restaurant-ui__action" type="button" hidden></button>
       <div class="restaurant-ui__temperature" role="status" hidden></div>
     `;
@@ -213,11 +252,14 @@ export function createRestaurant(ctx) {
     actionButton = overlay.querySelector('.restaurant-ui__action');
     notice = overlay.querySelector('.restaurant-ui__notice');
     comboPop = overlay.querySelector('.restaurant-ui__combo');
+    phasePill = overlay.querySelector('.restaurant-ui__phase');
+    progressText = overlay.querySelector('.restaurant-ui__progress');
     temperature = overlay.querySelector('.restaurant-ui__temperature');
     actionButton.addEventListener('click', performAction);
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
     document.querySelector('#ui-layer').append(overlay);
     setInstruction(STRINGS.walkToCustomer);
+    progressText.textContent = formatUi(STRINGS.progress, { done: 0, total: shiftTotal });
   }
 
   function createDish(food, shared) {
@@ -331,7 +373,7 @@ export function createRestaurant(ctx) {
     readyCue.visible = false;
     world.add(readyCue);
 
-    const sharedDish = {
+    sharedDish = {
       plateGeometry: ownGeometry(new THREE.CylinderGeometry(0.58, 0.58, 0.08, 20)),
       plateMaterial: makeMaterial(0xf7fbff),
       sphereGeometry: ownGeometry(new THREE.SphereGeometry(1, 12, 8)),
@@ -402,73 +444,13 @@ export function createRestaurant(ctx) {
     const orderCueTexture = ownTexture(new THREE.CanvasTexture(cueCanvas));
     orderCueTexture.colorSpace = THREE.SRGBColorSpace;
     const orderCueMaterial = ownMaterial(new THREE.SpriteMaterial({ map: orderCueTexture, transparent: true }));
-    const configured = DIFFICULTY[difficulty];
-    for (let index = 0; index < configured.count; index += 1) {
-      const table = TABLES[index];
-      const character = characters.create({
-        model: CUSTOMER_MODELS[index],
-        tint: CUSTOMER_TINTS[index],
-      });
-      character.position.set(table.seatX, 0.34, table.seatZ);
-      character.rotation.y = 0; // face their table and the room: Kenney models face +z
-      character.scale.setScalar(0.72);
-      character.visible = false;
-      world.add(character);
-
-      const clickTarget = new THREE.Mesh(hitGeometry, hitMaterial);
-      clickTarget.position.set(0, 1.05, 0);
-      character.add(clickTarget);
-
-      const meter = new THREE.Group();
-      const meterBack = addPart(meter, meterGeometry, meterBackMaterial, 0, 0, 0);
-      meterBack.scale.set(1.08, 1.3, 1);
-      const fillMaterial = makeMaterial(0x5bd16f, { emissive: 0x123d1b });
-      const fill = addPart(meter, meterGeometry, fillMaterial, 0, 0, 0.035);
-      meter.visible = false;
-      world.add(meter);
-
-      const orderCue = new THREE.Sprite(orderCueMaterial);
-      orderCue.scale.set(0.9, 0.9, 0.9);
-      orderCue.visible = false;
-      world.add(orderCue);
-
-      const food = pickFood();
-      const customer = {
-        index,
-        table,
-        food,
-        listenedAgain: false,
-        state: 'scheduled',
-        spawnAt: 0,
-        prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
-        patienceMax: configured.patience,
-        patience: configured.patience,
-        character,
-        clickTarget,
-        meter,
-        fill,
-        fillMaterial,
-        orderCue,
-        refusalRemaining: 0,
-        leaveSeconds: 0,
-      };
-      clickTarget.userData.restaurantTarget = { type: 'customer', value: customer };
-      const mesh = createDish(food, sharedDish);
-      const dish = {
-        index,
-        food,
-        state: 'dormant',
-        prepDuration: customer.prepDuration,
-        prepRemaining: 0,
-        slot: -1,
-        carrySeconds: 0,
-        firstTry: true,
-        mesh,
-      };
-      mesh.userData.restaurantTarget = { type: 'dish', value: dish };
-      customers.push(customer);
-      dishes.push(dish);
-    }
+    customerVisuals = {
+      hitGeometry,
+      hitMaterial,
+      meterGeometry,
+      meterBackMaterial,
+      orderCueMaterial,
+    };
 
     scene.add(world);
     // The whole dining room at once, not a camera that follows the waiter. With
@@ -481,10 +463,170 @@ export function createRestaurant(ctx) {
       .setPreset('fixed', { position: [0, 11.5, 12], lookAt: [0, 0.8, 0.6], damping: 5 });
   }
 
-  function clearQuestion(keepHud = false) {
-    if (!questionCustomer) return;
-    questionCustomer = null;
+  function beginFocus(reason) {
+    focus.begin(reason);
+    focusReleasedAgo = 0;
+    audio.setFocusDuck(true);
+  }
+
+  function endFocus() {
     focus.end();
+    focusReleasedAgo = 0;
+    audio.setFocusDuck(false);
+  }
+
+  function cancelFocus() {
+    focus.cancel();
+    focusReleasedAgo = Infinity;
+    audio.setFocusDuck(false);
+  }
+
+  function createDwellRing() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const context = canvas.getContext('2d');
+    const texture = ownTexture(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = ownMaterial(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+    const sprite = new THREE.Sprite(material);
+    // Large enough to read at 1366x768: the ring is the only sign that standing
+    // still is about to start the conversation.
+    sprite.scale.set(1.15, 1.15, 1.15);
+    sprite.visible = false;
+    world.add(sprite);
+    return { canvas, context, texture, sprite, progress: -1 };
+  }
+
+  function drawDwellRing(customer, progress) {
+    const ring = customer.dwellRing;
+    const rounded = Math.round(Math.max(0, Math.min(1, progress)) * 48) / 48;
+    if (ring.progress === rounded) return;
+    ring.progress = rounded;
+    const { context } = ring;
+    context.clearRect(0, 0, 128, 128);
+    context.lineCap = 'round';
+    // White halo, dark track, bright progress: readable over any floor or table.
+    context.lineWidth = 22;
+    context.strokeStyle = 'rgba(255, 255, 255, .92)';
+    context.beginPath();
+    context.arc(64, 64, 46, 0, Math.PI * 2);
+    context.stroke();
+    context.lineWidth = 13;
+    context.strokeStyle = 'rgba(39, 56, 88, .7)';
+    context.beginPath();
+    context.arc(64, 64, 46, 0, Math.PI * 2);
+    context.stroke();
+    context.strokeStyle = '#ffd43b';
+    context.beginPath();
+    context.arc(64, 64, 46, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rounded);
+    context.stroke();
+    ring.texture.needsUpdate = true;
+  }
+
+  function appearanceFor(index) {
+    return {
+      model: CUSTOMER_MODELS[index % CUSTOMER_MODELS.length],
+      tint: CUSTOMER_TINTS[(index + Math.floor(index / CUSTOMER_MODELS.length)) % CUSTOMER_TINTS.length],
+    };
+  }
+
+  function createCustomer(index, tableIndex, food) {
+    const configured = DIFFICULTY[difficulty];
+    const table = TABLES[tableIndex];
+    const appearance = appearanceFor(index);
+    const character = characters.create(appearance);
+    character.position.set(0, 0, 6.7);
+    character.rotation.y = Math.PI;
+    character.scale.setScalar(0.72);
+    character.playAnimation?.('walk');
+    world.add(character);
+
+    const clickTarget = new THREE.Mesh(customerVisuals.hitGeometry, customerVisuals.hitMaterial);
+    clickTarget.position.set(0, 1.05, 0);
+    character.add(clickTarget);
+
+    const meter = new THREE.Group();
+    const meterBack = addPart(meter, customerVisuals.meterGeometry, customerVisuals.meterBackMaterial, 0, 0, 0);
+    meterBack.scale.set(1.08, 1.3, 1);
+    const fillMaterial = makeMaterial(0x5bd16f, { emissive: 0x123d1b });
+    const fill = addPart(meter, customerVisuals.meterGeometry, fillMaterial, 0, 0, 0.035);
+    meter.visible = false;
+    world.add(meter);
+
+    const orderCue = new THREE.Sprite(customerVisuals.orderCueMaterial);
+    orderCue.scale.set(0.9, 0.9, 0.9);
+    orderCue.visible = false;
+    world.add(orderCue);
+
+    const customer = {
+      id: index,
+      index,
+      tableIndex,
+      table,
+      food,
+      listenedAgain: false,
+      state: 'walkingIn',
+      outcome: null,
+      recorded: false,
+      prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
+      patienceMax: configured.patience,
+      patience: configured.patience,
+      character,
+      clickTarget,
+      meter,
+      fill,
+      fillMaterial,
+      orderCue,
+      dwellRing: createDwellRing(),
+      refusalRemaining: 0,
+      eatingRemaining: 0,
+      walkStage: 0,
+    };
+    clickTarget.userData.restaurantTarget = { type: 'customer', value: customer };
+
+    const mesh = createDish(food, sharedDish);
+    const dish = {
+      index,
+      customerId: index,
+      food,
+      state: 'dormant',
+      prepDuration: customer.prepDuration,
+      prepRemaining: 0,
+      slot: -1,
+      carrySeconds: 0,
+      firstTry: true,
+      mesh,
+    };
+    mesh.userData.restaurantTarget = { type: 'dish', value: dish };
+    customer.dish = dish;
+    customers.push(customer);
+    dishes.push(dish);
+    return customer;
+  }
+
+  function showPhaseCue(nextPhase) {
+    if (!phasePill || nextPhase === 'warmup') return;
+    phasePill.textContent = nextPhase === 'rush' ? STRINGS.rush : STRINGS.finalPush;
+    phasePill.hidden = false;
+    phasePillRemaining = 2.2;
+    audio.playSfx('restaurant-phase', { frequency: 620, endFrequency: 920, duration: 0.16, gain: 0.1 });
+  }
+
+  function updateProgress() {
+    if (progressText) progressText.textContent = formatUi(STRINGS.progress, { done: records.length, total: shiftTotal });
+  }
+
+  function clearQuestion(keepHud = false, outcome = 'cancelled') {
+    if (!questionCustomer) return;
+    const endedCustomer = questionCustomer;
+    questionCustomer = null;
+    if (questionCommitted) {
+      dwell.notifyEnded(endedCustomer.id, outcome);
+      endFocus();
+    }
+    questionCommitted = false;
+    speech.cancel();
     speech.clearTarget();
     if (!keepHud) hud.hide();
   }
@@ -498,12 +640,13 @@ export function createRestaurant(ctx) {
 
   function acceptQuestion(customer) {
     if (!active || phase !== 'service' || customer.state !== 'orderCue') return;
-    clearQuestion(true);
+    dwell.notifyAccepted(customer.id);
+    clearQuestion(true, 'accepted');
     hud.setTalkState('accepted');
     speechCooldown = 0.6;
     customer.state = 'awaiting';
     customer.orderCue.visible = false;
-    const dish = dishes[customer.index];
+    const dish = customer.dish;
     dish.state = 'preparing';
     dish.prepRemaining = dish.prepDuration;
     dish.firstTry = true;
@@ -520,9 +663,40 @@ export function createRestaurant(ctx) {
     if (autoTarget && autoTarget.value !== customer) return;
     clearQuestion();
     questionCustomer = customer;
-    focus.begin('restaurant-order');
     promptQuestion(ctx, LESSON, { isActive: () => active, onAccepted: () => acceptQuestion(customer) });
+    lastSpeechState = speech.state;
+    if (AUTO_TALK_ENABLED && settings.get('micFree')) {
+      // The fallback belongs to the committed conversation, not mere proximity.
+      hud.setMicFree(false);
+      speech.setEnabled(false);
+    }
+    if (!AUTO_TALK_ENABLED) {
+      questionCommitted = true;
+      beginFocus('restaurant-order');
+    }
     setInstruction(STRINGS.instruction);
+  }
+
+  function commitQuestion(customer, manual = false) {
+    if (!customer || questionCustomer !== customer || questionCommitted) return;
+    const dwellCommitted = dwell.commit();
+    if (!dwellCommitted && AUTO_TALK_ENABLED && !manual) return;
+    questionCommitted = true;
+    beginFocus('restaurant-order');
+    audio.playSfx('restaurant-talk-ready', { frequency: 660, endFrequency: 880, duration: 0.14, gain: 0.09 });
+    if (settings.get('micFree')) {
+      hud.setMicFree(true);
+      hud.show();
+      return;
+    }
+    speech.setEnabled(true);
+    if (speech.autoListenAllowed()) speech.listenOnce();
+  }
+
+  function manualTalkStart(event) {
+    if (!AUTO_TALK_ENABLED || !questionCustomer || questionCommitted || hud.talkButton.hidden) return;
+    if (event.type === 'keydown' && (event.code !== 'Space' || event.repeat)) return;
+    commitQuestion(questionCustomer, true);
   }
 
   function updateReadyCue() {
@@ -552,12 +726,11 @@ export function createRestaurant(ctx) {
     dish.slot = pickCounterSlot();
     dish.mesh.position.set(SLOT_X[dish.slot], 1.46, -5.05);
     dish.mesh.rotation.set(0, 0, 0);
-    audio.playSfx('bell', {
-      frequency: 820,
-      endFrequency: 1320,
-      duration: 0.34,
-      type: 'sine',
-      gain: 0.15,
+    audio.playSfx('restaurant-bell-low', {
+      frequency: 920, endFrequency: 1220, duration: 0.18, type: 'sine', gain: 0.2,
+    });
+    audio.playSfx('restaurant-bell-high', {
+      frequency: 1320, endFrequency: 1640, duration: 0.24, type: 'sine', gain: 0.2,
     });
     setNotice(STRINGS.bellReady, 2.2);
     updateReadyCue();
@@ -637,13 +810,18 @@ export function createRestaurant(ctx) {
     const temperatureLabel = temperatureLabelFor(temperatureScore);
     const firstTry = carried.firstTry;
     records.push({
+      index: customer.id,
+      table: customer.tableIndex,
       delivered: true,
       firstTry,
       temperatureScore,
       patienceAtDelivery: customer.patience / customer.patienceMax,
       listenedAgain: customer.listenedAgain,
     });
-    customer.state = 'delivered';
+    customer.recorded = true;
+    customer.outcome = 'delivered';
+    customer.state = 'eating';
+    customer.eatingRemaining = EATING_SECONDS;
     customer.meter.visible = false;
     customer.orderCue.visible = false;
     carryAnchor.remove(carried.mesh);
@@ -654,6 +832,7 @@ export function createRestaurant(ctx) {
     for (const puff of carried.mesh.userData.steam) puff.visible = false;
     carried.state = 'delivered';
     carried.slot = -1;
+    customer.servedDish = carried;
     carried = null;
     temperature.hidden = true;
     temperatureText = '';
@@ -673,6 +852,7 @@ export function createRestaurant(ctx) {
     }
     hideAction();
     updateReadyCue();
+    updateProgress();
   }
 
   function discardDish(dish) {
@@ -696,7 +876,7 @@ export function createRestaurant(ctx) {
     if (questionCustomer === customer) clearQuestion();
     if (listenCustomer === customer) setListenTarget(null);
     if (customer.state === 'awaiting') {
-      const ownDish = dishes[customer.index];
+      const ownDish = customer.dish;
       const dish = ownDish && ['preparing', 'ready', 'carried'].includes(ownDish.state)
         ? ownDish
         : dishes.find((candidate) => candidate.food === customer.food
@@ -704,14 +884,18 @@ export function createRestaurant(ctx) {
       discardDish(dish);
     }
     records.push({
+      index: customer.id,
+      table: customer.tableIndex,
       delivered: false,
       firstTry: false,
       temperatureScore: 0,
       patienceAtDelivery: 0,
       listenedAgain: customer.listenedAgain,
     });
+    customer.recorded = true;
+    customer.outcome = 'left';
     customer.state = 'leaving';
-    customer.leaveSeconds = 0;
+    customer.walkStage = 0;
     customer.meter.visible = false;
     customer.orderCue.visible = false;
     customer.character.playAnimation?.('walk');
@@ -720,6 +904,7 @@ export function createRestaurant(ctx) {
     dialogue.show({ text: STRINGS.patientLeave, anchor: customer.character, offsetY: 1.65, speak: false });
     audio.playSfx('retry');
     updateReadyCue();
+    updateProgress();
   }
 
   function performAction() {
@@ -739,7 +924,7 @@ export function createRestaurant(ctx) {
   }
 
   function isSeated(state) {
-    return state === 'seated' || state === 'orderCue' || state === 'awaiting' || state === 'delivered';
+    return state === 'seated' || state === 'orderCue' || state === 'awaiting';
   }
 
   function canBeReminded(state) {
@@ -761,25 +946,61 @@ export function createRestaurant(ctx) {
     return count;
   }
 
-  function promoteOrderCues() {
-    let occupied = activeOrReservedOrderCount();
-    while (occupied < activeOrderLimit && serviceElapsed >= nextOrderCueAt) {
-      let customer = null;
-      for (const candidate of customers) {
-        if (candidate.state === 'seated') {
-          customer = candidate;
-          break;
-        }
-      }
-      if (!customer) return;
-      customer.state = 'orderCue';
-      customer.orderCue.visible = true;
-      customer.meter.visible = true;
-      customer.character.playAnimation?.('emote-yes');
-      nextOrderCueAt += 0.8;
-      occupied += 1;
-      setInstruction(STRINGS.wantsToOrder);
+  function raiseHand(customer) {
+    if (!customer || customer.state !== 'seated' || activeOrReservedOrderCount() >= activeOrderLimit) return;
+    customer.state = 'orderCue';
+    customer.orderCue.visible = true;
+    customer.meter.visible = true;
+    customer.character.playAnimation?.('emote-yes');
+    audio.playSfx('restaurant-hand-pop', {
+      frequency: 520, endFrequency: 760, duration: 0.11, type: 'sine', gain: 0.12,
+    });
+    setInstruction(STRINGS.wantsToOrder);
+  }
+
+  function updateDirectorView() {
+    for (let index = 0; index < directorTableView.length; index += 1) {
+      const tableView = directorTableView[index];
+      const occupant = customers.find((customer) => customer.tableIndex === index
+        && customer.state !== 'delivered' && customer.state !== 'left');
+      tableView.occupied = Boolean(occupant);
+      tableView.customer = occupant?.id ?? null;
     }
+    directorCustomerView.length = customers.length;
+    let liveOrders = 0;
+    for (let index = 0; index < customers.length; index += 1) {
+      const customer = customers[index];
+      let view = directorCustomerView[index];
+      if (!view) {
+        view = { id: customer.id, state: customer.state, prepRemaining: 0 };
+        directorCustomerView[index] = view;
+      }
+      view.id = customer.id;
+      // Identical food plates are interchangeable. A dish may still be
+      // cooking after its original customer was satisfied by a matching plate,
+      // so readiness follows the dish, never the occupant's current state.
+      view.state = customer.dish?.state === 'preparing' ? 'preparing' : customer.state;
+      view.prepRemaining = customer.dish?.state === 'preparing' ? customer.dish.prepRemaining : undefined;
+      if (customer.state === 'awaiting') liveOrders += 1;
+    }
+    directorView.liveOrders = liveOrders;
+    directorView.focusReleasedAgo = focusReleasedAgo;
+    directorView.progress.done = records.length;
+  }
+
+  function applyDirectorEvents(serviceDt) {
+    updateDirectorView();
+    const events = serviceDirector.advance(serviceDt, directorView);
+    for (const event of events) {
+      if (event.type === 'seat') createCustomer(event.customer, event.table, event.food ?? pickFood());
+      else if (event.type === 'raiseHand') raiseHand(customers[event.customer]);
+      else if (event.type === 'ready') makeReady(customers[event.customer]?.dish);
+      else if (event.type === 'phase') {
+        directorPhase = event.phase;
+        showPhaseCue(event.phase);
+      }
+    }
+    directorPhase = serviceDirector.phase;
   }
 
   // Click-to-walk has no pathfinding. From a front table to the counter the
@@ -818,6 +1039,8 @@ export function createRestaurant(ctx) {
     input.getMovement(move);
     if (move.lengthSq() > 0) {
       autoTarget = null;
+      clickTalkTargetId = null;
+      movementActive = true;
       const nextX = player.position.x + move.x * MOVE_SPEED * dt;
       const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
       if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
@@ -829,9 +1052,12 @@ export function createRestaurant(ctx) {
       return;
     }
     if (!autoTarget) {
+      movementActive = false;
       player.playAnimation?.('idle');
       return;
     }
+
+    movementActive = true;
 
     const destination = autoTarget.position;
     const dx = destination.x - player.position.x;
@@ -840,10 +1066,14 @@ export function createRestaurant(ctx) {
     if (distance <= 0.2) {
       const arrived = autoTarget;
       autoTarget = null;
+      movementActive = false;
       player.playAnimation?.('idle');
       if (arrived.type === 'dish') collectDish(arrived.value);
       else if (arrived.type === 'customer') {
-        if (arrived.value.state === 'orderCue') targetQuestion(arrived.value);
+        const faceX = arrived.value.character.position.x - player.position.x;
+        const faceZ = arrived.value.character.position.z - player.position.z;
+        player.rotation.y = Math.atan2(faceX, faceZ);
+        if (arrived.value.state === 'orderCue') clickTalkTargetId = arrived.value.id;
         else if (carried) deliver(arrived.value);
       }
       return;
@@ -863,16 +1093,67 @@ export function createRestaurant(ctx) {
     player.playAnimation?.('walk');
   }
 
+  function moveCustomerToward(customer, targetX, targetZ, serviceDt) {
+    const dx = targetX - customer.character.position.x;
+    const dz = targetZ - customer.character.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= 0.08) {
+      customer.character.position.x = targetX;
+      customer.character.position.z = targetZ;
+      return true;
+    }
+    const step = Math.min(distance, CUSTOMER_WALK_SPEED * serviceDt);
+    customer.character.position.x += dx / distance * step;
+    customer.character.position.z += dz / distance * step;
+    customer.character.rotation.y = Math.atan2(dx, dz);
+    return step >= distance;
+  }
+
+  function updateCustomerWalk(customer, serviceDt) {
+    const side = customer.table.x <= 0 ? 1 : -1;
+    const aisleX = customer.table.seatX + side * 1.45;
+    const aisleZ = customer.table.seatZ;
+    if (customer.state === 'walkingIn') {
+      if (customer.walkStage === 0 && moveCustomerToward(customer, aisleX, aisleZ, serviceDt)) customer.walkStage = 1;
+      if (customer.walkStage === 1 && moveCustomerToward(customer, customer.table.seatX, customer.table.seatZ, serviceDt)) {
+        customer.state = 'seated';
+        customer.character.position.y = 0.34;
+        customer.character.rotation.y = 0;
+        customer.character.playAnimation?.('idle');
+      }
+      return;
+    }
+    if (customer.state !== 'leaving') return;
+    customer.character.position.y = 0;
+    if (customer.walkStage === 0 && moveCustomerToward(customer, aisleX, aisleZ, serviceDt)) customer.walkStage = 1;
+    if (customer.walkStage === 1 && moveCustomerToward(customer, 0, 6.85, serviceDt)) {
+      customer.state = customer.outcome === 'delivered' ? 'delivered' : 'left';
+      customer.character.visible = false;
+      customer.orderCue.visible = false;
+      customer.meter.visible = false;
+      customer.dwellRing.sprite.visible = false;
+    }
+  }
+
   function updateCustomers(serviceDt, cosmeticDt) {
     const configured = DIFFICULTY[difficulty];
     for (const customer of customers) {
-      if (customer.state === 'scheduled' && serviceElapsed >= customer.spawnAt) {
-        customer.state = 'seated';
-        customer.character.visible = true;
-        customer.character.playAnimation?.('idle');
-      }
-
       customer.refusalRemaining = advanceRefusalLock(customer.refusalRemaining, serviceDt);
+
+      if (customer.state === 'walkingIn' || customer.state === 'leaving') updateCustomerWalk(customer, serviceDt);
+
+      if (customer.state === 'eating') {
+        customer.eatingRemaining = Math.max(0, customer.eatingRemaining - serviceDt);
+        if (customer.eatingRemaining <= 0) {
+          if (customer.servedDish) {
+            customer.servedDish.mesh.visible = false;
+            customer.servedDish.state = 'delivered';
+          }
+          customer.state = 'leaving';
+          customer.walkStage = 0;
+          customer.character.playAnimation?.('walk');
+        }
+      }
 
       const patienceDrain = customer.state === 'awaiting'
         ? 1
@@ -886,16 +1167,6 @@ export function createRestaurant(ctx) {
         else if (ratio < 0.56) customer.fillMaterial.color.setHex(0xffc847);
         else customer.fillMaterial.color.setHex(0x5bd16f);
         if (customer.patience <= 0) leaveCustomer(customer);
-      }
-
-      if (customer.state === 'leaving') {
-        customer.leaveSeconds += cosmeticDt;
-        customer.character.position.x += 1.75 * cosmeticDt;
-        customer.character.position.z += 0.45 * cosmeticDt;
-        if (customer.leaveSeconds >= 3.2) {
-          customer.state = 'left';
-          customer.character.visible = false;
-        }
       }
 
       customer.meter.visible = customer.character.visible
@@ -914,15 +1185,18 @@ export function createRestaurant(ctx) {
         const cuePulse = 0.92 + Math.sin(elapsed * 6 + customer.index) * 0.08;
         customer.orderCue.scale.setScalar(cuePulse);
       }
+      if (customer.dwellRing.sprite.visible) {
+        customer.character.getWorldPosition(meterPosition);
+        customer.dwellRing.sprite.position.copy(meterPosition);
+        customer.dwellRing.sprite.position.y += 2.05;
+        customer.dwellRing.sprite.quaternion.copy(camera.quaternion);
+      }
     }
 
     for (const dish of dishes) {
       if (dish.state !== 'preparing') continue;
       dish.prepRemaining -= serviceDt;
-      if (dish.prepRemaining <= 0) makeReady(dish);
     }
-
-    promoteOrderCues();
   }
 
   // Keep an open order prompt on its customer while the waiter is still in
@@ -968,6 +1242,60 @@ export function createRestaurant(ctx) {
     return nearest;
   }
 
+  function updateTalkDwell(dt) {
+    if (!AUTO_TALK_ENABLED) return;
+    dwellCandidates.length = 0;
+    for (const customer of customers) {
+      if (customer.state !== 'orderCue') continue;
+      const poolIndex = dwellCandidates.length;
+      let candidate = dwellCandidatePool[poolIndex];
+      if (!candidate) {
+        candidate = {};
+        dwellCandidatePool[poolIndex] = candidate;
+      }
+      candidate.id = customer.id;
+      candidate.x = customer.character.position.x;
+      candidate.z = customer.character.position.z;
+      candidate.radiusSq = CUSTOMER_RADIUS_SQ;
+      dwellCandidates.push(candidate);
+    }
+    dwellPlayer.x = player.position.x;
+    dwellPlayer.z = player.position.z;
+    dwellPlayer.forwardX = Math.sin(player.rotation.y);
+    dwellPlayer.forwardZ = Math.cos(player.rotation.y);
+    dwellInput.moving = movementActive;
+    dwellInput.lockedTargetId = autoTarget?.type === 'customer' ? autoTarget.value.id : clickTalkTargetId;
+    dwell.update(dt, dwellInput);
+
+    const target = dwell.targetId == null ? null : customers[dwell.targetId];
+    for (const customer of customers) {
+      const showing = !questionCommitted && customer === target
+        && (dwell.phase === 'dwelling' || dwell.phase === 'ready');
+      customer.dwellRing.sprite.visible = showing;
+      if (showing) {
+        drawDwellRing(customer, dwell.progress);
+        const wanted = Math.atan2(
+          player.position.x - customer.character.position.x,
+          player.position.z - customer.character.position.z,
+        );
+        customer.character.rotation.y = THREE.MathUtils.clamp(wanted, -0.65, 0.65);
+      } else if (!['walkingIn', 'leaving'].includes(customer.state)) {
+        customer.character.rotation.y = 0;
+      }
+    }
+
+    if (target && !questionCommitted && !questionCustomer) targetQuestion(target);
+    if (questionCustomer && !questionCommitted && target !== questionCustomer) clearQuestion();
+
+    const speechState = speech.state;
+    if (questionCustomer && !questionCommitted && speechState === 'listening') commitQuestion(questionCustomer, true);
+    if (!questionCommitted && target && dwell.phase === 'ready') commitQuestion(target);
+    if (questionCommitted && speechState === 'try-again' && lastSpeechState !== 'try-again') {
+      dwell.notifyEnded(questionCustomer?.id, 'failed');
+    }
+    lastSpeechState = speechState;
+  }
+
   function updateContext() {
     if (speechCooldown > 0) {
       hideAction();
@@ -975,7 +1303,9 @@ export function createRestaurant(ctx) {
       return;
     }
 
-    const nearbyCustomer = questionCustomerStillNear() ?? nearestSeatedCustomer();
+    const lockedQuestion = questionCustomerStillNear();
+    if (questionCustomer && !lockedQuestion) clearQuestion();
+    const nearbyCustomer = lockedQuestion ?? nearestSeatedCustomer();
     // The 🔊 control sits beside the main action, never in its place (SPEC 3).
     setListenTarget(nearbyCustomer && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
     if (carried) {
@@ -983,7 +1313,7 @@ export function createRestaurant(ctx) {
       // now, or take that order first?" is the decision the room is built around.
       if (nearbyCustomer?.state === 'orderCue') {
         hideAction();
-        targetQuestion(nearbyCustomer);
+        if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
         return;
       }
       clearQuestion();
@@ -993,6 +1323,14 @@ export function createRestaurant(ctx) {
         showAction(STRINGS.deliverDish, 'deliver', nearbyCustomer);
       }
       else hideAction();
+      return;
+    }
+
+    // An open conversation outranks the pickup counter. Tables 0 and 2 seat their
+    // customers within the counter's pickup radius, and clearing a dwelling or
+    // committed question there cancelled it and disarmed the dwell for good.
+    if (lockedQuestion) {
+      hideAction();
       return;
     }
 
@@ -1006,7 +1344,7 @@ export function createRestaurant(ctx) {
 
     if (nearbyCustomer?.state === 'orderCue') {
       hideAction();
-      targetQuestion(nearbyCustomer);
+      if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
       return;
     }
 
@@ -1061,6 +1399,7 @@ export function createRestaurant(ctx) {
       if (!target) continue;
       if (target.type === 'dish') {
         if (carried || target.value.state !== 'ready') continue;
+        clickTalkTargetId = null;
         autoTarget = {
           type: 'dish',
           value: target.value,
@@ -1068,6 +1407,7 @@ export function createRestaurant(ctx) {
         };
       } else if (target.type === 'customer') {
         if (!isSeated(target.value.state)) continue;
+        clickTalkTargetId = target.value.state === 'orderCue' ? target.value.id : null;
         autoTarget = {
           type: 'customer',
           value: target.value,
@@ -1097,11 +1437,17 @@ export function createRestaurant(ctx) {
   }
 
   function debugSnapshot() {
+    const scoring = scoreSession(records);
     return {
-      phase,
+      phase: phase === 'service' ? directorPhase : phase,
+      lifecycle: phase,
+      directorPhase,
+      progress: { done: records.length, total: shiftTotal },
       level: difficulty,
       customers: customers.map((customer) => ({
+        id: customer.id,
         index: customer.index,
+        table: customer.tableIndex,
         state: customer.state,
         food: customer.food,
         cueShowing: customer.orderCue.visible,
@@ -1112,13 +1458,23 @@ export function createRestaurant(ctx) {
       activeOrderLimit,
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
       readyDishes: dishes.filter((dish) => dish.state === 'ready').map((dish) => ({
+        customer: dish.customerId,
         food: dish.food,
         slot: dish.slot,
         screen: projectObject(dish.mesh, 0.25),
       })),
-      carried: carried ? { food: carried.food, firstTry: carried.firstTry, carrySeconds: carried.carrySeconds } : null,
+      carried: carried ? {
+        customer: carried.customerId,
+        food: carried.food,
+        firstTry: carried.firstTry,
+        carrySeconds: carried.carrySeconds,
+      } : null,
       combo,
       focusActive: focus.active,
+      dwell: { phase: dwell.phase, targetId: dwell.targetId, progress: dwell.progress },
+      question: { customer: questionCustomer?.id ?? null, committed: questionCommitted },
+      records: records.map((record) => ({ ...record })),
+      scoring,
     };
   }
 
@@ -1151,7 +1507,7 @@ export function createRestaurant(ctx) {
     completed = true;
     acceptedAnswer = answer || LESSON.answers[0];
     phase = 'finishing';
-    focus.end();
+    endFocus();
     speech.clearTarget();
     hud.setTalkState('accepted');
     setInstruction(STRINGS.complete);
@@ -1175,13 +1531,14 @@ export function createRestaurant(ctx) {
       // From the open aisle in front of the counter, above chair height, so neither
       // the right wall nor a chair blocks the shot; the host is turned to face it.
       .setPreset('closeup', { offset: [-3.4, 3, 3], lookOffset: [0, 0.6, 0], damping: 5.5 });
-    focus.begin('restaurant-turnaround');
+    beginFocus('restaurant-turnaround');
     promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
   }
 
   function updateRoundEnd() {
     if (phase !== 'service') return;
-    let resolved = customers.length > 0;
+    if (records.length !== shiftTotal || customers.length !== shiftTotal) return;
+    let resolved = true;
     for (const customer of customers) {
       if (customer.state !== 'delivered' && customer.state !== 'left') {
         resolved = false;
@@ -1213,9 +1570,17 @@ export function createRestaurant(ctx) {
     phase = 'service';
     elapsed = 0;
     serviceElapsed = 0;
-    const [minimumOrders, maximumOrders] = DIFFICULTY[difficulty].activeOrders;
-    activeOrderLimit = minimumOrders + Math.floor(Math.random() * (maximumOrders - minimumOrders + 1));
-    nextOrderCueAt = 0.35;
+    const configured = DIFFICULTY[difficulty];
+    activeOrderLimit = configured.activeOrderLimit;
+    shiftTotal = configured.total;
+    serviceDirector = createRestaurantDirector({
+      level: difficulty,
+      tables: configured.count,
+      total: shiftTotal,
+      rng: Math.random,
+    });
+    directorPhase = serviceDirector.phase;
+    focusReleasedAgo = Infinity;
     speechCooldown = 0;
     noticeRemaining = 0;
     dialogueRemaining = 0;
@@ -1233,18 +1598,29 @@ export function createRestaurant(ctx) {
     acceptedAnswer = null;
     combo = 0;
     comboRemaining = 0;
+    phasePillRemaining = 0;
+    movementActive = false;
+    clickTalkTargetId = null;
+    questionCommitted = false;
+    lastSpeechState = 'ready';
     autoTarget = null;
-    focus.cancel();
+    cancelFocus();
+    dwell.reset();
     records.length = 0;
+    customers.length = 0;
+    dishes.length = 0;
+    directorCustomerView.length = 0;
     createOverlay();
     buildWorld();
     canvas = document.querySelector('#game-canvas');
     canvas?.addEventListener('pointerdown', onCanvasPointer);
+    hud.talkButton.addEventListener('pointerdown', manualTalkStart);
+    window.addEventListener('keydown', manualTalkStart, true);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       speech.setEnabled(!next.micFree);
-      hud.setMicFree(next.micFree);
+      hud.setMicFree(AUTO_TALK_ENABLED && questionCustomer && !questionCommitted ? false : next.micFree);
       hud.setTextSize(next.textSize);
     });
   }
@@ -1256,6 +1632,7 @@ export function createRestaurant(ctx) {
     focus.update(safeDt);
     const serviceDt = focus.serviceDelta(safeDt);
     serviceElapsed += serviceDt;
+    if (Number.isFinite(focusReleasedAgo)) focusReleasedAgo += serviceDt;
 
     if (noticeRemaining > 0) {
       noticeRemaining -= safeDt;
@@ -1276,10 +1653,16 @@ export function createRestaurant(ctx) {
       comboRemaining -= safeDt;
       if (comboRemaining <= 0) comboPop.hidden = true;
     }
+    if (phasePillRemaining > 0) {
+      phasePillRemaining -= safeDt;
+      if (phasePillRemaining <= 0) phasePill.hidden = true;
+    }
 
     if (phase === 'service') {
       updateMovement(safeDt);
       updateCustomers(serviceDt, safeDt);
+      applyDirectorEvents(serviceDt);
+      updateTalkDwell(safeDt);
       updateCarried(serviceDt);
       updateContext();
       if (actionType && input.consumeInteract()) performAction();
@@ -1313,7 +1696,8 @@ export function createRestaurant(ctx) {
 
   function exit() {
     active = false;
-    focus.cancel();
+    cancelFocus();
+    dwell.reset();
     unsubscribeSettings?.();
     unsubscribeSettings = null;
     speech.clearTarget();
@@ -1323,6 +1707,8 @@ export function createRestaurant(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
+    hud.talkButton.removeEventListener('pointerdown', manualTalkStart);
+    window.removeEventListener('keydown', manualTalkStart, true);
     removeDebugHook();
     actionButton?.removeEventListener('click', performAction);
     listenAgain?.dispose();
@@ -1337,6 +1723,8 @@ export function createRestaurant(ctx) {
     notice = null;
     temperature = null;
     comboPop = null;
+    phasePill = null;
+    progressText = null;
     player?.disposeCharacter?.();
     host?.disposeCharacter?.();
     for (const customer of customers) customer.character.disposeCharacter?.();
@@ -1355,6 +1743,9 @@ export function createRestaurant(ctx) {
     canvas = null;
     questionCustomer = null;
     dialogueCustomer = null;
+    serviceDirector = null;
+    sharedDish = null;
+    customerVisuals = null;
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();
     for (const texture of textures) texture.dispose();

@@ -11,7 +11,10 @@ function installStyles() {
     /* width: max-content, or a bubble anchored near the right edge shrinks to the
        space left of its anchor and wraps into a narrow column before it is clamped. */
     .npc-dialogue { position: absolute; z-index: 18; width: max-content; max-width: min(78vw, 520px);
-      min-width: 180px; transform: translate(-50%, -100%); pointer-events: auto;
+      min-width: 180px; transform: translate(-50%, -100%);
+      /* The bubble floats over the 3D room: it must not swallow a click meant for
+         a customer behind it. Only the replay button takes the pointer. */
+      pointer-events: none;
       box-sizing: border-box; padding: 16px 58px 16px 20px; border: 4px solid #273858;
       border-radius: 24px; background: #fff; color: #1b2940;
       box-shadow: 0 7px 0 rgba(28,48,78,.25), 0 12px 30px rgba(28,48,78,.2);
@@ -24,7 +27,7 @@ function installStyles() {
     .npc-dialogue__replay { position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
       width: 44px; height: 44px; border: 0; border-radius: 50%; background: #3a86ff;
       color: #fff; font: 900 1.6rem/1 system-ui, sans-serif; cursor: pointer;
-      display: grid; place-items: center; }
+      display: grid; place-items: center; pointer-events: auto; }
     .npc-dialogue__replay:focus-visible { outline: 5px solid #ffcf33; outline-offset: 3px; }
     @media (max-width: 420px) {
       .npc-dialogue { padding: 14px 52px 14px 16px; min-width: 160px; }

@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor, formatUi } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createSpeechFocus } from '../../systems/speechFocus.js';
+import { createTalkDwell } from '../../systems/talkDwell.js';
+import { AUTO_TALK_ENABLED } from '../../config/interaction.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import { advanceFill, emptyFill, isServable, selectDrink } from './fill.js';
 import { pickDrink, scoreSession, shuffleStations } from './scoring.js';
+import { createDrinkDirector } from './director.js';
 
 const LESSON = LESSON_BY_ID['drink-stand'];
 const STRINGS = UI.drinkStand;
@@ -25,8 +28,8 @@ const WINDOWS = Object.freeze([
 ]);
 const DIFFICULTY = Object.freeze({
   1: Object.freeze({ count: 5, maxWindows: 1, patience: 70 }),
-  2: Object.freeze({ count: 5, maxWindows: 2, patience: 65 }),
-  3: Object.freeze({ count: 5, maxWindows: 3, patience: 60 }),
+  2: Object.freeze({ count: 6, maxWindows: 2, patience: 65 }),
+  3: Object.freeze({ count: 7, maxWindows: 3, patience: 60 }),
 });
 const CUSTOMER_MODELS = Object.freeze(['c', 'd', 'g', 'h', 'k', 'l', 'n', 'o', 'p', 'q', 'r']);
 const DRINK_STYLE = Object.freeze({
@@ -79,6 +82,7 @@ export function createDrinkStand(ctx) {
   let overlay = null;
   let style = null;
   let instruction = null;
+  let progressText = null;
   let actionButton = null;
   let rushBanner = null;
   let comboPop = null;
@@ -103,6 +107,9 @@ export function createDrinkStand(ctx) {
   let level = 1;
   let elapsed = 0;
   let serviceElapsed = 0;
+  let serviceDirector = null;
+  let directorPhase = 'warmup';
+  let focusReleasedAgo = Infinity;
   let heldDrink = null;
   let fillState = emptyFill();
   let fillMode = null;
@@ -123,7 +130,11 @@ export function createDrinkStand(ctx) {
   let currentStreak = 0;
   let acceptedAnswer = null;
   let rushShown = false;
-  let rushStart = 0;
+  let rushStart = null;
+  let movementActive = false;
+  let clickTalkTargetId = null;
+  let questionCommitted = false;
+  let lastSpeechState = 'ready';
   let debugRootCreated = false;
 
   const stations = [];
@@ -139,6 +150,17 @@ export function createDrinkStand(ctx) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const focus = createSpeechFocus();
+  const dwell = createTalkDwell();
+  const dwellCandidates = [];
+  const dwellCandidatePool = [];
+  const dwellPlayer = { x: 0, z: 0, forwardX: 0, forwardZ: 1 };
+  const dwellInput = { candidates: dwellCandidates, player: dwellPlayer, moving: false, lockedTargetId: null };
+  const directorView = {
+    windowsInUse: 0,
+    queuedCount: 0,
+    customersRemaining: 0,
+    focusReleasedAgo: Infinity,
+  };
 
   const ownGeometry = (geometry) => {
     geometries.add(geometry);
@@ -185,6 +207,9 @@ export function createDrinkStand(ctx) {
       .drink-stand__combo { position: absolute; left: 50%; top: 31%; transform: translateX(-50%) rotate(-4deg);
         color: #ffd43b; -webkit-text-stroke: .13rem #55380b; filter: drop-shadow(0 .3rem 0 #fff);
         font: 1000 calc(clamp(1.8rem, 4vw, 3rem) * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .drink-stand__progress { display: inline-block; margin-top: .38rem; padding: .28rem .62rem;
+        border-radius: 999px; background: #273858; color: #fff;
+        font: 800 calc(.88rem * var(--ui-scale, 1)) system-ui, sans-serif; }
       .drink-stand__patience { position: absolute; z-index: 15; width: clamp(4.5rem, 7vw, 6.1rem); height: .72rem;
         transform: translate(-50%, -50%); border: .16rem solid #fff; border-radius: 999px;
         overflow: hidden; background: #273858; box-shadow: 0 .16rem 0 rgb(28 48 78 / .25); }
@@ -219,7 +244,7 @@ export function createDrinkStand(ctx) {
     overlay = document.createElement('div');
     overlay.className = 'drink-stand-ui';
     overlay.innerHTML = `
-      <div class="top-bar"><section class="scene-card"><h1></h1><p class="drink-stand__instruction"></p></section></div>
+      <div class="top-bar"><section class="scene-card"><h1></h1><p class="drink-stand__instruction"></p><div class="drink-stand__progress" role="status"></div></section></div>
       <div class="drink-stand__notice" role="status" aria-live="polite" hidden></div>
       <div class="drink-stand__rush" role="status" hidden></div>
       <div class="drink-stand__combo" role="status" aria-live="polite" hidden></div>
@@ -240,6 +265,7 @@ export function createDrinkStand(ctx) {
     cupGaugeDrink = null;
     overlay.querySelector('h1').textContent = STRINGS.roomName;
     instruction = overlay.querySelector('.drink-stand__instruction');
+    progressText = overlay.querySelector('.drink-stand__progress');
     actionButton = overlay.querySelector('.drink-stand__action');
     notice = overlay.querySelector('.drink-stand__notice');
     rushBanner = overlay.querySelector('.drink-stand__rush');
@@ -253,6 +279,7 @@ export function createDrinkStand(ctx) {
     document.querySelector('#ui-layer').append(overlay);
     dialogue.element?.classList.add('drink-stand-dialogue');
     setInstruction(STRINGS.walkToCustomer);
+    updateProgress();
   }
 
   function setInstruction(text) {
@@ -280,6 +307,12 @@ export function createDrinkStand(ctx) {
     actionTarget = target;
     actionButton.textContent = text;
     actionButton.hidden = false;
+  }
+
+  function updateProgress() {
+    if (progressText) {
+      progressText.textContent = formatUi(STRINGS.progress, { done: records.length, total: DIFFICULTY[level].count });
+    }
   }
 
   function makeSignCanvas(drink) {
@@ -459,6 +492,68 @@ export function createDrinkStand(ctx) {
     customer.meterFill = fillElement;
   }
 
+  function beginFocus(reason) {
+    focus.begin(reason);
+    focusReleasedAgo = 0;
+    audio.setFocusDuck(true);
+  }
+
+  function endFocus() {
+    focus.end();
+    focusReleasedAgo = 0;
+    audio.setFocusDuck(false);
+  }
+
+  function cancelFocus() {
+    focus.cancel();
+    focusReleasedAgo = Infinity;
+    audio.setFocusDuck(false);
+  }
+
+  function createDwellRing() {
+    const ringCanvas = document.createElement('canvas');
+    ringCanvas.width = 128;
+    ringCanvas.height = 128;
+    canvases.add(ringCanvas);
+    const context = ringCanvas.getContext('2d');
+    const texture = new THREE.CanvasTexture(ringCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    textures.add(texture);
+    const material = ownMaterial(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+    const sprite = new THREE.Sprite(material);
+    // Thick white/yellow strokes keep the dwell visible over every customer
+    // without competing with the English station signs below.
+    sprite.scale.set(1.4, 1.4, 1.4);
+    sprite.visible = false;
+    world.add(sprite);
+    return { context, texture, sprite, progress: -1 };
+  }
+
+  function drawDwellRing(customer, progress) {
+    const ring = customer.dwellRing;
+    const rounded = Math.round(Math.max(0, Math.min(1, progress)) * 48) / 48;
+    if (ring.progress === rounded) return;
+    ring.progress = rounded;
+    const { context } = ring;
+    context.clearRect(0, 0, 128, 128);
+    context.lineCap = 'round';
+    context.lineWidth = 24;
+    context.strokeStyle = 'rgba(255, 255, 255, .96)';
+    context.beginPath();
+    context.arc(64, 64, 45, 0, Math.PI * 2);
+    context.stroke();
+    context.lineWidth = 14;
+    context.strokeStyle = 'rgba(39, 56, 88, .78)';
+    context.beginPath();
+    context.arc(64, 64, 45, 0, Math.PI * 2);
+    context.stroke();
+    context.strokeStyle = '#ffe033';
+    context.beginPath();
+    context.arc(64, 64, 45, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rounded);
+    context.stroke();
+    ring.texture.needsUpdate = true;
+  }
+
   function buildWorld() {
     world = new THREE.Group();
     world.name = 'drink-stand-minigame';
@@ -516,7 +611,6 @@ export function createDrinkStand(ctx) {
 
     const configured = DIFFICULTY[level];
     const modelOrder = shuffle(CUSTOMER_MODELS);
-    rushStart = (configured.count - 3) * 3.5;
     const customerHitMaterial = makeMaterial(0xffffff, { transparent: true, opacity: 0, depthWrite: false });
     for (let index = 0; index < configured.count; index += 1) {
       const character = characters.create({ model: modelOrder[index % modelOrder.length] });
@@ -526,15 +620,14 @@ export function createDrinkStand(ctx) {
       character.visible = false;
       const clickTarget = addPart(character, shared.box, customerHitMaterial, 0, 0.45, 0, 0.65, 0.65, 0.45);
       world.add(character);
-      const isRush = index >= configured.count - 3;
       const customer = {
         index,
         wanted: pickDrink(Math.random),
         character,
         clickTarget,
         state: 'scheduled',
-        spawnAt: isRush ? rushStart + (index - (configured.count - 3)) * 0.68 : index * 3.5,
-        isRush,
+        spawnAt: null,
+        isRush: false,
         window: null,
         asked: false,
         served: false,
@@ -545,7 +638,9 @@ export function createDrinkStand(ctx) {
         leaveDelay: 0,
         meter: null,
         meterFill: null,
+        dwellRing: null,
       };
+      customer.dwellRing = createDwellRing();
       createPatienceMeter(customer);
       markClickable(character, { type: 'customer', value: customer });
       customers.push(customer);
@@ -706,17 +801,25 @@ export function createDrinkStand(ctx) {
     }
   }
 
-  function clearQuestion(keepHud = false) {
+  function clearQuestion(keepHud = false, outcome = 'cancelled') {
     if (!questionCustomer) return;
+    const endedCustomer = questionCustomer;
     questionCustomer = null;
-    focus.end();
+    if (questionCommitted) {
+      dwell.notifyEnded(endedCustomer.index, outcome);
+      endFocus();
+    }
+    questionCommitted = false;
+    speech.cancel();
     speech.clearTarget();
     if (!keepHud) hud.hide();
   }
 
   function acceptQuestion(customer) {
     if (!active || phase !== 'service' || customer.state !== 'atWindow' || customer.asked) return;
-    clearQuestion(true);
+    dwell.notifyAccepted(customer.index);
+    clearQuestion(true, 'accepted');
+    if (clickTalkTargetId === customer.index) clickTalkTargetId = null;
     customer.asked = true;
     hud.setTalkState('accepted');
     speechCooldown = 0.65;
@@ -729,19 +832,53 @@ export function createDrinkStand(ctx) {
   }
 
   function targetQuestion(customer) {
-    if (questionCustomer === customer || speechCooldown > 0 || customer.asked || customer.state !== 'atWindow') return;
+    if (questionCustomer === customer || speechCooldown > 0 || customer.asked
+      || customer.state !== 'atWindow' || phase !== 'service') return;
     // A click-to-walk passing a neighbouring window must not open that
     // neighbour's prompt: a tap on it is cancelled as soon as the walk carries
     // the child out of range and the prompt moves to the customer they chose.
     if (autoTarget && autoTarget.value !== customer) return;
     clearQuestion();
     questionCustomer = customer;
-    focus.begin('drink-stand-question');
     promptQuestion(ctx, LESSON, {
       isActive: () => active && phase === 'service' && customer.state === 'atWindow',
       onAccepted: () => acceptQuestion(customer),
     });
+    lastSpeechState = speech.state;
+    if (AUTO_TALK_ENABLED && settings.get('micFree')) {
+      // The fallback opens at commit, not while the child is merely dwelling.
+      hud.setMicFree(false);
+      speech.setEnabled(false);
+    }
+    if (!AUTO_TALK_ENABLED) {
+      questionCommitted = true;
+      beginFocus('drink-stand-question');
+    }
     setInstruction(STRINGS.askCustomer);
+  }
+
+  function commitQuestion(customer, manual = false) {
+    if (!customer || questionCustomer !== customer || questionCommitted) return;
+    const dwellCommitted = dwell.commit();
+    if (!dwellCommitted && AUTO_TALK_ENABLED && !manual) return;
+    questionCommitted = true;
+    beginFocus('drink-stand-question');
+    audio.playSfx('drink-talk-ready', {
+      frequency: 660, endFrequency: 880, duration: 0.14, type: 'sine', gain: 0.09,
+    });
+    if (settings.get('micFree')) {
+      hud.setMicFree(true);
+      hud.show();
+      return;
+    }
+    speech.setEnabled(true);
+    if (speech.autoListenAllowed()) speech.listenOnce();
+  }
+
+  function manualTalkStart(event) {
+    if (!AUTO_TALK_ENABLED || !questionCustomer || questionCommitted || hud.talkButton.hidden) return;
+    if (event.type === 'keydown' && (event.code !== 'Space' || event.repeat)) return;
+    commitQuestion(questionCustomer, true);
   }
 
   function replayAnswer() {
@@ -764,6 +901,7 @@ export function createDrinkStand(ctx) {
 
   function recordResolution(customer, outcome, patienceLeft) {
     records.push({ outcome, patienceLeft, replayed: customer.replayed });
+    updateProgress();
     lastResolvedCustomer = customer;
     if (outcome === 'first') {
       currentStreak += 1;
@@ -779,6 +917,7 @@ export function createDrinkStand(ctx) {
 
   function beginLeaving(customer, outcome) {
     if (questionCustomer === customer) clearQuestion();
+    if (clickTalkTargetId === customer.index) clickTalkTargetId = null;
     if (listenCustomer === customer) setListenTarget(null);
     customer.meter.hidden = true;
     customer.state = 'reacting';
@@ -802,7 +941,9 @@ export function createDrinkStand(ctx) {
     }
     customer.served = true;
     setHeldDrink(null);
-    audio.playSfx('accept');
+    audio.playSfx('drink-service-success', directorPhase === 'rush'
+      ? { frequency: 760, endFrequency: 1120, duration: 0.12, type: 'triangle', gain: 0.11 }
+      : { frequency: 620, endFrequency: 920, duration: 0.15, type: 'triangle', gain: 0.1 });
     dialogueCustomer = customer;
     dialogueRemaining = 1.7;
     dialogue.show({ text: STRINGS.thankYou, anchor: customer.character, offsetY: CUSTOMER_DIALOGUE_Y, speak: false });
@@ -858,7 +999,77 @@ export function createDrinkStand(ctx) {
     return nearest;
   }
 
+  function updateTalkDwell(dt) {
+    if (!AUTO_TALK_ENABLED) return;
+    dwellCandidates.length = 0;
+    for (const customer of customers) {
+      if (customer.state !== 'atWindow' || customer.asked) continue;
+      const poolIndex = dwellCandidates.length;
+      let candidate = dwellCandidatePool[poolIndex];
+      if (!candidate) {
+        candidate = {};
+        dwellCandidatePool[poolIndex] = candidate;
+      }
+      const windowInfo = WINDOWS[customer.window];
+      candidate.id = customer.index;
+      candidate.x = windowInfo.approachX;
+      candidate.z = windowInfo.approachZ;
+      candidate.radiusSq = CUSTOMER_RADIUS_SQ;
+      candidate.lookX = windowInfo.x;
+      candidate.lookZ = windowInfo.z;
+      dwellCandidates.push(candidate);
+    }
+    dwellPlayer.x = player.position.x;
+    dwellPlayer.z = player.position.z;
+    dwellPlayer.forwardX = Math.sin(player.rotation.y);
+    dwellPlayer.forwardZ = Math.cos(player.rotation.y);
+    dwellInput.moving = movementActive || Boolean(autoTarget) || Boolean(fillMode);
+    dwellInput.lockedTargetId = autoTarget?.type === 'customer'
+      ? autoTarget.value.index
+      : clickTalkTargetId;
+    dwell.update(dt, dwellInput);
+
+    const target = dwell.targetId == null ? null : customers[dwell.targetId];
+    for (const customer of customers) {
+      const showing = !questionCommitted && customer === target
+        && (dwell.phase === 'dwelling' || dwell.phase === 'ready');
+      customer.dwellRing.sprite.visible = showing;
+      if (showing) {
+        drawDwellRing(customer, dwell.progress);
+        const wanted = Math.atan2(
+          player.position.x - customer.character.position.x,
+          player.position.z - customer.character.position.z,
+        );
+        customer.character.rotation.y = THREE.MathUtils.clamp(wanted, -0.68, 0.68);
+      } else if (customer.state !== 'queueing' && customer.state !== 'arriving' && customer.state !== 'leaving') {
+        customer.character.rotation.y = 0;
+      }
+    }
+
+    if (target && !questionCommitted && !questionCustomer) targetQuestion(target);
+    if (questionCustomer && !questionCommitted && target !== questionCustomer) clearQuestion();
+
+    const speechState = speech.state;
+    if (questionCustomer && !questionCommitted && speechState === 'listening') {
+      commitQuestion(questionCustomer, true);
+    }
+    if (!questionCommitted && target && dwell.phase === 'ready') commitQuestion(target);
+    if (questionCommitted && speechState === 'try-again' && lastSpeechState !== 'try-again') {
+      dwell.notifyEnded(questionCustomer?.index, 'failed');
+    }
+    lastSpeechState = speechState;
+  }
+
   function updateContext() {
+    const lockedQuestion = questionCustomerStillNear();
+    if (questionCustomer && !lockedQuestion) clearQuestion();
+    // A dwelling or committed conversation outranks every station, pour and
+    // serve branch. Nothing may cancel the child's open speech interaction.
+    if (lockedQuestion) {
+      hideAction();
+      setListenTarget(null);
+      return;
+    }
     if (fillMode) {
       setListenTarget(null);
       setInstruction(STRINGS.pouring);
@@ -870,15 +1081,14 @@ export function createDrinkStand(ctx) {
       setListenTarget(null);
       return;
     }
-    const nearbyCustomer = questionCustomerStillNear() ?? customerNearPlayer();
+    const nearbyCustomer = customerNearPlayer();
     const nearbyStation = stationNearPlayer();
     setListenTarget(nearbyCustomer?.asked && !nearbyCustomer.served ? nearbyCustomer : null);
     if (nearbyCustomer) {
       if (!nearbyCustomer.asked) {
         hideAction();
-        targetQuestion(nearbyCustomer);
+        if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
       } else {
-        clearQuestion();
         if (heldDrink && isServable(fillState)) {
           setInstruction(STRINGS.serveHint);
           showAction(STRINGS.serveDrink, 'serve', nearbyCustomer);
@@ -889,7 +1099,6 @@ export function createDrinkStand(ctx) {
       }
       return;
     }
-    clearQuestion();
     if (nearbyStation) {
       setListenTarget(null);
       setInstruction(heldDrink === nearbyStation.id && !isServable(fillState) ? STRINGS.topUp : STRINGS.pourHint);
@@ -960,6 +1169,8 @@ export function createDrinkStand(ctx) {
     input.getMovement(move);
     if (move.lengthSq() > 0) {
       autoTarget = null;
+      clickTalkTargetId = null;
+      movementActive = true;
       const nextX = player.position.x + move.x * MOVE_SPEED * dt;
       const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
       if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
@@ -971,9 +1182,11 @@ export function createDrinkStand(ctx) {
       return;
     }
     if (!autoTarget) {
+      movementActive = false;
       player.playAnimation?.('idle');
       return;
     }
+    movementActive = true;
     const destination = autoTarget.position;
     const dx = destination.x - player.position.x;
     const dz = destination.z - player.position.z;
@@ -981,11 +1194,15 @@ export function createDrinkStand(ctx) {
     if (distance <= 0.18) {
       const arrived = autoTarget;
       autoTarget = null;
+      movementActive = false;
       player.playAnimation?.('idle');
       if (arrived.type === 'station') beginFill(arrived.value, 'latched');
       else if (arrived.type === 'customer') {
         if (arrived.value.state !== 'atWindow') return;
-        if (!arrived.value.asked) targetQuestion(arrived.value);
+        const faceX = arrived.value.character.position.x - player.position.x;
+        const faceZ = arrived.value.character.position.z - player.position.z;
+        player.rotation.y = Math.atan2(faceX, faceZ);
+        if (!arrived.value.asked) clickTalkTargetId = arrived.value.index;
         else if (heldDrink) serve(arrived.value);
       }
       return;
@@ -1001,15 +1218,27 @@ export function createDrinkStand(ctx) {
 
   function freeWindowIndex() {
     const configured = DIFFICULTY[level];
-    const activeAtWindows = windowOccupants.filter(Boolean).length;
+    let activeAtWindows = 0;
+    for (let index = 0; index < windowOccupants.length; index += 1) {
+      if (windowOccupants[index]) activeAtWindows += 1;
+    }
     if (activeAtWindows >= configured.maxWindows) return -1;
-    const free = windowOccupants.map((value, index) => value ? -1 : index).filter((index) => index >= 0);
-    return free[Math.floor(Math.random() * free.length)] ?? -1;
+    const freeCount = windowOccupants.length - activeAtWindows;
+    let choice = Math.floor(Math.random() * freeCount);
+    for (let index = 0; index < windowOccupants.length; index += 1) {
+      if (windowOccupants[index]) continue;
+      if (choice === 0) return index;
+      choice -= 1;
+    }
+    return -1;
   }
 
   function queuePosition(customer) {
-    const queued = customers.filter((entry) => entry.state === 'queueing' || entry.state === 'queued');
-    const slot = Math.max(0, queued.indexOf(customer));
+    let slot = 0;
+    for (const entry of customers) {
+      if (entry === customer) break;
+      if (entry.state === 'queueing' || entry.state === 'queued') slot += 1;
+    }
     return {
       x: 7.25 + (slot % 2) * 0.9,
       z: -4.45 - Math.floor(slot / 2) * 0.78,
@@ -1027,6 +1256,52 @@ export function createDrinkStand(ctx) {
       next.character.playAnimation?.('walk');
       freeIndex = freeWindowIndex();
     }
+  }
+
+  function showRushCue() {
+    if (rushShown) return;
+    rushShown = true;
+    rushStart = serviceElapsed;
+    rushBanner.hidden = false;
+    rushRemaining = 2.3;
+    audio.playSfx('drink-rush', {
+      frequency: 720, endFrequency: 1120, duration: 0.16, type: 'triangle', gain: 0.12,
+    });
+  }
+
+  function updateDirectorView() {
+    let windowsInUse = 0;
+    let queuedCount = 0;
+    for (const occupant of windowOccupants) {
+      if (occupant) windowsInUse += 1;
+    }
+    for (const customer of customers) {
+      if (customer.state === 'queueing' || customer.state === 'queued') queuedCount += 1;
+    }
+    directorView.windowsInUse = windowsInUse;
+    directorView.queuedCount = queuedCount;
+    directorView.customersRemaining = customers.length - records.length;
+    directorView.focusReleasedAgo = focusReleasedAgo;
+  }
+
+  function applyDirectorEvents(serviceDt) {
+    updateDirectorView();
+    const events = serviceDirector.advance(serviceDt, directorView);
+    for (const event of events) {
+      if (event.type === 'arrive') {
+        const customer = customers[event.customer];
+        if (!customer || customer.state !== 'scheduled') continue;
+        customer.state = 'queueing';
+        customer.spawnAt = serviceElapsed;
+        customer.isRush = event.phase === 'rush';
+        customer.character.visible = true;
+        customer.character.playAnimation?.('walk');
+      } else if (event.type === 'phase') {
+        directorPhase = event.phase;
+        if (event.phase === 'rush') showRushCue();
+      }
+    }
+    directorPhase = serviceDirector.phase;
   }
 
   function moveCharacterToward(customer, x, z, speed, dt) {
@@ -1051,7 +1326,10 @@ export function createDrinkStand(ctx) {
   function updatePatienceMeter(customer) {
     const visible = customer.state === 'atWindow';
     customer.meter.hidden = !visible;
-    if (!visible) return;
+    if (!visible) {
+      customer.dwellRing.sprite.visible = false;
+      return;
+    }
     const ratio = Math.max(0, customer.patience / customer.patienceMax);
     customer.meterFill.style.transform = `scaleX(${ratio})`;
     customer.meterFill.style.background = ratio < 0.28 ? '#ef5350' : ratio < 0.56 ? '#ffc847' : '#5bd16f';
@@ -1063,21 +1341,16 @@ export function createDrinkStand(ctx) {
     const height = root?.clientHeight || window.innerHeight;
     customer.meter.style.left = `${(worldPoint.x * 0.5 + 0.5) * width}px`;
     customer.meter.style.top = `${(-worldPoint.y * 0.5 + 0.5) * height}px`;
+    if (customer.dwellRing.sprite.visible) {
+      customer.character.getWorldPosition(worldPoint);
+      customer.dwellRing.sprite.position.copy(worldPoint);
+      customer.dwellRing.sprite.position.y += 2.25;
+      customer.dwellRing.sprite.quaternion.copy(camera.quaternion);
+    }
   }
 
   function updateCustomers(serviceDt, cosmeticDt) {
     for (const customer of customers) {
-      if (serviceDt > 0 && customer.state === 'scheduled' && serviceElapsed >= customer.spawnAt) {
-        customer.state = 'queueing';
-        customer.character.visible = true;
-        customer.character.playAnimation?.('walk');
-        if (customer.isRush && !rushShown) {
-          rushShown = true;
-          rushBanner.hidden = false;
-          rushRemaining = 2.3;
-          audio.playSfx('complete');
-        }
-      }
       if (serviceDt > 0 && customer.state === 'queueing') {
         const target = queuePosition(customer);
         if (moveCharacterToward(customer, target.x, target.z, 3.4, serviceDt)) {
@@ -1091,6 +1364,9 @@ export function createDrinkStand(ctx) {
           customer.state = 'atWindow';
           customer.character.rotation.y = 0;
           customer.character.playAnimation?.('idle');
+          audio.playSfx('drink-arrival', directorPhase === 'rush'
+            ? { frequency: 760, endFrequency: 1040, duration: 0.11, type: 'sine', gain: 0.1 }
+            : { frequency: 560, endFrequency: 790, duration: 0.15, type: 'sine', gain: 0.09 });
         }
       } else if (serviceDt > 0 && customer.state === 'atWindow') {
         customer.patience = Math.max(0, customer.patience - serviceDt);
@@ -1131,9 +1407,11 @@ export function createDrinkStand(ctx) {
       if (!target) continue;
       if (target.type === 'customer' && target.value.state !== 'atWindow') continue;
       if (target.type === 'station') {
+        clickTalkTargetId = null;
         autoTarget = { type: 'station', value: target.value, position: target.value.interaction };
       } else if (target.type === 'customer' && target.value.state === 'atWindow') {
         const windowInfo = WINDOWS[target.value.window];
+        clickTalkTargetId = target.value.asked ? null : target.value.index;
         autoTarget = {
           type: 'customer',
           value: target.value,
@@ -1162,7 +1440,10 @@ export function createDrinkStand(ctx) {
   function debugSnapshot() {
     const configured = DIFFICULTY[level];
     return {
-      phase,
+      phase: phase === 'service' ? directorPhase : phase,
+      lifecycle: phase,
+      directorPhase,
+      progress: { done: records.length, total: configured.count },
       level,
       heldDrink,
       serviceElapsed,
@@ -1172,8 +1453,10 @@ export function createDrinkStand(ctx) {
       rushStart,
       configuredCount: configured.count,
       maxWindows: configured.maxWindows,
-      player: player ? { x: player.position.x, z: player.position.z } : null,
+      player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
       questionIndex: questionCustomer?.index ?? null,
+      dwell: { phase: dwell.phase, targetId: dwell.targetId, progress: dwell.progress },
+      question: { customer: questionCustomer?.index ?? null, committed: questionCommitted },
       autoTarget: autoTarget ? { type: autoTarget.type, target: autoTarget.value?.index ?? autoTarget.value?.id ?? null } : null,
       cup: {
         drink: fillState.drink,
@@ -1246,7 +1529,7 @@ export function createDrinkStand(ctx) {
     cameraRig
       .setTarget(null)
       .setPreset('fixed', { position: [0, 3.65, 6.15], lookAt: [0, 1.15, -3.15], damping: 6.5 });
-    focus.begin('drink-stand-turnaround');
+    beginFocus('drink-stand-turnaround');
     promptAnswer(ctx, LESSON, {
       isActive: () => active && phase === 'turnaround',
       onAccepted: completeTurnaround,
@@ -1257,7 +1540,7 @@ export function createDrinkStand(ctx) {
     if (!active || phase !== 'turnaround') return;
     acceptedAnswer = answer || LESSON.answers[0];
     phase = 'finishing';
-    focus.end();
+    endFocus();
     speech.clearTarget();
     hud.setTalkState('accepted');
     setHeldDrink(acceptedAnswer);
@@ -1282,6 +1565,15 @@ export function createDrinkStand(ctx) {
     phase = 'service';
     elapsed = 0;
     serviceElapsed = 0;
+    const configured = DIFFICULTY[level];
+    serviceDirector = createDrinkDirector({
+      level,
+      total: configured.count,
+      windows: configured.maxWindows,
+      rng: Math.random,
+    });
+    directorPhase = serviceDirector.phase;
+    focusReleasedAgo = Infinity;
     heldDrink = null;
     cupLiquidDrink = null;
     fillState = emptyFill();
@@ -1303,17 +1595,24 @@ export function createDrinkStand(ctx) {
     currentStreak = 0;
     acceptedAnswer = null;
     rushShown = false;
-    rushStart = 0;
-    focus.cancel();
+    rushStart = null;
+    movementActive = false;
+    clickTalkTargetId = null;
+    questionCommitted = false;
+    lastSpeechState = 'ready';
+    cancelFocus();
+    dwell.reset();
     createOverlay();
     buildWorld();
     canvas = document.querySelector('#game-canvas');
     canvas?.addEventListener('pointerdown', onCanvasPointer);
+    hud.talkButton.addEventListener('pointerdown', manualTalkStart);
+    window.addEventListener('keydown', manualTalkStart, true);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       speech.setEnabled(!next.micFree);
-      hud.setMicFree(next.micFree);
+      hud.setMicFree(AUTO_TALK_ENABLED && questionCustomer && !questionCommitted ? false : next.micFree);
       hud.setTextSize(next.textSize);
     });
   }
@@ -1325,6 +1624,7 @@ export function createDrinkStand(ctx) {
     focus.update(safeDt);
     const serviceDt = focus.serviceDelta(safeDt);
     serviceElapsed += serviceDt;
+    if (Number.isFinite(focusReleasedAgo)) focusReleasedAgo += serviceDt;
     if (noticeRemaining > 0) {
       noticeRemaining -= safeDt;
       if (noticeRemaining <= 0) notice.hidden = true;
@@ -1357,10 +1657,12 @@ export function createDrinkStand(ctx) {
         if (fillMode === 'keyboard' && !input.isDown('interact')) endFill();
       } else {
         updateMovement(safeDt);
-        updateContext();
-        if (actionType && input.consumeInteract()) performAction();
       }
       updateCustomers(serviceDt, safeDt);
+      applyDirectorEvents(serviceDt);
+      updateTalkDwell(safeDt);
+      updateContext();
+      if (actionType && input.consumeInteract()) performAction();
       updateRoundEnd();
     } else if (phase === 'round-end') {
       player.playAnimation?.('idle');
@@ -1382,7 +1684,8 @@ export function createDrinkStand(ctx) {
   function exit() {
     active = false;
     phase = 'inactive';
-    focus.cancel();
+    cancelFocus();
+    dwell.reset();
     setStationEffects(pouringStation, false);
     fillMode = null;
     fillPointerId = null;
@@ -1396,6 +1699,8 @@ export function createDrinkStand(ctx) {
     dialogue.element?.classList.remove('drink-stand-dialogue');
     cameraRig.setTarget(null);
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
+    hud.talkButton.removeEventListener('pointerdown', manualTalkStart);
+    window.removeEventListener('keydown', manualTalkStart, true);
     actionButton?.removeEventListener('click', onActionClick);
     actionButton?.removeEventListener('pointerdown', onActionPointerDown);
     actionButton?.removeEventListener('pointerup', onActionPointerUp);
@@ -1432,6 +1737,7 @@ export function createDrinkStand(ctx) {
     overlay = null;
     style = null;
     instruction = null;
+    progressText = null;
     actionButton = null;
     rushBanner = null;
     comboPop = null;
@@ -1447,6 +1753,10 @@ export function createDrinkStand(ctx) {
     lastResolvedCustomer = null;
     pouringStation = null;
     autoTarget = null;
+    serviceDirector = null;
+    movementActive = false;
+    clickTalkTargetId = null;
+    questionCommitted = false;
     canvas = null;
     heldDrink = null;
     fillState = emptyFill();

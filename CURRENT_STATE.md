@@ -65,6 +65,11 @@ Grade 3. Watch "deer" in the matcher.
   remembering the person alone. The SPEC accepts this; revisit after observation.
 - A Restaurant customer without a raised hand still refuses an offered dish.
 - A habitat sign can overlap its animal from some angles (Zoo).
+- Zoo, intermittent (1 of the last ~6 runs): a penguin request photographed the
+  neighbouring giraffe three times even after stepping closer, and the scripted
+  run stalled. It recurred after the nearest-pen fix (c4be0c5), so the fix is
+  incomplete for that pen pair; a re-run passed 24/24. Unrelated to the service
+  revision — investigate separately (giraffe height filling the frame?).
 - Bundle over 600 kB (three.js) plus ~6 MB of models.
 
 ## Asset licences (checked 2026-09-12)
@@ -78,14 +83,90 @@ Grade 3. Watch "deer" in the matcher.
   but not redistributing the files; the Styloo pack states no licence. Anyone
   forking this should replace those two files.
 
+## In Progress — Rush-hour revision (design frozen, implementation not started)
+
+The owner asked for both service games to feel like a busy service station
+(continuous shifts, overlapping demands, stronger feel) without changing the
+English. Design is decided — read the last DESIGN_DECISIONS.md entry
+("Rush-hour revision") and SPEC.md §4 "Service shift" and §6 "Difficulty".
+
+Done so far, UNCOMMITTED (live site stays on 1d67402 until the revision is green):
+- SPEC.md §4 (Difficulty + new "Service shift") and §6 (Difficulty) rewritten.
+- `src/systems/audio.js`: `setFocusDuck(active)` added (effects × 0.25).
+
 ## Next Steps
 
-1. The manual Chromebook pass above, especially Restaurant Challenge load and
-   trackpad/touch hold-to-fill.
-2. Consider a no-undef lint in validation: a renamed-function ReferenceError
-   froze Drink Stand while tests and build were green.
-3. Possible shared playthrough helpers (wait for prompt clear, state-based
-   outcomes, hold-until-state, fail instead of crash).
+1. DONE: UI strings added to `src/config/lesson.js`. Dwell-to-talk was also
+   decided (SPEC §3 "Dwell to talk", DESIGN_DECISIONS "Dwell to talk"). Work
+   orders are written: `.ai/wo-dwell-talk.json` (shared foundation: talkDwell.js,
+   interaction.js, speech.listenOnce/autoListenAllowed, mockSpeech helper),
+   `.ai/wo-restaurant-rush.json` and `.ai/wo-drink-rush.json` (rush + dwell
+   integration). Run them strictly in that order — each depends on the previous.
+   Accept the dwell order with `npm test`, build and all five playthroughs
+   (proves hold-to-talk is unchanged) before dispatching Restaurant.
+   ACCEPTED 2026-09-13 (Codex SUCCESS + Claude review): `npm test` 175/175,
+   build clean, Drink Stand 40/40, Coloring 25/25, Sports 21/21, Zoo 24/24
+   (re-run), Restaurant 49/50 (known sweep flake, fix is in the Restaurant brief).
+   Claude added optional `lookX/lookZ` facing points to talkDwell candidates:
+   Drink Stand must judge facing toward the window customer, not the approach
+   point the avatar stands on. Restaurant order dispatched next.
+   RESTAURANT RUSH + DWELL ACCEPTED 2026-09-13 (Codex PARTIAL — hit its OpenAI
+   quota at the very end with the work complete — plus Claude fixes): an open
+   dwelling/committed question now outranks the pickup counter (tables 0 and 2
+   sit inside its radius, and clearing the question there disarmed the dwell for
+   good); dwell/question state added to the debug hook; harness click helper
+   accepts instant arrival and waits for the commit; the no-reopen check can no
+   longer pass vacuously. Evidence: `npm test` 187/187, build clean,
+   `npm run playthrough:restaurant` 78/78, probe `.tmp/rest-rush.mjs`: Easy 3
+   seated / 5 customers / max 1 live; Normal 4 / 7 / 3 live, 4 demand kinds at
+   once, rush never serial; Challenge 5 / 8 / 4 live, all 5 demand kinds at
+   once; replacements with re-randomised foods (repeats seen); phases
+   warm-up → rush → final push; orders taken while carrying; no stalls or
+   errors. Screenshots reviewed: room framed, progress pill, ラストスパート！
+   pill small, walk-in visible, combo. Drink Stand order is next.
+   DRINK STAND RUSH + DWELL ACCEPTED 2026-09-13 (Codex SUCCESS + Claude
+   review/probes): `npm test` 197/197, build clean, playthroughs Drink Stand
+   56/56, Restaurant 78/78, Coloring 25/25, Sports 21/21, Zoo 24/24. Probe
+   `.tmp/drink-rush.mjs`: Easy 5 customers / 1 window; Normal 6 / 2 windows,
+   14 busy-moment samples (all windows used + asked + unasked + filling/carrying
+   + queued), queue waiting while all windows busy in 62 samples; Challenge 7 /
+   3 windows, 11 busy-moment samples, 79 queue-while-busy samples; every question
+   froze all windows, queue and rush; all Space-hold and click fills valid;
+   3 stars, no errors. Pacing note: Normal went warm-up → rush with no main
+   phase (6 customers reach the rush threshold early) — watch in class.
+   Also fixed by Claude: speech bubbles no longer swallow clicks on the room
+   (`dialogue.js` pointer-events), and the Restaurant dwell ring is larger with a
+   white halo. Screenshots reviewed for both dwell rings.
+   NOT YET COMMITTED OR PUSHED. Pushing to main deploys to the classroom site
+   and turns on auto-listening mics — ask the owner before pushing.
+5. Zoo redesign (owner's plan, 2026-09-13) — started. CC0 environment assets
+   imported to `public/assets/zoo/environment/` with a provenance README
+   (Quaternius Nature MegaKit, Kenney City Kit Suburban, KayKit Restaurant Bits,
+   Quaternius Farm Buildings — the last needs its CC0 confirmed on
+   quaternius.com). Current Zoo facts: 13 habitats on a radius-33 ring; a wrong
+   photo is NOT consumed (the carry-one-photo-to-every-visitor loophole is
+   open); Listen Again replays every waiting visitor; Challenge has 6 requests.
+   The Zoo harness walks straight lines to habitat coordinates, so the redesign
+   must expose a path graph and a photo viewpoint per habitat. Next: commit the
+   service revision (Zoo assets excluded), then write SPEC §8 changes,
+   DESIGN_DECISIONS and split Zoo work orders (world/layout, then gameplay
+   rules + harness).
+2. Delegate Restaurant, then Drink Stand, as two SEQUENTIAL Codex orders via
+   `worker-delegate` (both run npm test/build; parallel runs corrupt each other's
+   validation). Each: a pure tested `director.js`, shift/replacement logic,
+   feel items, `audio.setFocusDuck` on focus begin/end/cancel, updated
+   playthrough, debug snapshot fields for phase/progress. Set
+   `behavioralAcceptance.owner: "controller"` — Codex's sandbox cannot start the
+   preview. Put the harness pitfalls in the brief (stale fallback buttons,
+   state-based outcomes, hold-until-state, never crash on a missing answer).
+3. Controller acceptance: `npm test`, `npm run build`, all five
+   `npm run playthrough:*`, then the probes `.tmp/rest-overlap.mjs <level>` and
+   `.tmp/drink-manual.mjs <url> <level>` (extend them for replacement customers,
+   phases and "≥3 demands at once"). Play Normal + Challenge of both and look at
+   screenshots before accepting. Then commit and push to main.
+4. Later: the manual Chromebook pass; a no-undef lint in validation (a renamed
+   function froze Drink Stand while tests and build were green); shared
+   playthrough helpers.
 
 ## Codex / Delegated Work
 

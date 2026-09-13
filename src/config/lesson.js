@@ -175,6 +175,8 @@ export const UI = Object.freeze({
     patientLeave: 'また こんどね！',
     rush: 'ラッシュ！',
     combo: '{count} コンボ！',
+    // Small shift progress counter; never a countdown.
+    progress: 'おきゃくさん {done}/{total}',
     roundEnd: 'みんなに とどけたよ！',
     turnaround: 'こんどは きみの ばん！',
     yourDrink: 'きみの ドリンクも できたよ！',
@@ -253,6 +255,10 @@ export const UI = Object.freeze({
     wantsToOrder: 'てを あげている おきゃくさんが いるよ',
     orderTaken: 'ちゅうもんを きいたよ！',
     combo: '{count} コンボ！',
+    // Shift phases and progress: small cues, never a countdown.
+    rush: 'ラッシュ！',
+    finalPush: 'ラストスパート！',
+    progress: 'おきゃくさん {done}/{total}',
     turnaround: 'こんどは きみの ばん！',
     complete: 'スタンプを ゲット！',
     tempHot: 'あつあつ！',

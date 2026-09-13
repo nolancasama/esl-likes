@@ -750,3 +750,80 @@ Found by playing the built game at 1366x768, not by the unit tests.
   made it frequent.
 - Drink Stand level 3 keeps five customers, not six: the last-three rush already
   fills all three windows and still reads as a finale.
+
+## 2026-09-13 — Rush-hour revision: service shifts run by a director (DECIDED, not yet built)
+
+Both service games felt like one small errand after another. The revision makes
+them busier without touching the English. Decisions taken on the owner's plan:
+
+- **Accepted — shifts, not fixed lists.** A session is bounded by a customer
+  total, not a clock, because speech focus freezes time and the total keeps
+  askings bounded. Restaurant 5 / 7 / 8 customers over 3 / 4 / 5 tables with
+  replacement customers (new independent food each time). Drink Stand 5 / 6 / 7
+  customers (every one a real asking, no filler) over 1 / 2 / 3 windows.
+- **Accepted — a small pure director per game** (`restaurant/director.js`,
+  `drinkStand/director.js`, each tested with an injected RNG), advanced only by
+  the service clock so speech focus freezes it by construction. Phases: warm-up
+  (~18 s service time, at most two demands) → rush → final push (Restaurant:
+  ラストスパート！ cue once the last customers are seated; Drink Stand: the
+  existing ラッシュ！ becomes a real phase with fast arrivals and a longer line).
+  It staggers hands (settle 1–2.5 s), spaces bells, holds new discrete events
+  ~0.8 s after focus ends, and keeps Normal/Challenge from going serial.
+  Deliberately NOT a shared abstraction between the two games.
+- **Accepted — feel:** louder two-tone bell, visible walk-in/walk-out, arrival
+  chimes, phase cues, combo, and `audio.setFocusDuck()` (added) ducking effects
+  to 25% while focused; TTS is unaffected.
+- **Modified — progress, not timers.** A small served/total counter; no
+  countdown.
+- **Rejected — the Challenge two-dish tray.** A carry-slot state machine and
+  delivery ambiguity; flow matters more. Revisit after classroom observation.
+- **Rejected — continuous ambience and footstep sounds.** In a classroom,
+  speaker sound bleeds into the microphone during recognition.
+
+## 2026-09-13 — Dwell to talk in the service games (DECIDED, not yet built)
+
+Holding a button for every customer broke the "run → stop → speak → run" rhythm
+the rush revision is after. In Restaurant and Drink Stand a conversation now
+starts when the child stops in range, faces an eligible customer (±55°) and
+stays still for 1.2 s; hold-to-talk stays as the manual fallback, the mic-free
+fallback opens after the dwell. Logic lives once in `src/systems/talkDwell.js`
+(pure, tested) with timings in `src/config/interaction.js`; the speech system
+gains a bounded programmatic `listenOnce()`.
+
+- Speech focus starts at the **commit**, not at the radius: dwelling costs a
+  moment of service time, and that moment is the child's own choice.
+- **Rejected: the camera ease-in.** It contradicts two standing decisions — the
+  Restaurant frames the whole room so no raised hand can hide, and camera
+  re-framing produced the zoo shutter bug. The customer turning toward the
+  player, a progress ring and a ready chime carry the same meaning.
+- **Added: no mid-game permission popup.** The mic opens automatically only if
+  permission is already granted or a hold has worked this session; otherwise
+  the commit leaves the ordinary hold control waiting.
+- **Added: no reopening loop.** A failed or cancelled attempt disarms the dwell
+  until the child moves or leaves the radius, then a 1 s neutral pause.
+- **Modified: an internal switch, not a settings toggle.** `AUTO_TALK_ENABLED`
+  restores proximity prompts; a user-facing setting waits for Chromebook
+  evidence.
+- **The owner explicitly authorised relaxing "press-and-HOLD to talk"** for
+  this. That rule was inherited from esl-time's speech port (child-controlled
+  listening, no mic hearing the game's own voice, never an unknowingly open
+  mic); each automatic session stays one bounded attempt the child chose by
+  stopping. Known classroom risk to check on a real Chromebook: a neighbour
+  saying the same sentence during an automatic session could be accepted for a
+  silent child — more chances than with a hold.
+
+## 2026-09-13 — Speech bubbles never block a click on the room
+
+NPC answer bubbles float over the 3D world and captured every pointer event,
+so a click on a customer sitting behind a fresh "I like hamburgers." bubble did
+nothing for about 2.5 seconds — a trackpad child simply could not reach the next
+raised hand, and a scripted run proved it (`elementFromPoint` hit
+`.npc-dialogue__line`). The bubble is now `pointer-events: none`; only its
+replay button takes the pointer. Applies to every minigame, all for the better.
+
+## 2026-09-13 — Restaurant replacement staging details
+
+Served customers eat for 3.2 seconds of service time before walking out. New
+customer looks cycle through model/tint pairs rather than either list alone:
+simultaneous occupants stay distinct, and a reused table never immediately
+gets the same-looking customer even when the five base models wrap.
