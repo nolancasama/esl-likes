@@ -2,204 +2,100 @@
 
 ## Status
 
-All five minigames are playable end to end: Restaurant, Coloring v1, Drink Stand
-v1, Sports v1 and Zoo v1. The game is published at
+All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
-`.github/workflows/pages.yml` with the unit tests gating the deploy.
+`.github/workflows/pages.yml` (unit tests gate the deploy). Live = `27cc580`.
 
-The 2026-09-12/13 service revision is complete: protected speech focus, the
-Restaurant working-memory redesign and the Drink Stand hold-to-fill revision.
-See the last entries of `DESIGN_DECISIONS.md`.
+In progress: the Restaurant Challenge rival waiter (two sequential orders; part 1
+accepted, part 2 next). See "Codex / Delegated Work".
 
 ## What Exists
 
-- `SPEC.md` — the frozen design. Sections 3 (protected speech focus), 4
-  (Restaurant) and 6 (Drink Stand) were rewritten for the revision.
-- `src/systems/speechFocus.js` — one service-clock scale; Restaurant and Drink
-  Stand advance every pressure timer by `focus.serviceDelta(dt)`.
-- Restaurant (`src/minigames/restaurant/`): 3/4/5 seated customers; order budget
-  1/3/4 (a raised hand counts against it); raised-hand cue; foods independent
-  with repeats, matched by food; refusal lock + step-away on a wrong delivery;
-  first-try combo; fixed whole-room camera; pure `scoring.js`. A raised hand can
-  be answered while carrying a dish. Click-to-walk steers around tables.
-  Debug hook `window.__eslDebug.restaurant`.
-- Drink Stand (`src/minigames/drinkStand/`): 5/5/5 customers, 1/2/3 windows;
-  hold-to-fill identical at six shuffled stations (pure `fill.js`: valid at 35%,
-  top-up at the same station, a different drink empties, overflow stays valid,
-  never scored); short tap on the action button latches to full; click a station
-  to walk + latch; HUD glass shows the fill; per-station look and synth sound;
-  wrong drink empties the cup; combo; final ラッシュ！.
-- Both service games: click-to-walk opens a talk prompt only for the customer it
-  is walking to, and an open prompt stays with its customer while in range.
-- Shell, speech matcher, Coloring, Sports, Zoo — unchanged by the revision.
+- `SPEC.md` — the frozen design; `DESIGN_DECISIONS.md` — why.
+- Shared: `speechFocus.js` (service clock frozen during speech), `talkDwell.js`
+  (stop + face + 1.2 s dwell starts a conversation; hold-to-talk fallback),
+  `AUTO_TALK_ENABLED` in `src/config/interaction.js`.
+- Restaurant (`src/minigames/restaurant/`): rush-hour service shift run by pure
+  `director.js` (warm-up → rush → final push, replacements with new random foods);
+  tables 3/4/5, live-order limit 1/3/4 (a raised hand counts), food-owned prep
+  times so dishes finish out of order, several ready dishes at random counter
+  slots, dishes matched by food (repeats safe), first-try combo, Listen Again
+  forfeits only the memory bonus, wrong-delivery refusal lock, whole-room
+  camera, click-to-walk. NEW, not yet integrated: `claims.js` (ownership registry)
+  and `rival.js` (Challenge rival state machine), director owner-aware budget,
+  Challenge total 11 (SPEC §4 "Challenge rival waiter").
+- Drink Stand: rush + dwell revision, hold-to-fill at six stations.
+- Zoo (`src/minigames/zoo/`): campus from pure `layout.js` (path graph, viewpoint
+  per habitat, colliders, landmarks), CC0 environment dressing with instancing
+  and graceful asset fallbacks, Japanese region signposts + YOU ARE HERE board.
+  No entrance gate and no per-pen animal signs (owner's decision). Animals stand
+  still facing their viewpoint (half-turn for tiger/deer/penguin/giraffe);
+  alpaca and giraffe play idle clips. Viewfinder camera: 3.8 back, 3.4 high,
+  34° FOV, slides in front of photo occluders behind the player.
 - Playthroughs: `npm run build`, then `npm run playthrough:<scenario>`
-  (restaurant, drink-stand, coloring, sports, zoo). The runner owns the preview.
+  (restaurant, drink-stand, coloring, sports, zoo); the runner owns the preview.
+  Zoo supports `-- --only habitats`. Scratch probes live in `.tmp/` (not
+  committed): `zoo-face-probe.mjs` (needs a preview on :5199), `rest-rush.mjs`,
+  `drink-rush.mjs`.
 
-## Verified (2026-09-13, final tree)
+## Verified (2026-09-13)
 
-- `npm test` 153/153; `npm run build` clean.
-- Playthroughs: Restaurant 50/50, Drink Stand 40/40 (four consecutive runs),
-  Coloring 25/25, Sports 21/21, Zoo 24/24.
-- Manual-style probes on the built game at 1366x768 (`.tmp/rest-overlap.mjs`,
-  `.tmp/drink-manual.mjs`, not committed): Restaurant Normal peaks at 3 live
-  orders with 4 seated, Challenge at 4 with 5 seated, with cooking + ready + raised
-  hand + known order observed together; never serial; no stalls. Drink Stand
-  Normal/Challenge: 5 customers, windows peak 2/3, every window, the queue and
-  the rush frozen at all ten questions, Space-hold and click fills all valid.
-- Screenshots reviewed: whole Restaurant room and all cues in frame at every
-  level; fill glass part/full/overflow; rush banner clear of the windows.
+- `npm test` 225/225 (after rival part 1); build clean.
+- Zoo at `27cc580`: `npm run playthrough:zoo` 109/109 (all 13 habitats
+  photographed), region and viewfinder screenshots reviewed.
+- Service games at `585b977`: Restaurant 78/78, Drink Stand 56/56, Coloring
+  25/25, Sports 21/21; busy-moment probes and screenshots reviewed.
 
 ## NOT Verified — Manual Chromebook Pass Required
 
-Real speech recognition cannot run headless. On a classroom Chromebook: holding
-the talk button, a real "What food/drink do you like?", Try Again after a
-misrecognition, and the two-failure fallback. Also real trackpad and touch play
-(the short-tap latch was only scripted with a mouse), levels 2 and 3 of Coloring,
-Sports and Zoo, and whether Restaurant Challenge (4 live orders) is too much for
-Grade 3. Watch "deer" in the matcher.
+Real speech recognition cannot run headless. On a classroom Chromebook: a real
+"What … do you like?", auto-listening after dwell (a neighbour's voice could be
+accepted — set `AUTO_TALK_ENABLED` false if so), Try Again and the fallback;
+trackpad/touch play; levels 2–3 of Coloring, Sports and Zoo; whether Restaurant
+Challenge is too much for Grade 3. Zoo frame rate: scene is ~137k triangles
+after dressing (22k before) — check it on a Chromebook first.
 
 ## Known Limits
 
-- Restaurant Easy has one live order, so the dish always belongs to the one
-  customer asked; the answer still has to be heard, but a child can place it by
-  remembering the person alone. The SPEC accepts this; revisit after observation.
+- Restaurant Easy has one live order, so a child can place the dish by
+  remembering the person alone. SPEC accepts this; revisit after observation.
 - A Restaurant customer without a raised hand still refuses an offered dish.
-- Zoo, intermittent (1 of the last ~6 runs): a penguin request photographed the
-  neighbouring giraffe three times even after stepping closer, and the scripted
-  run stalled. It recurred after the nearest-pen fix (c4be0c5), so the fix is
-  incomplete for that pen pair; a re-run passed 24/24. Unrelated to the service
-  revision — investigate separately (giraffe height filling the frame?).
-- Bundle over 600 kB (three.js) plus ~6 MB of models.
+- Drink Stand Normal goes warm-up → rush with no main phase — watch in class.
+- Bundle over 600 kB (three.js) plus models and environment assets.
 
-## Asset licences (checked 2026-09-12)
+## Asset licences
 
-- CC0: Kenney Blocky Characters (people); Quaternius (fox, wolf, stag, bull,
-  cow, donkey, white horse, alpaca).
-- Own work: `elephant.glb`, generated by the user's Blender script.
-- `Animals.glb` (ithappy *Animals FREE*, Unity Asset Store — tiger, deer,
-  penguin) and `giraffe.glb` (Styloo, itch.io) are **published at the owner's
-  explicit decision**. The Unity EULA permits using assets inside an application
-  but not redistributing the files; the Styloo pack states no licence. Anyone
-  forking this should replace those two files.
-
-## In Progress — Rush-hour revision (design frozen, implementation not started)
-
-The owner asked for both service games to feel like a busy service station
-(continuous shifts, overlapping demands, stronger feel) without changing the
-English. Design is decided — read the last DESIGN_DECISIONS.md entry
-("Rush-hour revision") and SPEC.md §4 "Service shift" and §6 "Difficulty".
-
-Done so far, UNCOMMITTED (live site stays on 1d67402 until the revision is green):
-- SPEC.md §4 (Difficulty + new "Service shift") and §6 (Difficulty) rewritten.
-- `src/systems/audio.js`: `setFocusDuck(active)` added (effects × 0.25).
+- CC0: Kenney Blocky Characters and City Kit Suburban; Quaternius animals and
+  Stylized Nature MegaKit; KayKit Restaurant Bits (1024 px atlas not loaded).
+- **Quaternius Farm Buildings: CC0 not confirmed** (no licence file in the
+  archive) — now published; confirm on quaternius.com or remove the folder (the
+  Zoo falls back to a procedural barn).
+- Own work: `elephant.glb`.
+- `Animals.glb` (ithappy, Unity Asset Store) and `giraffe.glb` (Styloo) are
+  published at the owner's explicit decision; forks should replace them.
+- Provenance: `public/assets/zoo/environment/README.md`.
 
 ## Next Steps
 
-1. DONE: UI strings added to `src/config/lesson.js`. Dwell-to-talk was also
-   decided (SPEC §3 "Dwell to talk", DESIGN_DECISIONS "Dwell to talk"). Work
-   orders are written: `.ai/wo-dwell-talk.json` (shared foundation: talkDwell.js,
-   interaction.js, speech.listenOnce/autoListenAllowed, mockSpeech helper),
-   `.ai/wo-restaurant-rush.json` and `.ai/wo-drink-rush.json` (rush + dwell
-   integration). Run them strictly in that order — each depends on the previous.
-   Accept the dwell order with `npm test`, build and all five playthroughs
-   (proves hold-to-talk is unchanged) before dispatching Restaurant.
-   ACCEPTED 2026-09-13 (Codex SUCCESS + Claude review): `npm test` 175/175,
-   build clean, Drink Stand 40/40, Coloring 25/25, Sports 21/21, Zoo 24/24
-   (re-run), Restaurant 49/50 (known sweep flake, fix is in the Restaurant brief).
-   Claude added optional `lookX/lookZ` facing points to talkDwell candidates:
-   Drink Stand must judge facing toward the window customer, not the approach
-   point the avatar stands on. Restaurant order dispatched next.
-   RESTAURANT RUSH + DWELL ACCEPTED 2026-09-13 (Codex PARTIAL — hit its OpenAI
-   quota at the very end with the work complete — plus Claude fixes): an open
-   dwelling/committed question now outranks the pickup counter (tables 0 and 2
-   sit inside its radius, and clearing the question there disarmed the dwell for
-   good); dwell/question state added to the debug hook; harness click helper
-   accepts instant arrival and waits for the commit; the no-reopen check can no
-   longer pass vacuously. Evidence: `npm test` 187/187, build clean,
-   `npm run playthrough:restaurant` 78/78, probe `.tmp/rest-rush.mjs`: Easy 3
-   seated / 5 customers / max 1 live; Normal 4 / 7 / 3 live, 4 demand kinds at
-   once, rush never serial; Challenge 5 / 8 / 4 live, all 5 demand kinds at
-   once; replacements with re-randomised foods (repeats seen); phases
-   warm-up → rush → final push; orders taken while carrying; no stalls or
-   errors. Screenshots reviewed: room framed, progress pill, ラストスパート！
-   pill small, walk-in visible, combo. Drink Stand order is next.
-   DRINK STAND RUSH + DWELL ACCEPTED 2026-09-13 (Codex SUCCESS + Claude
-   review/probes): `npm test` 197/197, build clean, playthroughs Drink Stand
-   56/56, Restaurant 78/78, Coloring 25/25, Sports 21/21, Zoo 24/24. Probe
-   `.tmp/drink-rush.mjs`: Easy 5 customers / 1 window; Normal 6 / 2 windows,
-   14 busy-moment samples (all windows used + asked + unasked + filling/carrying
-   + queued), queue waiting while all windows busy in 62 samples; Challenge 7 /
-   3 windows, 11 busy-moment samples, 79 queue-while-busy samples; every question
-   froze all windows, queue and rush; all Space-hold and click fills valid;
-   3 stars, no errors. Pacing note: Normal went warm-up → rush with no main
-   phase (6 customers reach the rush threshold early) — watch in class.
-   Also fixed by Claude: speech bubbles no longer swallow clicks on the room
-   (`dialogue.js` pointer-events), and the Restaurant dwell ring is larger with a
-   white halo. Screenshots reviewed for both dwell rings.
-   Committed as 585b977 and PUSHED to main 2026-09-13 with the owner's approval
-   (auto-listening mics are live; set AUTO_TALK_ENABLED false if a neighbour's
-   voice gets accepted in class).
-5. Zoo redesign (owner's plan, 2026-09-13) — started. CC0 environment assets
-   imported to `public/assets/zoo/environment/` with a provenance README
-   (Quaternius Nature MegaKit, Kenney City Kit Suburban, KayKit Restaurant Bits,
-   Quaternius Farm Buildings — the last needs its CC0 confirmed on
-   quaternius.com). Current Zoo facts: 13 habitats on a radius-33 ring; a wrong
-   photo is NOT consumed (the carry-one-photo-to-every-visitor loophole is
-   open); Listen Again replays every waiting visitor; Challenge has 6 requests.
-   The Zoo harness walks straight lines to habitat coordinates, so the redesign
-   must expose a path graph and a photo viewpoint per habitat.
-   DONE: service revision committed locally as 585b977 (not pushed). SPEC §8
-   rewritten ("Campus", one photo = one attempt, visitor-specific replay,
-   Challenge 5), DESIGN_DECISIONS "The Zoo becomes a small campus" written. Work
-   orders, to run strictly in order, each accepted before the next:
-   `.ai/wo-zoo-layout.json` (pure layout.js + tests, campus world with
-   placeholder dressing, collision, closer camera, path-graph routing harness),
-   `.ai/wo-zoo-dressing.json` (CC0 asset kits, signposts, YOU ARE HERE board,
-   performance budget), `.ai/wo-zoo-rules.json` (photo consumption,
-   single-visitor Listen Again, 5 requests). Controller acceptance for each:
-   npm test, build, `npm run playthrough:zoo` (and `-- --only habitats`), a
-   travel-time and per-habitat framing check, region screenshots, sceneStats.
-2. Delegate Restaurant, then Drink Stand, as two SEQUENTIAL Codex orders via
-   `worker-delegate` (both run npm test/build; parallel runs corrupt each other's
-   validation). Each: a pure tested `director.js`, shift/replacement logic,
-   feel items, `audio.setFocusDuck` on focus begin/end/cancel, updated
-   playthrough, debug snapshot fields for phase/progress. Set
-   `behavioralAcceptance.owner: "controller"` — Codex's sandbox cannot start the
-   preview. Put the harness pitfalls in the brief (stale fallback buttons,
-   state-based outcomes, hold-until-state, never crash on a missing answer).
-3. Controller acceptance: `npm test`, `npm run build`, all five
-   `npm run playthrough:*`, then the probes `.tmp/rest-overlap.mjs <level>` and
-   `.tmp/drink-manual.mjs <url> <level>` (extend them for replacement customers,
-   phases and "≥3 demands at once"). Play Normal + Challenge of both and look at
-   screenshots before accepting. Then commit and push to main.
-4. Later: the manual Chromebook pass; a no-undef lint in validation (a renamed
-   function froze Drink Stand while tests and build were green); shared
-   playthrough helpers.
+1. Restaurant rival part 2: `.ai/wo-restaurant-rival-integration.json` (scene,
+   ownership in interaction, rival pass, waiter badge, Japanese score pill,
+   ランチラッシュ！, debug hook, Challenge playthrough checks + 5 screenshots).
+   Controller acceptance: `npm test`, build, `npm run playthrough:restaurant`,
+   the other four playthroughs, Normal + Challenge screenshots; then ask the
+   owner for visual confirmation (artifact-first) before commit/push.
+2. Zoo gameplay rules: `.ai/wo-zoo-rules.json` (one photo = one attempt,
+   single-visitor Listen Again, Challenge 5 requests) — not yet dispatched;
+   re-check it against the removed pen signs before sending.
+3. Later: Chromebook pass; Farm Buildings licence; Zoo triangle budget; a
+   no-undef lint in validation; shared playthrough helpers.
 
 ## Codex / Delegated Work
 
-None in flight. `.ai/wo-zoo-layout-fix.json` (Codex PARTIAL at its usage limit,
-finished by Claude) is DONE, UNCOMMITTED until the full playthrough confirms:
-signs from layout data, occlusion-aware and width/height framing, debug hook
-facing/framing/signs. Follow-up fixes 2026-09-13:
-- Harness: `faceHabitat()` now opens the viewfinder first and turns in place
-  with A/D; the second Listen Again click waits for the control.
-- Product: slim animals were centred but too small from their viewpoints. The
-  viewfinder camera is now 3.8 back, 3.4 high, 34° FOV, restored on close and
-  exit (DESIGN_DECISIONS "Zoo photos must actually show the animal").
-Evidence: `npm test` 210/210, build clean, `playthrough:zoo -- --only habitats`
-70/70 (13/13 habitats), `.tmp/zoo-face-probe.mjs` 13/13 shutter-ready, no
-errors; viewfinder screenshots of fox, penguin, alpaca, giraffe reviewed (animal
-large and centred; the sign only as a cut-off edge). Full `playthrough:zoo`:
-96/97 (Listen Again harness race, fixed), then 94/97 (deer: its sign stood
-between the viewfinder camera and the deer, 4/5 samples blocked — screenshot
-confirmed). Fix: the viewfinder camera slides in front of any photo occluder
-behind the player (`world.occluderDistances`). Build clean, tests 210/210,
-full `npm run playthrough:zoo` 97/97. Committed locally, not pushed.
-Next: commit, then `.ai/wo-zoo-dressing.json`, then `.ai/wo-zoo-rules.json`.
-
-Earlier: the Drink Stand revision was delegated to Codex (PARTIAL: its
-sandbox could not start the playthrough preview). Claude reviewed and accepted it
-with fixes: the render-loop ReferenceError, the fill glass and notice tones, the
-rush banner position, the prompt fixes and harness robustness. Restaurant was
-verified and fixed directly by Claude this session.
+- Rival part 1 `.ai/wo-restaurant-rival-logic.json`: Codex SUCCESS, reviewed
+  (focused) and accepted 2026-09-13 — claims.js, rival.js, director owner-aware
+  budget, FOOD_PREP_SECONDS exported, SPEC/DESIGN_DECISIONS. Committed locally
+  with this file.
+- Rival part 2: not yet dispatched. Its brief carries the review findings
+  (import FOOD_PREP_SECONDS, eating/leaving must not consume the budget, rival
+  stands beside tables, animation finishes at model arrival, pass real
+  prepDuration).

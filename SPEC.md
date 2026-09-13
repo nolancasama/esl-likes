@@ -371,13 +371,69 @@ rule fails at the easiest level, where it matters most.
   three people could have asked for it.
 - **L2** — rush: 4 tables, up to 3 live orders, 7 customers in total,
   overlapping preparation, readiness out of asking order, two ready dishes common.
-- **L3** — rush hour: 5 tables, up to 4 live orders, 8 customers in total;
+- **L3** — rush hour: 5 tables, up to 4 live orders, 11 customers in total;
   hands go up while the player carries food, several ready dishes are normal,
   moderate but still forgiving patience.
 
 The live-order limit counts a raised hand as well as a taken order (revised
 2026-09-13), and sits at the top of each range so Normal never plays as one
 order at a time.
+
+### Challenge rival waiter (added 2026-09-13)
+
+Challenge only adds a rival waiter. Easy and Normal are unchanged and have no
+rival. Challenge resolves 11 customers rather than 8, so the rival does not
+reduce the child's number of English askings.
+
+Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
+A newly seated replacement and a newly raised hand are unclaimed. The player
+may reserve exactly one customer while a locked talk dwell is in progress; the
+reservation begins when that dwell begins, or when manual hold-to-talk or the
+fallback opens for that customer. Moving, turning away, or otherwise cancelling
+before commit releases it. Click-to-walk alone never reserves anyone. The
+player claims when the conversation commits: the dwell completes, the hold
+starts, or the fallback opens.
+
+The rival announces a target before walking and claims only when it physically
+arrives, if the customer is still unclaimed and unreserved. If the player has
+reserved or claimed that customer on the way, the rival abandons the target and
+waits a random 0.6–1.2 seconds before choosing again. Ownership never
+transfers. Served and departed customers are removed from the registry.
+
+The rival is a pure, one-customer-at-a-time state machine:
+
+    idle → choosing → walkingToCustomer → takingOrder → walkingToPass
+         → waitingAtPass → carrying → delivering → idle
+
+When idle it first handles its own ready dish at the rival pass. Otherwise it
+chooses the longest-waiting unclaimed, unreserved raised hand, but only after
+that hand has been raised for `RIVAL_MIN_HAND_AGE` (4 seconds of service time).
+Taking an order lasts about 1.2 seconds. Walking time is distance divided by
+`RIVAL_SPEED`: 3.75, or 75% of the player's speed of 5. Small random 0.3–0.9
+second hesitations between steps make it competent but not perfect. Walk
+targets are exposed as positions so the controller can animate them.
+
+A rival order uses the same food-owned preparation time as the player's order,
+but becomes ready only at the rival pass. The rival never touches a player
+dish, a player counter slot, or a player-owned customer. Foods remain
+independent across both waiters, repeats are allowed, and identical foods keep
+independent dish state. Customer patience still applies after a rival claim; if
+that customer leaves, the rival abandons the task.
+
+The rival may claim at most `RIVAL_SHARE_CAP` (3) customers per shift. After
+that it only finishes its current task. The shift ends when all customers have
+been served by either waiter or have left. The player's live-order budget
+counts player-owned unresolved orders plus unclaimed raised hands; a
+player-reserved hand is still an unclaimed hand for this count. Rival-owned
+customers never consume the player's budget. Progress counts all resolved
+customers. Pure comparison data separately tracks `playerServed` and
+`rivalServed`; the player's stars and scoring never depend on `rivalServed`.
+
+The registry and rival read only service delta. Zero service delta freezes hand
+age, walking, claiming, hesitation, order-taking, preparation, and every other
+rival timer, including through recognition retries. New rival claims also
+honour the existing 0.8-second post-focus hold. Events and ownership are plain
+data; the Restaurant controller continues to own every scene object.
 
 ### Service shift (revised 2026-09-13)
 

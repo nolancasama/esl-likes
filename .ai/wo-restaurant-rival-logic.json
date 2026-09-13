@@ -1,0 +1,48 @@
+{
+  "task": "Restaurant Challenge rival waiter, part 1 of 2: a pure, tested customer-claim registry and rival-waiter decision model, plus the director changes it needs. No scene, DOM or index.js integration in this order.",
+  "notes": [
+    "Read first: SPEC.md §3 'Protected speech focus' and 'Dwell to talk', SPEC.md §4 (Restaurant, all subsections), DESIGN_DECISIONS.md entries on the Restaurant (2026-09-11/12/13) and the Rush-hour and Dwell-to-talk revisions, src/minigames/restaurant/director.js and director.test.mjs, src/minigames/restaurant/scoring.js, src/systems/speechFocus.js. Follow director.js's style: pure module, injected rng, advanced only by SERVICE time (so speech focus freezes it by construction), data-only events, the controller owns every scene object.",
+    "WHAT ALREADY EXISTS AND MUST NOT CHANGE: tables 3/4/5, live-order limits 1/3/4 (a raised hand counts), food-owned prep times, independent random foods with repeats, dishes matched by FOOD not plate, first-try combo, Listen Again forfeiting only the memory bonus, wrong-delivery refusal lock, warm-up → rush → final push, post-focus 0.8 s hold. Easy and Normal behave exactly as today; the rival exists on Challenge (level 3) only.",
+    "FROZEN DESIGN — ownership. Every seated customer has an owner: null (unclaimed), 'player' or 'rival'. A raised-hand customer starts unclaimed. The PLAYER claims a customer when the conversation commits (existing commit: dwell completes, hold starts, or fallback opens). Before that, the player may hold a temporary RESERVATION on exactly one customer: it begins when a talk dwell starts on a locked target, or when manual hold-to-talk / the fallback opens for that customer, and it is released when that dwell or talk is cancelled without committing. Click-to-walk alone never reserves. The RIVAL claims a customer only on arrival at that customer, and only if the customer is still unclaimed and unreserved at that moment. Ownership never transfers once set: player-owned stays player-owned until served or left; rival-owned likewise. Served/left customers are removed from the registry.",
+    "FROZEN DESIGN — rival decision model (createRestaurantRival). A simple state machine, one customer at a time, never omniscient: idle → choosing → walkingToCustomer → takingOrder → walkingToPass → waitingAtPass → carrying → delivering → idle. Priorities when idle: (1) its own ready dish at the rival pass; (2) the unclaimed, unreserved raised-hand customer waiting LONGEST, but only once that hand has been raised for at least RIVAL_MIN_HAND_AGE = 4 s service time. The rival emits a 'targetCustomer' event when it starts walking, so the child sees where it is going before it can claim; if on arrival the target is reserved or owned by the player, it emits 'abandonTarget' and re-chooses after a short pause (0.6–1.2 s). Taking an order lasts ~1.2 s, then its dish prepares with the SAME food prep time the player's would; the rival's dish is ready at the rival pass, not a player counter slot. Walking is modelled as distance / RIVAL_SPEED where RIVAL_SPEED = 0.75 × the player's MOVE_SPEED (player MOVE_SPEED is 5 in restaurant/index.js); expose walk targets as positions so part 2 can animate along them. Add small randomised hesitations (0.3–0.9 s) between steps so it looks competent but not perfect. Customer patience still applies to rival-owned customers; if one leaves, the rival abandons that task.",
+    "FROZEN DESIGN — rival share and shift size. On Challenge the customer total becomes 11 (was 8) so the child's number of English askings is not reduced by the rival. The rival may claim at most RIVAL_SHARE_CAP = 3 customers in a shift (about a quarter to a third); after that it only finishes its current task. The shift ends when every customer is resolved (served by either waiter, or left), as today.",
+    "FROZEN DESIGN — director changes. The player's live-order limit counts only PLAYER-owned unresolved orders plus unclaimed raised hands (player-reserved counts as unclaimed-hand); rival-owned customers never consume the player's budget. Seating/replacement pacing and phases remain; progress done/total counts all resolved customers. Expose enough in the view contract for the controller to report owner per customer. Keep Easy/Normal identical: their existing director tests must pass unchanged.",
+    "FROZEN DESIGN — speech focus. Both the registry and the rival advance only by service dt. During focus (service dt ≈ 0) the rival makes no progress of any kind: no walking, no claiming, no timers, and it cannot claim during recognition retries. Also honour the existing post-focus hold for new rival claims.",
+    "SCORE COMPARISON (pure data only here): track playerServed and rivalServed counts (correct completed tables). Stars/scoring for the player do not depend on rivalServed.",
+    "TESTS (node:test, injected rng, deterministic): Normal can hold 3 unresolved player orders and Challenge 4; rival-owned orders do not consume the player's limit; ownership never transfers player→rival or rival→player; rival cannot claim a player-reserved customer (arrives, emits abandonTarget); cancelling the dwell/talk releases the reservation and the rival may then claim; rival claims an unclaimed customer only after the 4 s hand age; rival completes its own order lifecycle to served; rival never touches player dishes and player-owned customers, and its dish never enters player counter slots; zero service dt freezes the rival and the registry entirely (repeat many frames); rival share cap holds; replacement customers start unclaimed; repeated foods across player and rival stay independent; Easy and Normal have no rival.",
+    "Record the frozen design in SPEC.md §4 as a new subsection 'Challenge rival waiter (added 2026-09-13)' and a DESIGN_DECISIONS.md entry titled 'Restaurant Challenge gains a rival waiter', including what was rejected: the two-dish tray (still deferred), rival footsteps/ambience (classroom mic bleed), a bell for rival dishes (the bell means YOUR food), and food labels above claimed customers."
+  ],
+  "requirements": [
+    "New pure module src/minigames/restaurant/rival.js exporting createRestaurantRival (state machine above) and a claim registry (either in the same module or src/minigames/restaurant/claims.js) with the exact ownership, reservation and claim-moment rules above",
+    "director.js excludes rival-owned customers from the player's live-order budget and supports the Challenge total of 11, with Easy and Normal behaviour and their existing tests unchanged",
+    "Rival and registry advance only by service dt; zero dt means zero progress, proven by tests",
+    "All TESTS listed in notes exist and pass, alongside every existing test",
+    "SPEC.md §4 and DESIGN_DECISIONS.md record the frozen design and the rejected alternatives",
+    "Module JSDoc documents the controller contract (inputs per advance, emitted event types and payloads) precisely enough that part 2 can integrate without reading the implementation"
+  ],
+  "constraints": [
+    "Do NOT modify src/minigames/restaurant/index.js, any other minigame, shared systems, src/config/lesson.js, or any playthrough script in this order — part 2 integrates",
+    "Do NOT change the English, speech matching, dwell timings, or Easy/Normal gameplay",
+    "No npm dependencies",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/director.js",
+    "src/minigames/restaurant/director.test.mjs",
+    "src/minigames/restaurant/scoring.js",
+    "src/systems/speechFocus.js",
+    "SPEC.md",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": [
+    "npm test"
+  ],
+  "category": "gameplay-logic",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "decomposed"
+}

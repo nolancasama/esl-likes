@@ -167,6 +167,37 @@ test('Easy never exceeds one live order including raised hands', () => {
   assert.ok(sim.state.maxDemand <= 1, `Easy reached ${sim.state.maxDemand} demands`);
 });
 
+test('Challenge defaults to eleven total customers while earlier level defaults stay unchanged', () => {
+  assert.deepEqual(createRestaurantDirector({ level: 1 }).progress, { done: 0, total: 5 });
+  assert.deepEqual(createRestaurantDirector({ level: 2 }).progress, { done: 0, total: 5 });
+  assert.deepEqual(createRestaurantDirector({ level: 3 }).progress, { done: 0, total: 11 });
+});
+
+test('rival-owned orders do not consume the player live-order limit', () => {
+  const director = createRestaurantDirector({ level: 3, tables: 5, total: 11, rng: () => 0 });
+  const view = {
+    tables: Array.from({ length: 5 }, () => ({ occupied: true })),
+    customers: [
+      { id: 0, state: 'preparing', owner: 'player', prepRemaining: 5 },
+      { id: 1, state: 'ready', owner: 'player' },
+      { id: 2, state: 'orderCue', owner: null, reservedBy: 'player' },
+      { id: 3, state: 'preparing', owner: 'rival', prepRemaining: 5 },
+      { id: 4, state: 'settling', owner: null },
+    ],
+    liveOrders: 99,
+    focusReleasedAgo: 0,
+  };
+
+  // Keep the due hand behind the existing post-focus event hold until rush;
+  // warm-up intentionally caps all levels at two demands.
+  for (let second = 0; second < 19; second += 1) director.advance(1, view);
+  view.focusReleasedAgo = Infinity;
+  const events = director.advance(0.01, view);
+  assert.deepEqual(events.find((event) => event.type === 'raiseHand'), {
+    type: 'raiseHand', customer: 4,
+  });
+});
+
 for (const [level, tables, total, expected] of [[2, 4, 7, 3], [3, 5, 8, 4]]) {
   test(`level ${level} reaches its ${expected}-order overlap budget`, () => {
     const sim = makeSimulation({ level, tables, total, rng: sequenceRng([0.05, 0.2, 0.4, 0.6]) });

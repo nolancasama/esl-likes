@@ -12,6 +12,15 @@ const LEVELS = Object.freeze({
   3: { liveOrderLimit: 4 },
 });
 
+const DEFAULT_TOTALS = Object.freeze({
+  // Easy and Normal retain the director's previous fallback. Their controller
+  // supplies 5 and 7 explicitly; Challenge's new default is part of the rival
+  // contract and is used when part 2 switches the controller over.
+  1: 5,
+  2: 5,
+  3: 11,
+});
+
 const WARMUP_SECONDS = 18;
 const POST_FOCUS_HOLD_SECONDS = 0.8;
 const READY_SPACING_SECONDS = 0.9;
@@ -61,6 +70,24 @@ function tableIsAvailable(table) {
 }
 
 function countLiveOrders(view, customers) {
+  const ownerAware = customers.some((customer) => customer
+    && Object.prototype.hasOwnProperty.call(customer, 'owner'));
+  if (ownerAware) {
+    let demand = 0;
+    for (const customer of customers) {
+      if (!customer || RESOLVED_STATES.has(customer.state)) continue;
+      if (customer.owner === 'player') {
+        demand += 1;
+      } else if ((customer.owner === null || customer.owner === undefined)
+        && RAISED_HAND_STATES.has(customer.state)) {
+        // A player reservation does not change ownership, so it remains an
+        // unclaimed raised hand for budget purposes.
+        demand += 1;
+      }
+    }
+    return demand;
+  }
+
   const reported = Array.isArray(view?.liveOrders)
     ? view.liveOrders.length
     : Number(view?.liveOrders);
@@ -90,7 +117,13 @@ function resolvedCount(view, customers) {
  *   customers: [{ id: number, state: string, prepRemaining?: number }]
  *     prepRemaining is copied from that customer's preparing dish; state may
  *     be either `preparing` or the controller's existing `awaiting` state.
+ *     Challenge additionally supplies owner: null | 'player' | 'rival' and
+ *     reservedBy: null | 'player'. When any owner is supplied, demand is
+ *     derived from these records: player-owned unresolved orders plus
+ *     unclaimed raised hands. Rival-owned customers never consume the budget,
+ *     and a player-reserved hand still does.
  *   liveOrders: number // taken, unresolved orders; excludes raised hands
+ *     Legacy Easy/Normal fallback used only when owner fields are absent.
  *   focusReleasedAgo: number // Infinity/null before any focus
  *   progress?: { done: number }
  *
@@ -100,14 +133,14 @@ function resolvedCount(view, customers) {
 export function createRestaurantDirector({
   level = 1,
   tables = 3,
-  total = 5,
+  total,
   rng = Math.random,
 } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
 
   const safeLevel = Math.min(3, finiteInt(level, 1, 1));
   const tableCount = finiteInt(Array.isArray(tables) ? tables.length : tables, 1, 3);
-  const customerTotal = finiteInt(total, 0, 5);
+  const customerTotal = finiteInt(total, 0, DEFAULT_TOTALS[safeLevel]);
   const configuredLimit = LEVELS[safeLevel].liveOrderLimit;
 
   let serviceTime = 0;

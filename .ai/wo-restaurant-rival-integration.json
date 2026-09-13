@@ -1,0 +1,59 @@
+{
+  "task": "Restaurant Challenge rival waiter, part 2 of 2: integrate the tested rival and claim registry (from part 1) into the Restaurant scene, interaction, HUD and playthrough, and verify the existing multi-order memory loop.",
+  "notes": [
+    "PREREQUISITE: part 1 (.ai/wo-restaurant-rival-logic.json) is accepted: src/minigames/restaurant/rival.js (and claims registry), director changes, SPEC.md §4 'Challenge rival waiter' and the DESIGN_DECISIONS entry exist. Read those first; they are the frozen contract. Do not change their rules — if integration reveals a real contract problem, stop and report it rather than redesigning.",
+    "PART 1 AS BUILT (reviewed and accepted; commit it is based on): src/minigames/restaurant/claims.js (createCustomerClaimRegistry: registerCustomer, raiseHand, reservePlayer, releasePlayerReservation, commitPlayer, claimRival, resolveCustomer, listCustomers, counts) and rival.js (createRestaurantRival({ level, registry, initialPosition, passPosition, prepScale, rng }).advance(serviceDt, { customers:[{id, food, position, prepDuration}], focusReleasedAgo }) emitting targetCustomer / abandonTarget / claimCustomer / orderTaken / walkToPass / dishReady / pickUpDish / deliverToCustomer / servedCustomer / abandonTask). The rival advances its registry itself — never call registry.advance separately. commitPlayer only succeeds on a raised-hand customer. Integration requirements found in review: (1) index.js has its own FOOD_PREP_SECONDS copy — delete it and import FOOD_PREP_SECONDS from scoring.js so the two kitchens cannot drift. (2) director.js's owner-aware demand counts a player-owned customer until state is delivered/left/resolved; the controller's eating and leaving states must not consume the player's budget — either report them to the director as resolved or add eating/leaving to the director's resolved set, with a director test. (3) The rival walks to the position you give it: pass an approach point in the aisle beside the customer's table (not the seat itself), so the rival stands beside the table. (4) Walk durations are modelled as straight lines at RIVAL_SPEED; animate along a steered path around tables but finish exactly when the model reports arrival (adjust speed within about ±30%), never teleport. (5) Pass each rival order's real prepDuration (FOOD_PREP_SECONDS[food] × Challenge prepScale) in the customer view.",
+    "SCENE: a second waiter character (characters.create with a distinct model/tint and a small apron or colour accent so it never looks like a customer or the player) walks the dining room on Challenge only, animated along the rival's walk targets at its modelled speed, steering around tables the same way click-to-walk does (no crossing tables, no teleporting). It visibly goes to a customer, faces them briefly, walks to the pass, waits, picks up its dish, carries it and sets it on the table. The rival pass is its own position at the far left end of the counter (x ≈ -4.3 on the counter top at z ≈ -5.05, outside SLOT_X), not a player slot; the player can never collect from it (not clickable, not an interaction target, ignored by nearestReadyDish/collectDish). Rival dishes use the same food meshes but never ring the bell and never show the ready cue.",
+    "OWNERSHIP IN INTERACTION: talk dwell candidates, click-to-talk, manual hold-to-talk and deliver() must ignore rival-owned customers; the rival ignores player-owned and player-reserved ones. Wire the reservation exactly as the contract defines: reserve when a dwell starts on a locked target or manual talk / fallback opens; release on cancel; claim on commit. A rival-owned customer shows a small neutral waiter badge (e.g. a tiny apron/tray sprite) at the table — never a food icon, never text naming a food. Player-owned customers get no marker. Raised-hand cue behaviour is unchanged.",
+    "HUD (Challenge only): a compact score pill with Japanese chrome, for example 'きみ 4 ・ ウェイター 3' — add the strings to src/config/lesson.js UI.restaurant. It updates when either waiter completes a table. Show a short 'ランチラッシュ！' pill at Challenge start (reuse the phase pill). The final result screen shows both counts plainly; stars are unchanged and never depend on the rival.",
+    "SPEECH FOCUS: the rival character is driven by service dt, so it freezes mid-step during focus; its walk animation should pause too (idle pose) rather than moonwalking. audio.setFocusDuck already ducks effects.",
+    "DEBUG HOOK (window.__eslDebug.restaurant): add owner per customer ('player'|'rival'|null), reservation, rival state/target/position/carrying food, rivalServed and playerServed, and the rival pass contents, so the playthrough asserts from semantic state (see ~/.claude/workers/harness/PROTOCOL.md: preconditions first, wait for state not time).",
+    "PLAYTHROUGH (scripts/playthrough.mjs, the Restaurant scenario): keep all existing checks. Add a Challenge section with checks that: the rival claims an unclaimed customer and completes it; a player dwell/talk on a customer the rival is walking toward keeps that customer for the player (rival abandons); the player cannot collect from the rival pass; rival-owned customers never become talk/delivery targets; the rival makes no progress while speech focus is active (sample position/state across a held fallback); the score pill reflects both counts; Normal reaches 3 unresolved player orders and 2+ ready dishes; Challenge reaches 4 unresolved player orders. Save screenshots for: multiple player orders unresolved; multiple player dishes ready; player and rival moving toward separate customers; a choice between a new raised hand and ready food; the final player-vs-waiter result.",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller: your sandbox cannot start the preview. Pass npm test and npm run build; node --check the playthrough; report behavioralValidation honestly (observed: false). Update DESIGN_DECISIONS.md only for integration decisions not already recorded."
+  ],
+  "requirements": [
+    "Challenge shows a visibly working rival waiter that claims unclaimed customers, cooks through its own pass, delivers and completes tables, never teleporting or crossing tables",
+    "The player can never talk to, deliver to, or collect for rival-owned work, and the rival can never take a player-reserved or player-owned customer, exactly per the part-1 contract",
+    "Rival-owned customers show a neutral waiter badge only; no food information is added anywhere above customers",
+    "Challenge HUD shows a Japanese player-vs-waiter score and a ランチラッシュ！ intro; stars never depend on the rival",
+    "Speech focus freezes the rival character and its animation",
+    "Easy and Normal play exactly as before; all existing Restaurant playthrough checks still pass",
+    "The debug hook exposes ownership, reservation and rival state, and the playthrough adds the Challenge checks and five review screenshots listed in notes",
+    "npm test passes and npm run build is clean"
+  ],
+  "constraints": [
+    "Do NOT change the English, speech matching, dwell timings, the whole-room camera, click-to-walk behaviour, wrong-delivery rules, scoring rules, or the part-1 contract",
+    "Do NOT add a two-dish tray, footstep or ambience sounds, or a bell for rival dishes",
+    "Do NOT modify other minigames or their playthroughs",
+    "No npm dependencies and no per-frame allocations in the update loop",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/director.js",
+    "src/config/lesson.js",
+    "scripts/playthrough.mjs",
+    "SPEC.md",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant/manifest.json"
+  },
+  "category": "gameplay-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "decomposed",
+  "visualSurface": true
+}

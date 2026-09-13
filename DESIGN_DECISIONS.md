@@ -812,6 +812,59 @@ gains a bounded programmatic `listenOnce()`.
   saying the same sentence during an automatic session could be accepted for a
   silent child — more chances than with a hold.
 
+## 2026-09-13 — Restaurant Challenge gains a rival waiter
+
+Challenge gains one deliberately limited rival waiter; Easy and Normal remain
+exactly as they are. The purpose is readable competition and prioritisation,
+not taking English practice away from the child, so Challenge grows from 8 to
+11 total customers and the rival may claim at most 3. Progress counts every
+customer resolved by either waiter or by leaving, while `playerServed` and
+`rivalServed` are separate comparison data. Rival service never contributes to
+or reduces the player's stars.
+
+Ownership is permanent for the life of a seated customer: `null`, `player`, or
+`rival`. A replacement starts unclaimed. The player temporarily reserves one
+customer when a locked dwell starts and claims them when conversation commits;
+manual hold or fallback opening reserves and commits at that same trigger.
+Cancelling a dwell or talk before commit releases its reservation, while
+click-to-walk alone does neither. The rival announces a target, walks there,
+and claims only on arrival if the customer is still unclaimed and unreserved.
+It abandons a target the player reserved or claimed on the way. Neither waiter
+can take an order owned by the other.
+
+The rival is a pure injected-RNG state machine, advanced only by the service
+clock: idle, choose, walk to customer, take the order, walk to its pass, wait,
+carry, deliver, then idle. It prioritises its own ready dish, otherwise the
+oldest eligible raised hand after a minimum 4-second hand age. Its walking is
+distance-based at 75% of player speed, order-taking takes about 1.2 seconds,
+ordinary transitions have 0.3–0.9 second hesitations, and a lost target causes
+a 0.6–1.2 second pause before re-choosing. Its events and walk positions are
+data; the controller continues to own all scene objects.
+
+Rival dishes use the same food-owned prep times but exist only at a separate
+rival pass. The rival never touches player dishes, player counter slots, or
+player-owned customers. Independent food selection and repeats still apply
+across both waiters. Customer patience still applies after a rival claim, and
+a departure makes the rival abandon that task.
+
+The player's live-order budget counts only player-owned unresolved orders plus
+unclaimed raised hands, including a player-reserved hand. Rival-owned customers
+do not consume it, preserving Normal's limit of 3 and Challenge's limit of 4.
+The registry and rival read service delta only, so speech focus and recognition
+retries freeze them structurally, and new rival claims honour the existing
+0.8-second post-focus hold.
+
+Rejected:
+
+- **The two-dish tray remains deferred.** Its carry-slot state machine and
+  delivery ambiguity still add complexity without pedagogical gain.
+- **Rival footsteps and continuous ambience.** They add classroom microphone
+  bleed without useful information.
+- **A bell for rival dishes.** The Restaurant bell means *your* food is ready;
+  sharing that cue would make it ambiguous.
+- **Food labels above claimed customers.** They expose the remembered answer
+  and defeat the Restaurant's working-memory mechanic.
+
 ## 2026-09-13 — Speech bubbles never block a click on the room
 
 NPC answer bubbles float over the 3D world and captured every pointer event,

@@ -6,6 +6,17 @@ export const FOODS = Object.freeze([
   'sushi',
 ]);
 
+// Preparation belongs to the food, not the customer or counter position. The
+// Challenge rival imports this same table so its kitchen cannot drift from the
+// player's timings.
+export const FOOD_PREP_SECONDS = Object.freeze({
+  curry: 11,
+  pizza: 9,
+  hamburger: 7.5,
+  noodles: 6,
+  sushi: 4.5,
+});
+
 function randomIndex(length, rng) {
   const sample = Number(rng());
   return Math.min(length - 1, Math.max(0, Math.floor(sample * length)));
