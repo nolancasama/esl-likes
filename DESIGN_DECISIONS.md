@@ -821,9 +821,78 @@ raised hand, and a scripted run proved it (`elementFromPoint` hit
 `.npc-dialogue__line`). The bubble is now `pointer-events: none`; only its
 replay button takes the pointer. Applies to every minigame, all for the better.
 
+## 2026-09-13 — The Zoo becomes a small campus (DECIDED, not yet built)
+
+Thirteen pens on a radius-33 ring read as an animal-selection board. The Zoo is
+rebuilt as a compact campus (SPEC §8 "Campus"): entrance plaza, central
+fountain, Savanna / Forest / Farm / Penguin Cove regions, an irregular
+figure-eight of broad paths, signposts and a YOU ARE HERE board.
+
+- **Accepted** from the owner's plan: themed region kits, a closer follow camera
+  so the zoo spans several screens, simple collision, CC0 environment assets
+  (imported with a provenance README; textures cut to 512 px), equal-listing
+  signs and map, visitor-specific Listen Again.
+- **Accepted — one photograph is one delivery attempt.** A wrong photo used to
+  stay in hand, so one photo could be shown to every waiting visitor until one
+  accepted it. Now it is consumed either way.
+- **Modified — region names on signs are Japanese, animal names English.** The
+  interface stays Japanese; the vocabulary word stays English, as at the Drink
+  Stand stations.
+- **Modified — Challenge 6 → 5 requests.** The campus adds walking; six askings
+  is repetition.
+- **Modified — travel measured, capped at ~10 s entrance → farthest habitat** at
+  the existing walking speed, instead of 5–8 s per leg, which would need a far
+  larger world.
+- **Added — the world exposes a path graph and a photo viewpoint per habitat**
+  from a pure layout module, so tests can prove reachability and no dead ends,
+  and scripted runs can route instead of walking straight into fences.
+- **Added — Penguin Cove sits far from the giraffe**, which also removes the
+  intermittent neighbouring-pen shutter misfire between those two.
+- **Deferred** — a click-to-enlarge map (the in-world board comes first).
+- **Build order**: layout and navigation first (placeholder dressing), then
+  asset dressing, then the gameplay rules — three sequential orders.
+
 ## 2026-09-13 — Restaurant replacement staging details
 
 Served customers eat for 3.2 seconds of service time before walking out. New
 customer looks cycle through model/tint pairs rather than either list alone:
 simultaneous occupants stay distinct, and a reused table never immediately
 gets the same-looking customer even when the five base models wrap.
+
+## 2026-09-13 — Zoo campus placement and camera
+
+The built campus keeps the entrance plaza at the south (`z = 31`) and the
+fountain hub one short path north, with Savanna and Forest on the west lobe,
+Farm on the east lobe, and Penguin Cove at the far north-east. The follow camera
+uses a world-aligned 10.8-unit back / 8.6-unit high offset: close enough for a
+bend to reveal a new area while preserving forward movement up the screen.
+
+## 2026-09-13 — Zoo photos must actually show the animal
+
+- **Signs live in layout.js** beside each viewpoint spur, outside the
+  viewpoint→habitat sightline (tested), about a third smaller than before, and
+  carry two single-sided lettered planes back to back — no blank backs, no
+  mirrored English. Previously each sign stood on the fence edge in the
+  sightline and hid the animal.
+- **Framing readiness ignores hidden animals.** Five sample points on the
+  animal are raycast from the camera against opaque scenery (signs, barn,
+  bridge, pool rim); at least 60% must be clear. Fence rails do not count —
+  the animal is seen between them. A green frame over a sign-covered alpaca
+  taught nothing.
+- **Framing measures width and height separately.** The old square estimate
+  used width only, so tall narrow animals (penguin, giraffe, alpaca) never
+  counted as framed and a distant cow won the penguin shot.
+- **The viewfinder zooms and sits close.** While aiming (avatar hidden) the
+  camera is 3.8 units behind the player at height 3.4 with a 34° field of view,
+  restored to the follow camera's on close and on exit. Previously it was 7.6
+  back, 4.1 high at the shared 48°: from their fence viewpoints the slim animals
+  (fox, penguin, alpaca, wolf, donkey) were centred and unblocked yet too small
+  to count as framed, and stepping closer is blocked by the fence. Zoom was
+  chosen over moving viewpoints (the fence leaves no room) or lowering the size
+  gate (a tiny animal is not a good photo); it also keeps neighbouring pens and
+  the nearby sign out of most shots.
+- **The viewfinder camera never sits behind a sign or building.** If a photo
+  occluder lies between the camera and the player, the camera slides along its
+  sightline to just in front of it. The layout test only clears the
+  viewpoint→animal line, and the camera stands behind the player: the deer
+  sign, behind its viewpoint, intermittently filled the deer shot.

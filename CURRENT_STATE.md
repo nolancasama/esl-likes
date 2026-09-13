@@ -64,7 +64,6 @@ Grade 3. Watch "deer" in the matcher.
   customer asked; the answer still has to be heard, but a child can place it by
   remembering the person alone. The SPEC accepts this; revisit after observation.
 - A Restaurant customer without a raised hand still refuses an offered dish.
-- A habitat sign can overlap its animal from some angles (Zoo).
 - Zoo, intermittent (1 of the last ~6 runs): a penguin request photographed the
   neighbouring giraffe three times even after stepping closer, and the scripted
   run stalled. It recurred after the nearest-pen fix (c4be0c5), so the fix is
@@ -137,8 +136,9 @@ Done so far, UNCOMMITTED (live site stays on 1d67402 until the revision is green
    Also fixed by Claude: speech bubbles no longer swallow clicks on the room
    (`dialogue.js` pointer-events), and the Restaurant dwell ring is larger with a
    white halo. Screenshots reviewed for both dwell rings.
-   NOT YET COMMITTED OR PUSHED. Pushing to main deploys to the classroom site
-   and turns on auto-listening mics — ask the owner before pushing.
+   Committed as 585b977 and PUSHED to main 2026-09-13 with the owner's approval
+   (auto-listening mics are live; set AUTO_TALK_ENABLED false if a neighbour's
+   voice gets accepted in class).
 5. Zoo redesign (owner's plan, 2026-09-13) — started. CC0 environment assets
    imported to `public/assets/zoo/environment/` with a provenance README
    (Quaternius Nature MegaKit, Kenney City Kit Suburban, KayKit Restaurant Bits,
@@ -147,10 +147,18 @@ Done so far, UNCOMMITTED (live site stays on 1d67402 until the revision is green
    photo is NOT consumed (the carry-one-photo-to-every-visitor loophole is
    open); Listen Again replays every waiting visitor; Challenge has 6 requests.
    The Zoo harness walks straight lines to habitat coordinates, so the redesign
-   must expose a path graph and a photo viewpoint per habitat. Next: commit the
-   service revision (Zoo assets excluded), then write SPEC §8 changes,
-   DESIGN_DECISIONS and split Zoo work orders (world/layout, then gameplay
-   rules + harness).
+   must expose a path graph and a photo viewpoint per habitat.
+   DONE: service revision committed locally as 585b977 (not pushed). SPEC §8
+   rewritten ("Campus", one photo = one attempt, visitor-specific replay,
+   Challenge 5), DESIGN_DECISIONS "The Zoo becomes a small campus" written. Work
+   orders, to run strictly in order, each accepted before the next:
+   `.ai/wo-zoo-layout.json` (pure layout.js + tests, campus world with
+   placeholder dressing, collision, closer camera, path-graph routing harness),
+   `.ai/wo-zoo-dressing.json` (CC0 asset kits, signposts, YOU ARE HERE board,
+   performance budget), `.ai/wo-zoo-rules.json` (photo consumption,
+   single-visitor Listen Again, 5 requests). Controller acceptance for each:
+   npm test, build, `npm run playthrough:zoo` (and `-- --only habitats`), a
+   travel-time and per-habitat framing check, region screenshots, sceneStats.
 2. Delegate Restaurant, then Drink Stand, as two SEQUENTIAL Codex orders via
    `worker-delegate` (both run npm test/build; parallel runs corrupt each other's
    validation). Each: a pure tested `director.js`, shift/replacement logic,
@@ -170,7 +178,27 @@ Done so far, UNCOMMITTED (live site stays on 1d67402 until the revision is green
 
 ## Codex / Delegated Work
 
-None in flight. The Drink Stand revision was delegated to Codex (PARTIAL: its
+None in flight. `.ai/wo-zoo-layout-fix.json` (Codex PARTIAL at its usage limit,
+finished by Claude) is DONE, UNCOMMITTED until the full playthrough confirms:
+signs from layout data, occlusion-aware and width/height framing, debug hook
+facing/framing/signs. Follow-up fixes 2026-09-13:
+- Harness: `faceHabitat()` now opens the viewfinder first and turns in place
+  with A/D; the second Listen Again click waits for the control.
+- Product: slim animals were centred but too small from their viewpoints. The
+  viewfinder camera is now 3.8 back, 3.4 high, 34° FOV, restored on close and
+  exit (DESIGN_DECISIONS "Zoo photos must actually show the animal").
+Evidence: `npm test` 210/210, build clean, `playthrough:zoo -- --only habitats`
+70/70 (13/13 habitats), `.tmp/zoo-face-probe.mjs` 13/13 shutter-ready, no
+errors; viewfinder screenshots of fox, penguin, alpaca, giraffe reviewed (animal
+large and centred; the sign only as a cut-off edge). Full `playthrough:zoo`:
+96/97 (Listen Again harness race, fixed), then 94/97 (deer: its sign stood
+between the viewfinder camera and the deer, 4/5 samples blocked — screenshot
+confirmed). Fix: the viewfinder camera slides in front of any photo occluder
+behind the player (`world.occluderDistances`). Build clean, tests 210/210,
+full `npm run playthrough:zoo` 97/97. Committed locally, not pushed.
+Next: commit, then `.ai/wo-zoo-dressing.json`, then `.ai/wo-zoo-rules.json`.
+
+Earlier: the Drink Stand revision was delegated to Codex (PARTIAL: its
 sandbox could not start the playthrough preview). Claude reviewed and accepted it
 with fixes: the render-loop ReferenceError, the fill glass and notice tones, the
 rush banner position, the prompt fixes and harness robustness. Restaurant was

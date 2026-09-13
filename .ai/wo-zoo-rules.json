@@ -1,0 +1,52 @@
+{
+  "task": "Apply the revised Zoo gameplay rules in esl-likes: one photograph is one delivery attempt (a shown photo is consumed whether right or wrong), visitor-specific Listen Again, and Challenge 5 requests — with playthrough checks that prove the loophole is closed.",
+  "notes": [
+    "PREREQUISITE: the Zoo layout and dressing orders are complete. Read SPEC.md §8 (Loop steps 4–5, Photo mechanic, Difficulty, Anti-shortcut review) and the DESIGN_DECISIONS Zoo campus entry first.",
+    "CURRENT CODE: src/minigames/zoo/index.js showPhotoToVisitor() keeps carriedPhoto on a wrong animal (visitor.shows += 1, phase 'reacting-wrong', photo stays), so one photo can be shown to every waiting visitor until someone accepts it. replayWaitingVisitors() queues and replays EVERY waiting visitor and marks them all replayed. DIFFICULTY is { 1: 3/1, 2: 4/2, 3: 6/3 } (count/concurrent).",
+    "RULE 1 — ONE PHOTO, ONE ATTEMPT: when a photo is shown to a visitor, it is consumed whether right or wrong. Wrong: polite Japanese refusal (existing wrongPhoto string), English NOT repeated, no hint, the photo is removed from hand and the carried-photo indicator shows none, that visitor's first-try credit is lost (existing shows/outcome logic), and the child must take another photograph for another attempt. Right: unchanged. Records and scoring stay pure and unchanged in meaning (scoring.js 'first' vs 'later').",
+    "RULE 2 — VISITOR-SPECIFIC LISTEN AGAIN: 🔊 appears only when the player is within talk radius of an asked, unserved visitor, and replays only that visitor's answer (spoken + bubble), marking only that visitor replayed (forfeiting only their memory bonus). If two such visitors are in range, the nearest one wins. Remove the queue that replays every waiting visitor.",
+    "RULE 3 — DIFFICULTY: Challenge becomes 5 requests with 3 concurrent visitors (3/1, 4/2, 5/3). Keep visitors waiting around the entrance plaza.",
+    "PLAYTHROUGH: extend scripts/playthrough-zoo.mjs (keep all existing sections and checks, adjusting only those whose expectations the new rules legitimately change, and say which): a wrong photo is consumed (carriedPhoto becomes null and the indicator shows none) and the English is not repeated; with two waiting visitors, a single photo cannot be shown to both (the second attempt requires a new photograph); Listen Again beside visitor A replays only A's sentence and marks only A replayed; Challenge reports 5 requests; the anti-shortcut session still cannot reach three stars; the listening session still earns three stars and the stamp; the turnaround offers all thirteen animal sentences.",
+    "Use scripts/lib/driver.mjs helpers and avoid the known harness pitfalls (wait for states, precondition-aware checks, never crash on a missing value).",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller. Pass npm test and npm run build; node --check the playthrough; report behavioralValidation honestly."
+  ],
+  "requirements": [
+    "A photo shown to any visitor is consumed whether right or wrong; a wrong attempt refuses in Japanese without repeating English, loses first-try credit, and requires a new photograph",
+    "One photo can never be shown to two visitors",
+    "Listen Again appears only near an asked unserved visitor and replays and marks only that visitor (nearest wins)",
+    "Zoo difficulty is 3/1, 4/2, 5/3 requests/concurrent",
+    "Scoring semantics are unchanged; the listening session reaches three stars and the anti-shortcut session cannot",
+    "The Zoo playthrough proves photo consumption, single-visitor replay, the 5-request Challenge and the thirteen-sentence turnaround; npm test passes; npm run build is clean"
+  ],
+  "constraints": [
+    "Do NOT change the campus layout, dressing, camera or collision from the previous orders",
+    "Do NOT modify src/config/lesson.js, other minigames, shared systems, SPEC.md or the other playthrough scripts",
+    "No npm dependencies",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/scoring.js",
+    "scripts/playthrough-zoo.mjs",
+    "scripts/lib/driver.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "category": "gameplay",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

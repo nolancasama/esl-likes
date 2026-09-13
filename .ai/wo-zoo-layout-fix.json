@@ -1,0 +1,63 @@
+{
+  "task": "Correct the esl-likes Zoo campus layout order: move habitat signs off the photo sightlines and make them readable from the paths, move the donkey into the Farm, break the perimeter-only layout, expose player facing, and fix the Zoo playthrough so it faces a habitat before photographing, never crashes, and runs every section independently.",
+  "notes": [
+    "CONTEXT: the previous order (.ai/wo-zoo-layout.json) built src/minigames/zoo/layout.js, the campus world, collision, a closer camera and a path-graph harness. npm test 207/207 and the build pass, but controller acceptance found problems. Read SPEC.md §8 'Campus' and the DESIGN_DECISIONS Zoo campus entries again. Fix only what is listed; do not start the dressing or gameplay-rule orders.",
+    "EVIDENCE 1 — SIGNS BLOCK PHOTOS: createSign in world.js centres each 5.1-unit-wide sign on the fence edge toward the viewpoint, shifted only 1.85 units sideways, 1.8–4.2 m high. It therefore spans the sightline from the viewpoint to the animal and sits exactly where the raised follow camera looks down. A screenshot at the fox viewpoint shows the FOX sign between the player and a tiny fox. Fix: move sign placement into layout.js data (signs [{ habitatId, x, z, facing }]) so it is testable; place each sign beside its viewpoint spur, clearly outside the viewpoint→habitat sightline (the whole sign rectangle, not just its centre), oriented toward the approaching main path so it is readable while walking up. Add a pure test that no sign rectangle intersects the segment from any viewpoint to its habitat centre (with a margin).",
+    "EVIDENCE 2 — BLANK BOARDS: from the entrance plaza the elephant and horse signs read as blank white boards, because the back is a plain backing plane. Keep the no-mirrored-text rule (a double-sided plane mirrors the English) but give signs visible from both sides two separate front-facing textured planes back to back, each reading correctly — or orient them so the lettered face is what paths see.",
+    "EVIDENCE 3 — DONKEY OUTSIDE THE FARM: layout.js puts donkey (farm) at (15, −25) on the northern edge beside wolf and fox, while every other farm animal is in the east/south-east. A child learning 'the donkey is at the farm' would be misled. Move it into the Farm cluster, keeping its fence at least ~8 units from neighbouring habitats and well away from the penguin.",
+    "EVIDENCE 4 — STILL PERIMETER-ONLY: a top-down render of layout.js shows all thirteen habitats on the outer edge of one big loop, a long straight spine from the plaza to the northern cross-path, and five or more spoke-like path strips around the plaza and fountain hub. Revise the layout so at least three habitats sit on the inside of a loop (paths pass habitats on both sides), the plaza→north spine bends through the fountain rather than running straight, and the plaza and hub read as places with three or four exits rather than a star of strips. Keep: south entrance plaza, central fountain hub, the four regions, both lobes and the northern cross-path, broad paths, farthest plaza→viewpoint route ≤ 135 units (it is ~65 now — keep it short), penguin far from giraffe, one-edge viewpoint spurs. Update layout.test.mjs for the new data and keep every existing invariant.",
+    "EVIDENCE 5 — HARNESS DOES NOT FACE THE HABITAT: playthrough-zoo.mjs photograph() walks to the viewpoint and opens the viewfinder without turning toward the habitat; its 'coarse aiming' then alternates A/D and W nudges that can walk the player off the viewpoint. A failure screenshot shows the viewfinder pointing east across the farm while the target was the fox, and a trace put the player at (−4.7, −15) far from the fox viewpoint (−17, −19). Fix: confirm arrival within ~0.9 units of the viewpoint (re-plan until then or report unreachable), then face the habitat (step toward the habitat centre until the fence stops the avatar, verifying with the new debug player facing), then open the viewfinder; aiming nudges must never move the player more than ~1 unit from the viewpoint.",
+    "EVIDENCE 6 — HARNESS CRASHES: the run ended with page.click('.stamp-button') throwing a 30 s TimeoutError, so the anti-shortcut and habitats sections never ran. Wrap each session so a failure records FAILs with a trace and the next section still runs; guard every click on an element that may not exist.",
+    "DEBUG: add player facing (yaw radians and a forward vector) to window.__eslDebug.zoo, and expose the sign placements from layout.js.",
+    "EVIDENCE 7 — ALL-HABITATS SECTION (`npm run playthrough:zoo -- --only habitats`, 21/31): photographed correctly — elephant, giraffe, tiger, deer, horse, wolf, bull, cow; failed — penguin, alpaca, fox, stag, donkey. Failure screenshots: penguin viewfinder shows only sky and a strip of grass (player faced away toward the map edge); alpaca viewpoint has a large BLANK sign back standing directly between the player and the alpaca fence, hiding the animal; stag has its angled sign between the path and the enclosure while the player faces up the path; stag and deer enclosures sit side by side (two similar animals adjacent — separate them in the revised layout). Signs are also oversized relative to the small round enclosures and dominate every view: reduce them by roughly a third while keeping the English word readable at 1366x768 from the path.",
+    "EVIDENCE 8 — TRAVEL-TIME CHECK MEASURES THE RENDERER, NOT THE ZOO: wall-clock legs took 4–17 s under software GL although the longest route is ~65 units (~5 s at MOVE_SPEED 13.5). Assert travel from graph route length ÷ MOVE_SPEED (≤ 10 s), and log wall-clock seconds as information only.",
+    "EVIDENCE 9 — CONTROLLER DIRECT PROBE (route via layout graph, step toward the habitat centre, press C): all 13 viewpoints reached; shutter ready for 12 of 13 once facing — only penguin stays not ready (screenshot: the PENGUIN sign fills the left half of the viewfinder and the small penguin stands behind the pool fence and rim). So most harness failures were facing, not the game. BUT the alpaca screenshot shows the viewfinder GREEN ('いい しゃしんが とれそう！') while the ALPACA sign covers most of the animal: framing readiness ignores occlusion. Fix: framing readiness must require the target animal to be meaningfully visible — e.g. raycast from the camera to several points on the animal's bounds (head/body centre) and treat hits on signs, fences' solid parts, buildings or other opaque scenery as blocked; a mostly-hidden animal is not ready. Fence rails that the animal is visible through should not block. Make penguin ready when the player faces it from its viewpoint (move the sign, and/or raise the penguin, lower the rim, or shift the viewpoint). Add a debug field for the framing result (visibleFraction or blocked sample count) so acceptance can observe it. Scene has 781 meshes / 0 instanced — do not add meshes in this order.",
+    "Keep all behaviour the previous order preserved (difficulty 3/4/6, photo delivery, Listen Again, scoring, turnaround) and all harness sections and checks; the 'habitats' section must report per habitat { reached, facing ok, shutter ready, photographed as the right animal, wall seconds }.",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller (your sandbox cannot start the preview). Pass npm test and npm run build; node --check the playthrough; report behavioralValidation honestly."
+  ],
+  "requirements": [
+    "Sign placements live in layout.js, sit beside viewpoint spurs outside every viewpoint→habitat sightline, face the approaching path, and a pure test proves no sign rectangle crosses a sightline",
+    "No sign shows a blank back to a main path and no English text is ever mirrored",
+    "The donkey is inside the Farm cluster with sensible spacing",
+    "At least three habitats sit inside a loop, the plaza→north spine bends through the fountain, the plaza and hub have three or four exits, and every existing layout invariant still holds",
+    "The debug hook exposes player facing and sign placements",
+    "Framing readiness is false when opaque scenery (signs, buildings) hides most of the target animal, and exposes its visibility result in debug; every habitat including penguin reaches shutter-ready when faced from its viewpoint",
+    "The Zoo playthrough confirms arrival at each viewpoint, faces the habitat before photographing, keeps aim nudges near the viewpoint, never crashes, runs each section independently, and reports per-habitat results",
+    "Gameplay rules, difficulty, scoring and the turnaround are unchanged",
+    "npm test passes; npm run build is clean; node --check passes for the playthrough"
+  ],
+  "constraints": [
+    "Do NOT import environment models or start the dressing or gameplay-rule orders",
+    "Do NOT modify other minigames, shared systems, src/config/lesson.js, SPEC.md or the other playthrough scripts",
+    "No npm dependencies, no per-frame allocations in the update loop",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/layout.js",
+    "src/minigames/zoo/layout.test.mjs",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/index.js",
+    "scripts/playthrough-zoo.mjs",
+    "scripts/lib/driver.mjs",
+    "SPEC.md"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "category": "gameplay-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic",
+  "visualSurface": true
+}

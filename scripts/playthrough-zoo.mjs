@@ -10,12 +10,24 @@
 // first, every time. That must NOT reach three stars.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
+import { clickIfPresent, clickUntil, createCheck, holdUntil, waitForDebug } from './lib/driver.mjs';
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/zoo';
+const optionArgs = process.argv.slice(4);
+const onlyAt = optionArgs.indexOf('--only');
+const selectedSections = onlyAt === -1
+  ? null
+  : new Set((optionArgs[onlyAt + 1] ?? '').split(',').map((name) => name.trim()).filter(Boolean));
+const sectionEnabled = (name) => !selectedSections || selectedSections.has(name);
+const knownSections = new Set(['listening', 'antiShortcut', 'habitats']);
+if (selectedSections && [...selectedSections].some((name) => !knownSections.has(name))) {
+  throw new Error(`Unknown --only section. Choose from: ${[...knownSections].join(', ')}`);
+}
 const SAVE_KEY = 'esl-likes-save-v1';
 const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
   'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey'];
+const MOVE_SPEED = 13.5;
 // Adjust to the class names the minigame actually uses.
 const SEL = {
   viewfinder: '.zoo-viewfinder',
@@ -49,17 +61,106 @@ async function newContext() {
 
 const results = [];
 const errors = [];
-const check = (name, ok, detail = '') => {
-  results.push({ name, ok: Boolean(ok) });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
+const networkErrors = [];
+let lastTrace = null;
+const recordCheck = createCheck(results, { getTrace: () => lastTrace });
+const check = (name, ok, detail = '', precondition = true, trace = null) => {
+  const ready = typeof precondition === 'function' ? precondition() : precondition;
+  return recordCheck(name, ok, {
+    detail: ready ? detail : `HARNESS_PRECONDITION_FAILED${detail ? `: ${detail}` : ''}`,
+    precondition: ready,
+    trace,
+  });
 };
+let boundsObserved = false;
+const boundsViolations = [];
+
+const distanceBetween = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+const facingDot = (player, target) => {
+  const forward = player?.forward ?? player?.facing?.forward;
+  if (!forward || !Number.isFinite(forward.x) || !Number.isFinite(forward.z)) return null;
+  const dx = target.x - player.x;
+  const dz = target.z - player.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.001) return 1;
+  return (forward.x * dx + forward.z * dz) / length;
+};
+
+function nearestGraphNode(graph, x, z) {
+  if (!graph?.nodes?.length) return null;
+  let best = null;
+  let bestDistance = Infinity;
+  for (const node of graph.nodes) {
+    const distance = Math.hypot(node.x - x, node.z - z);
+    if (distance < bestDistance) {
+      best = node;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function graphShortestPath(graph, fromId, toId) {
+  if (!graph?.nodes?.length || !graph?.edges?.length || !fromId || !toId) return null;
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  if (!byId.has(fromId) || !byId.has(toId)) return null;
+  const adjacent = new Map(graph.nodes.map((node) => [node.id, []]));
+  for (const edge of graph.edges) {
+    const [aId, bId] = edge;
+    const a = byId.get(aId);
+    const b = byId.get(bId);
+    if (!a || !b) continue;
+    const length = distanceBetween(a, b);
+    adjacent.get(aId).push([bId, length]);
+    adjacent.get(bId).push([aId, length]);
+  }
+  const distances = new Map([[fromId, 0]]);
+  const previous = new Map();
+  const remaining = new Set(byId.keys());
+  while (remaining.size) {
+    let current = null;
+    let currentDistance = Infinity;
+    for (const id of remaining) {
+      const candidate = distances.get(id) ?? Infinity;
+      if (candidate < currentDistance) {
+        current = id;
+        currentDistance = candidate;
+      }
+    }
+    if (current === null || currentDistance === Infinity) break;
+    remaining.delete(current);
+    if (current === toId) break;
+    for (const [next, length] of adjacent.get(current)) {
+      const candidate = currentDistance + length;
+      if (candidate < (distances.get(next) ?? Infinity)) {
+        distances.set(next, candidate);
+        previous.set(next, current);
+      }
+    }
+  }
+  if (!distances.has(toId)) return null;
+  const ids = [];
+  for (let id = toId; id; id = previous.get(id)) {
+    ids.push(id);
+    if (id === fromId) break;
+  }
+  if (ids.at(-1) !== fromId) return null;
+  return { ids: ids.reverse(), length: distances.get(toId), byId };
+}
 
 async function openPage(label) {
   const page = await (await newContext()).newPage();
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${label}: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`${label}: PAGEERROR ${e.message}`));
+  page.on('requestfailed', (request) => networkErrors.push(
+    `${label}: ${request.method()} ${request.url()} ${request.failure()?.errorText ?? 'failed'}`,
+  ));
+  page.on('response', (response) => {
+    if (response.status() >= 400) networkErrors.push(`${label}: HTTP ${response.status()} ${response.url()}`);
+  });
   const sleep = (ms) => page.waitForTimeout(ms);
-  const ui = () => page.evaluate((SEL) => {
+  const rawUi = () => page.evaluate((SEL) => {
     const visible = (el) => Boolean(el) && !el.hidden && !el.closest('[hidden]') && !el.closest('.is-hidden')
       && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden';
     const q = (s) => document.querySelector(s);
@@ -80,6 +181,31 @@ async function openPage(label) {
       body: document.body.innerText,
     };
   }, SEL);
+  const ui = async () => {
+    const state = await rawUi();
+    lastTrace = state?.debug ? {
+      phase: state.debug.phase,
+      player: state.debug.player,
+      carriedPhoto: state.debug.carriedPhoto,
+      shutterReady: state.debug.shutterReady,
+      framing: state.debug.framing ?? state.debug.framingResult ?? {
+        visibleFraction: state.debug.visibleFraction,
+        blockedSampleCount: state.debug.blockedSampleCount,
+      },
+      visitors: state.debug.visitors?.map((visitor) => [
+        visitor.index, visitor.state, visitor.asked, visitor.served,
+      ]),
+    } : state;
+    const player = state?.debug?.player;
+    const bounds = state?.debug?.bounds;
+    if (player && bounds) {
+      boundsObserved = true;
+      const inside = player.x >= bounds.minX && player.x <= bounds.maxX
+        && player.z >= bounds.minZ && player.z <= bounds.maxZ;
+      if (!inside && boundsViolations.length < 8) boundsViolations.push({ label, player, bounds });
+    }
+    return state;
+  };
   const waitFor = async (pred, ms, label) => {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -96,45 +222,94 @@ async function openPage(label) {
     for (const k of keys) await page.keyboard.up(k);
     await sleep(60);
   };
-  // Walk toward world (x, z). W is -z, D is +x.
-  // The enlarged zoo is ~66 units across, so a fixed iteration budget silently
-  // stranded the avatar mid-walk. Scale the budget to the distance instead.
-  const walkTo = async (x, z, radius = 1.2, stop = null, max = 0) => {
-    const start = (await ui()).debug?.player;
-    const far = start ? Math.hypot(x - start.x, z - start.z) : 0;
-    const budget = max || Math.max(80, Math.ceil(far * 12));
-    for (let i = 0; i < budget; i += 1) {
-      const s = await ui();
-      if (stop && stop(s)) return s;
-      const p = s.debug?.player;
-      if (!p) return null;
-      const dx = x - p.x;
-      const dz = z - p.z;
-      if (Math.hypot(dx, dz) <= radius) return s;
+  // Walk the campus graph node by node. A stalled leg causes a fresh nearest-
+  // node lookup and shortest-path plan instead of blindly pressing into a fence.
+  let lastRoute = null;
+  const walkSegment = async (x, z, radius, stop, maxSteps = 140) => {
+    let bestDistance = Infinity;
+    let stalledSteps = 0;
+    for (let step = 0; step < maxSteps; step += 1) {
+      const state = await ui();
+      if (stop && stop(state)) return state;
+      const player = state.debug?.player;
+      if (!player) return null;
+      const dx = x - player.x;
+      const dz = z - player.z;
+      const distance = Math.hypot(dx, dz);
+      if (distance <= radius) return state;
+      if (distance < bestDistance - 0.08) {
+        bestDistance = distance;
+        stalledSteps = 0;
+      } else {
+        stalledSteps += 1;
+        if (stalledSteps >= 9) return null;
+      }
       const keys = [];
-      if (dz < -0.25) keys.push('KeyW');
-      if (dz > 0.25) keys.push('KeyS');
-      if (dx > 0.25) keys.push('KeyD');
-      if (dx < -0.25) keys.push('KeyA');
-      await hold(keys, Math.min(260, 60 + Math.hypot(dx, dz) * 40));
+      if (dz < -0.2) keys.push('KeyW');
+      if (dz > 0.2) keys.push('KeyS');
+      if (dx > 0.2) keys.push('KeyD');
+      if (dx < -0.2) keys.push('KeyA');
+      if (!keys.length) return state;
+      await hold(keys, Math.min(210, 70 + distance * 18));
     }
-    const p = (await ui()).debug?.player;
-    console.log(`  (walk gave up short of ${x.toFixed(1)},${z.toFixed(1)} at ${p ? `${p.x.toFixed(1)},${p.z.toFixed(1)}` : '?'})`);
+    return null;
+  };
+  const walkTo = async (x, z, radius = 1.2, stop = null, max = 0) => {
+    const startedAt = Date.now();
+    let replans = 0;
+    let graphLength = null;
+    for (; replans <= 3; replans += 1) {
+      const state = await ui();
+      if (stop && stop(state)) return state;
+      const player = state.debug?.player;
+      const graph = state.debug?.pathGraph;
+      if (!player) return null;
+      const from = nearestGraphNode(graph, player.x, player.z);
+      const to = nearestGraphNode(graph, x, z);
+      const route = graphShortestPath(graph, from?.id, to?.id);
+      graphLength = route?.length ?? graphLength;
+      let reached = true;
+      if (route) {
+        for (const id of route.ids) {
+          const node = route.byId.get(id);
+          const atNode = await walkSegment(node.x, node.z, 0.8, stop, max || 140);
+          if (!atNode) {
+            reached = false;
+            break;
+          }
+          if (stop && stop(atNode)) {
+            lastRoute = { replans, graphLength, elapsedMs: Date.now() - startedAt };
+            return atNode;
+          }
+        }
+      }
+      if (reached) {
+        const atTarget = await walkSegment(x, z, radius, stop, max || 140);
+        if (atTarget) {
+          lastRoute = { replans, graphLength, elapsedMs: Date.now() - startedAt };
+          return atTarget;
+        }
+      }
+    }
+    lastRoute = { replans, graphLength, elapsedMs: Date.now() - startedAt };
+    const player = (await ui()).debug?.player;
+    console.log(`  (route gave up short of ${x.toFixed(1)},${z.toFixed(1)} at ${player ? `${player.x.toFixed(1)},${player.z.toFixed(1)}` : '?'})`);
     return null;
   };
   await page.goto(URL, { waitUntil: 'networkidle' });
   await sleep(3200);
-  return { page, sleep, ui, waitFor, hold, walkTo };
+  return { page, sleep, ui, waitFor, hold, walkTo, getLastRoute: () => lastRoute };
 }
 
 // Hub door for Zoo is the rightmost of the arc.
 async function enterZoo(h, label = 'zoo') {
   await h.hold(['KeyD'], 1500);
-  for (let i = 0; i < 40 && !(await h.ui()).prompt; i += 1) await h.hold(['KeyW'], 140);
+  await holdUntil(h.page, 'KeyW', async () => (await h.ui()).prompt, { maxMs: 7000 });
   await h.page.keyboard.press('Space');
-  // Thirteen pens, 144 path slabs and thirteen canvas signs take a good deal
-  // longer to build than the old zoo did, especially on a software renderer.
-  const entered = await h.waitFor((u) => u.debug, 20000, label);
+  // Campus geometry and thirteen canvas signs can take a good deal longer to
+  // build than the hub, especially on a software renderer.
+  const debug = await waitForDebug(h.page, 'zoo', Boolean, { timeoutMs: 20000, label });
+  const entered = debug ? await h.ui() : null;
   if (!entered) {
     const s = await h.ui();
     console.log(`  ${label}: never entered. prompt=${s.prompt} greeting=${s.greeting} body="${(s.body || '').slice(0, 90).replace(/\s+/g, ' ')}"`);
@@ -162,48 +337,125 @@ const SENTENCE_TO_ID = {
   'I like donkeys.': 'donkey',
 };
 const animalFromSentence = (sentence) => SENTENCE_TO_ID[(sentence || '').trim()] ?? null;
-const waitingVisitor = (s) => s?.debug?.visitors.findIndex((v) => v.asked === false && v.state !== 'hidden') ?? -1;
-const habitat = (s, id) => s.debug.habitats.find((hb) => hb.id === id);
+const waitingVisitor = (s) => s?.debug?.visitors?.findIndex(
+  (v) => v.asked === false && v.state !== 'hidden',
+) ?? -1;
+const habitat = (s, id) => s?.debug?.habitats?.find((hb) => hb.id === id) ?? null;
+
+async function runSection(name, enabled, run) {
+  if (!enabled) return;
+  try {
+    await run();
+  } catch (error) {
+    check(`${name} section completes without a harness exception`, false,
+      error?.stack?.split('\n').slice(0, 3).join(' | ') || String(error), true, lastTrace);
+    console.log(`  ${name} section failed; continuing: ${error?.message ?? error}`);
+  }
+}
 
 async function askNext(h) {
   const s = await h.waitFor((u) => waitingVisitor(u) >= 0, 20000, 'waiting visitor');
   if (!s) return null;
   const index = waitingVisitor(s);
-  const v = s.debug.visitors[index];
+  const v = s.debug?.visitors?.[index];
+  if (!v) return null;
   const asked = await h.walkTo(v.x, v.z, 1.1, (u) => u.fallback.length > 0);
   if (!asked?.fallback.length) return null;
-  await h.page.click('.lesson-hud__fallback');
+  if (!await clickIfPresent(h.page, '.lesson-hud__fallback')) return null;
   const a = await h.waitFor((u) => u.bubble && /^I like .+\.$/.test(u.bubble), 7000, 'answer');
   const animal = animalFromSentence(a?.bubble);
   if (!animal) console.log(`  could not read an animal from the answer: "${a?.bubble}"`);
   return { index, asked, bubble: a?.bubble, animal };
 }
 
-// Walk to a habitat, open the viewfinder, wait for a good frame, shoot.
-async function photograph(h, animal, tag = '', radius = 3.2) {
+// Call with the viewfinder open: there A/D rotate the player in place
+// (D raises yaw), so turning can never walk off the viewpoint.
+async function faceHabitat(h, hb, viewpoint) {
+  const yawError = (p) => {
+    const wanted = Math.atan2(hb.x - p.x, hb.z - p.z);
+    return Math.atan2(Math.sin(wanted - p.yaw), Math.cos(wanted - p.yaw));
+  };
+  let state = await h.ui();
+  let player = state.debug?.player;
+  if (!player || distanceBetween(player, viewpoint) > 0.9) return { ok: false, state, why: 'not at viewpoint' };
+  if (!Number.isFinite(player.yaw)) return { ok: false, state, why: 'facing debug unavailable' };
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const dot = facingDot(player, hb);
+    if (dot !== null && dot >= 0.92) return { ok: true, state, dot, yaw: player.yaw };
+    const key = yawError(player) > 0 ? 'KeyD' : 'KeyA';
+    await holdUntil(h.page, key, async () => {
+      const p = (await h.ui()).debug?.player;
+      return !p || Math.abs(yawError(p)) < 0.12 || Math.sign(yawError(p)) !== (key === 'KeyD' ? 1 : -1);
+    }, { maxMs: 4500 });
+    state = await h.ui();
+    player = state.debug?.player;
+    if (!player) return { ok: false, state, why: 'player debug disappeared' };
+    if (distanceBetween(player, viewpoint) > 0.9) return { ok: false, state, why: 'turning moved the player off the viewpoint' };
+  }
+  const dot = facingDot(player, hb);
+  return { ok: dot !== null && dot >= 0.92, state, dot, yaw: player.yaw, why: 'did not face habitat' };
+}
+
+// Walk to a habitat, face it from the viewpoint, open the viewfinder, and shoot.
+async function photograph(h, animal, tag = '') {
+  const startedAt = Date.now();
   const s = await h.ui();
   const hb = habitat(s, animal);
-  if (!hb) return { ready: false, why: `no habitat for ${animal}` };
-  const walked = await h.walkTo(hb.x, hb.z, radius);
-  const at = walked?.debug?.player;
-  await h.page.click(SEL.camera);
-  const open = await h.waitFor((u) => u.viewfinder, 5000, 'viewfinder');
-  if (!open) return { ready: false, why: 'viewfinder never opened', animal, at };
-  // Coarse aiming: nudge until the shutter reports a good frame. Require the
-  // viewfinder phase too, so the opening wipe is over before pressing.
-  const readyNow = (u) => u.debug?.phase === 'viewfinder' && u.shutterEnabled && u.debug?.shutterReady;
-  let ready = await h.waitFor(readyNow, 2500);
-  for (let i = 0; i < 16 && !ready; i += 1) {
-    await h.hold([i % 2 ? 'KeyA' : 'KeyD'], 120);
-    await h.hold(['KeyW'], 140);
-    ready = await h.waitFor(readyNow, 1200);
+  if (!hb) return { reached: false, facingOk: false, shutterReady: false, why: `no habitat for ${animal}` };
+  const viewpoint = hb.viewpoint;
+  if (!viewpoint || !Number.isFinite(viewpoint.x) || !Number.isFinite(viewpoint.z)) {
+    return { reached: false, facingOk: false, shutterReady: false, why: `no viewpoint for ${animal}` };
   }
+  let walked = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    walked = await h.walkTo(viewpoint.x, viewpoint.z, 0.9);
+    const player = walked?.debug?.player;
+    if (player && distanceBetween(player, viewpoint) <= 0.9) break;
+    walked = null;
+  }
+  const at = walked?.debug?.player;
+  if (!walked) return {
+    reached: false, facingOk: false, shutterReady: false,
+    why: 'viewpoint was unreachable', animal, viewpoint, at,
+    wallSeconds: (Date.now() - startedAt) / 1000,
+  };
+  await clickUntil(
+    h.page,
+    async () => {
+      const box = await h.page.locator(SEL.camera).boundingBox();
+      return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
+    },
+    async () => (await h.ui()).viewfinder,
+    { attempts: 3, timeoutMs: 1800 },
+  );
+  const open = await h.waitFor((u) => u.viewfinder, 5000, 'viewfinder');
+  if (!open) return {
+    reached: true, facingOk: false, shutterReady: false,
+    why: 'viewfinder never opened', animal, at,
+    wallSeconds: (Date.now() - startedAt) / 1000,
+  };
+  const faced = await faceHabitat(h, hb, viewpoint);
+  if (!faced.ok) {
+    await clickIfPresent(h.page, SEL.close);
+    await h.waitFor((u) => !u.viewfinder, 4000);
+    return {
+      reached: true, facingOk: false, shutterReady: false,
+      why: faced.why, animal, viewpoint, at: faced.state?.debug?.player, dot: faced.dot,
+      wallSeconds: (Date.now() - startedAt) / 1000,
+    };
+  }
+  const readyNow = (u) => u.debug?.phase === 'viewfinder' && u.shutterEnabled && u.debug?.shutterReady;
+  const ready = await h.waitFor(readyNow, 5000);
   if (!ready) {
     await h.page.screenshot({ path: `${OUT}-fail-${animal}${tag}-aim.png` });
     console.log(`  could not frame ${animal}: player=${JSON.stringify((await h.ui()).debug?.player)} habitat=${JSON.stringify(hb)}`);
-    await h.page.click(SEL.close).catch(() => {});
+    await clickIfPresent(h.page, SEL.close);
     await h.waitFor((u) => !u.viewfinder, 4000);
-    return { ready: false, why: 'never framed', animal, at };
+    return {
+      reached: true, facingOk: true, shutterReady: false,
+      why: 'never framed', animal, at, framing: (await h.ui()).debug?.framing,
+      wallSeconds: (Date.now() - startedAt) / 1000,
+    };
   }
   const before = await h.page.evaluate(() => {
     window.__shutterClicks = 0;
@@ -216,16 +468,33 @@ async function photograph(h, animal, tag = '', radius = 3.2) {
       focus: document.activeElement?.className ?? null,
     };
   });
-  await h.page.click(SEL.shutter).catch((e) => console.log(`  shutter click threw: ${e.message.split('\n')[0]}`));
-  const shot = await h.waitFor((u) => u.debug?.carriedPhoto, 4000, 'photo taken');
+  await clickUntil(
+    h.page,
+    async () => {
+      const box = await h.page.locator(SEL.shutter).boundingBox();
+      return box ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : null;
+    },
+    async () => (await h.ui()).debug?.carriedPhoto === animal,
+    { attempts: 2, timeoutMs: 2200 },
+  );
+  const shot = await h.waitFor((u) => u.debug?.carriedPhoto === animal && !u.viewfinder, 4000, 'photo taken');
   if (!shot) {
     await h.page.screenshot({ path: `${OUT}-fail-${animal}${tag}-shutter.png` });
     const clicks = await h.page.evaluate(() => window.__shutterClicks);
     console.log(`  shutter clicked but no photo for ${animal}: before=${JSON.stringify(before)} clicksSeen=${clicks} after=${JSON.stringify((await h.ui()).debug)}`);
   }
-  await h.page.click(SEL.close).catch(() => {});
+  await clickIfPresent(h.page, SEL.close);
   await h.waitFor((u) => !u.viewfinder, 4000);
-  return { ready: true, carried: shot?.debug?.carriedPhoto ?? null, animal, at };
+  return {
+    reached: true,
+    facingOk: true,
+    shutterReady: true,
+    ready: true,
+    carried: shot?.debug?.carriedPhoto ?? null,
+    animal,
+    at,
+    wallSeconds: (Date.now() - startedAt) / 1000,
+  };
 }
 
 // Pens are close enough that a neighbour can frame better than the animal the
@@ -233,8 +502,8 @@ async function photograph(h, animal, tag = '', radius = 3.2) {
 // asked for, the way a child would step up to the fence.
 async function photographVerified(h, animal, tag = '') {
   let last = null;
-  for (const [attempt, radius] of [3.2, 2.2, 1.6].entries()) {
-    last = await photograph(h, animal, `${tag}-r${attempt}`, radius);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    last = await photograph(h, animal, `${tag}-r${attempt}`);
     if (last?.carried === animal) return last;
     if (last?.carried) {
       console.log(`  wanted ${animal} but photographed ${last.carried}; stepping closer`);
@@ -248,7 +517,8 @@ async function showPhoto(h, index) {
   // A refusal or a thank-you plays out before the game accepts input again.
   await h.waitFor((u) => u.debug?.phase === 'playing', 8000);
   const s = await h.ui();
-  const v = s.debug.visitors[index];
+  const v = s.debug?.visitors?.[index];
+  if (!v) return null;
   await h.walkTo(v.x, v.z, 1.1);
   await h.page.keyboard.press('Space');
   await h.sleep(1200);
@@ -256,7 +526,7 @@ async function showPhoto(h, index) {
 }
 
 // ---- Session A: the listening route -------------------------------------
-if (!process.env.ONLY_B) {
+await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening'), async () => {
   const h = await openPage('A');
   const { page } = h;
   let s = await enterZoo(h);
@@ -264,8 +534,8 @@ if (!process.env.ONLY_B) {
   await h.sleep(1500);
   s = await h.ui();
   check('debug snapshot exposes every habitat and no wanted animals',
-    s.debug?.habitats.length === 13 && !JSON.stringify(s.debug).match(/want|favou?rite/i),
-    JSON.stringify(s.debug?.habitats.map((x) => x.id)));
+    s.debug?.habitats?.length === 13 && !JSON.stringify(s.debug).match(/want|favou?rite/i),
+    JSON.stringify(s.debug?.habitats?.map((x) => x.id)));
   check('nothing points the way (no marker/arrow/minimap in the overlay)',
     !/やじるし|→|arrow|minimap/i.test(s.body));
   await page.screenshot({ path: `${OUT}-01-plaza.png` });
@@ -285,7 +555,10 @@ if (!process.env.ONLY_B) {
       check('🔊 offered while a request is open', await h.waitFor((u) => u.listen, 6000, '🔊'));
     }
     if (i === 1) {
-      await page.click('.listen-again');
+      // Hidden while this visitor's answer is still playing; wait, don't sample once.
+      await h.waitFor((u) => u.listen, 8000, '🔊');
+      const replayClicked = await clickIfPresent(page, '.listen-again');
+      check('Listen Again control can be clicked', replayClicked, '', Boolean(q));
       const r = await h.waitFor((u) => u.bubble && /I like/.test(u.bubble), 3000, 'replayed answer');
       check('🔊 replays the visitor\'s exact sentence', r?.bubble === q.bubble, r?.bubble);
       await h.waitFor((u) => !u.bubble, 6000);
@@ -308,11 +581,11 @@ if (!process.env.ONLY_B) {
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
   // Never throw here: a missing turnaround used to abort the whole run and take
   // session B's evidence with it. Record it and carry on.
-  await page.click('.lesson-hud__fallback[data-value="tiger"]', { timeout: 8000 })
-    .catch(async (error) => {
-      console.log(`  turnaround click failed: ${error.message.split('\n')[0]}`);
-      await page.screenshot({ path: `${OUT}-fail-turnaround.png` });
-    });
+  const turnaroundClicked = await clickIfPresent(
+    page, '.lesson-hud__fallback[data-value="tiger"]', { timeoutMs: 8000 },
+  );
+  check('turnaround answer can be selected', turnaroundClicked, '', Boolean(s));
+  if (!turnaroundClicked) await page.screenshot({ path: `${OUT}-fail-turnaround.png` }).catch(() => {});
   s = await h.waitFor((u) => !u.debug && u.greeting !== null, 15000, 'hub');
   check('finishes back to the hub', s);
   await h.sleep(1200);
@@ -325,12 +598,17 @@ if (!process.env.ONLY_B) {
   const photo = saved?.zooPhotos?.zoo ?? saved?.zooPhotos?.animal ?? null;
   check('a photo was saved for the stamp book', typeof photo === 'string' && photo.startsWith('data:image/'),
     photo ? `${photo.slice(0, 24)}… ${Math.round(photo.length / 1024)} kB` : 'none');
-  await page.click('.stamp-button');
-  await h.sleep(600);
-  const shown = await page.evaluate(() => Boolean(document.querySelector('.stamp-photo')));
-  check('the stamp book shows the photo', shown);
-  await page.screenshot({ path: `${OUT}-06-stampbook.png` });
-  await page.evaluate(() => document.querySelector('.modal-header button')?.click());
+  const stampClicked = await clickIfPresent(page, '.stamp-button', { timeoutMs: 3000 });
+  check('stamp book control is available', stampClicked, '', Boolean(s?.greeting));
+  if (stampClicked) {
+    await h.sleep(600);
+    const shown = await page.evaluate(() => Boolean(document.querySelector('.stamp-photo')));
+    check('the stamp book shows the photo', shown);
+    await page.screenshot({ path: `${OUT}-06-stampbook.png` });
+    await page.evaluate(() => document.querySelector('.modal-header button')?.click());
+  } else {
+    check('the stamp book shows the photo', false, 'stamp book was not opened', false);
+  }
 
   s = await enterZoo(h);
   check('Zoo can be entered a second time', s?.debug);
@@ -342,10 +620,10 @@ if (!process.env.ONLY_B) {
   }), SEL);
   check('re-entry leaves no duplicated overlays', dupes.listen <= 1 && dupes.hud === 1 && dupes.viewfinder <= 1, JSON.stringify(dupes));
   await page.close();
-}
+});
 
 // ---- Session B: ignore the answers, show a wrong animal first --------------
-{
+await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShortcut'), async () => {
   const h = await openPage('B');
   const { page } = h;
   await enterZoo(h);
@@ -377,16 +655,132 @@ if (!process.env.ONLY_B) {
   check('a wrong animal is refused in Japanese with no English repeat',
     refusal && !refusal.english && refusal.served === false && refusal.bubble, JSON.stringify(refusal));
   const s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
-  if (s) await page.click('.lesson-hud__fallback');
+  if (s) {
+    const clicked = await clickIfPresent(page, '.lesson-hud__fallback');
+    check('anti-shortcut turnaround answer can be selected', clicked, '', Boolean(s));
+  }
   await h.waitFor((u) => !u.debug, 15000, 'hub');
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
   const stars = saved?.bestStars?.zoo ?? null;
   check('showing wrong photos still finishes and earns the stamp (no dead end)', saved?.stamps?.zoo === true);
   check('anti-shortcut: showing a wrong animal first cannot reach 3 stars', stars !== null && stars < 3, JSON.stringify(saved?.bestStars));
   await page.close();
-}
+});
+
+// ---- Session C: visit and photograph every habitat on the campus ----------
+await runSection('habitats', sectionEnabled('habitats'), async () => {
+  const h = await openPage('habitats');
+  const entered = await enterZoo(h, 'habitats');
+  await h.sleep(1500);
+  let state = entered ? await h.ui() : null;
+  const graph = state?.debug?.pathGraph;
+  const plaza = graph?.nodes?.find((node) => node.kind === 'plaza') ?? null;
+  const graphReady = Boolean(
+    plaza
+    && graph.nodes.length > 0
+    && graph.edges.length > 0
+    && state?.debug?.habitats?.length === ANIMALS.length,
+  );
+  check('campus debug exposes a routable graph and all habitat viewpoints', graphReady,
+    JSON.stringify({
+      plaza: plaza?.id,
+      nodes: graph?.nodes?.length ?? 0,
+      edges: graph?.edges?.length ?? 0,
+      habitats: state?.debug?.habitats?.length ?? 0,
+    }), Boolean(entered), state?.debug);
+
+  const visited = new Set();
+  const travelTimes = [];
+  const habitatResults = [];
+  for (const animal of ANIMALS) {
+    state = await h.ui();
+    const hb = habitat(state, animal);
+    const viewpointNode = hb?.viewpoint
+      ? nearestGraphNode(state?.debug?.pathGraph, hb.viewpoint.x, hb.viewpoint.z)
+      : null;
+    const habitatReady = Boolean(
+      hb?.viewpoint
+      && viewpointNode
+      && distanceBetween(hb.viewpoint, viewpointNode) < 0.2,
+    );
+    if (!graphReady || !habitatReady) {
+      check(`${animal} has a graph-backed viewpoint`, false,
+        JSON.stringify({ habitat: hb, nearest: viewpointNode }), graphReady, state?.debug);
+      const result = {
+        animal, reached: false, facingOk: false, shutterReady: false,
+        photographedAsRightAnimal: false, wallSeconds: null,
+      };
+      habitatResults.push(result);
+      console.log(`  habitat result ${JSON.stringify(result)}`);
+      continue;
+    }
+
+    let measured = null;
+    let arrived = null;
+    let route = null;
+    const routePlan = graphShortestPath(graph, plaza.id, viewpointNode.id);
+    const modeledSeconds = routePlan ? routePlan.length / MOVE_SPEED : null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const reset = await h.walkTo(plaza.x, plaza.z, 0.8);
+      if (!reset) break;
+      const startedAt = Date.now();
+      arrived = await h.walkTo(hb.viewpoint.x, hb.viewpoint.z, 0.9);
+      measured = (Date.now() - startedAt) / 1000;
+      route = h.getLastRoute();
+      if (arrived?.debug?.player && distanceBetween(arrived.debug.player, hb.viewpoint) <= 0.9) break;
+      arrived = null;
+    }
+    travelTimes.push({ animal, wallSeconds: measured, modeledSeconds, routeLength: routePlan?.length ?? null, route });
+    console.log(`  ${animal}: route ${modeledSeconds == null ? 'unavailable' : `${modeledSeconds.toFixed(2)} modeled seconds`}; wall ${measured == null ? 'unreached' : `${measured.toFixed(2)}s`} (${route?.replans ?? '?'} stall replans)`);
+    check(`${animal} viewpoint is reached from the plaza`, Boolean(arrived),
+      JSON.stringify({ wallSeconds: measured, route, player: arrived?.debug?.player }), habitatReady,
+      arrived?.debug ?? state?.debug);
+    check(`${animal} graph route is at most 10 seconds at movement speed`,
+      modeledSeconds !== null && modeledSeconds <= 10,
+      JSON.stringify({ routeLength: routePlan?.length, moveSpeed: MOVE_SPEED, modeledSeconds, wallSeconds: measured }),
+      Boolean(routePlan), state?.debug);
+
+    if (!arrived) {
+      const result = {
+        animal, reached: false, facingOk: false, shutterReady: false,
+        photographedAsRightAnimal: false, wallSeconds: measured,
+      };
+      habitatResults.push(result);
+      console.log(`  habitat result ${JSON.stringify(result)}`);
+      continue;
+    }
+    const shot = await photograph(h, animal, '-all');
+    const rightAnimal = shot?.shutterReady && shot?.carried === animal;
+    check(`${animal} faces the habitat before photographing`, shot?.facingOk,
+      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(arrived), (await h.ui()).debug);
+    check(`${animal} reaches shutter-ready from its viewpoint`, shot?.shutterReady,
+      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.facingOk), (await h.ui()).debug);
+    check(`${animal} frames and photographs as the right animal`, rightAnimal,
+      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.shutterReady), (await h.ui()).debug);
+    const result = {
+      animal,
+      reached: Boolean(shot?.reached),
+      facingOk: Boolean(shot?.facingOk),
+      shutterReady: Boolean(shot?.shutterReady),
+      photographedAsRightAnimal: Boolean(rightAnimal),
+      wallSeconds: measured,
+    };
+    habitatResults.push(result);
+    console.log(`  habitat result ${JSON.stringify(result)}`);
+    if (rightAnimal) visited.add(animal);
+    await h.waitFor((value) => value.debug?.phase === 'playing', 5000, `${animal} camera to close`);
+  }
+  check('all thirteen habitats are photographed in one session',
+    visited.size === ANIMALS.length && ANIMALS.every((animal) => visited.has(animal)),
+    JSON.stringify({ visited: [...visited], travelTimes, habitatResults }), graphReady, (await h.ui()).debug);
+  await h.page.close();
+});
 
 check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' || '));
+check('no network errors', networkErrors.length === 0, networkErrors.slice(0, 3).join(' || '));
+check('the player never leaves the campus bounds', boundsObserved && boundsViolations.length === 0,
+  JSON.stringify(boundsViolations), boundsObserved);
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
-for (const browser of browsers) await browser.close();
+await Promise.allSettled(browsers.map((browser) => browser.close()));
+process.exitCode = failed > 0 ? 1 : 0;

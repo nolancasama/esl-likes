@@ -41,6 +41,17 @@ export async function clickUntil(page, getPoint, predicate, {
   return null;
 }
 
+export async function clickIfPresent(page, selector, { timeoutMs = 1500 } = {}) {
+  try {
+    const locator = page.locator(selector).first();
+    await locator.waitFor({ state: 'visible', timeout: timeoutMs });
+    await locator.click({ timeout: timeoutMs });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function holdUntil(page, keyOrPointer, predicate, { maxMs = 5000 } = {}) {
   const pointer = typeof keyOrPointer === 'object' && keyOrPointer !== null;
   const point = pointer

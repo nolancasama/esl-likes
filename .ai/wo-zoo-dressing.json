@@ -1,0 +1,58 @@
+{
+  "task": "Dress the esl-likes Zoo campus with the imported CC0 environment assets: reusable region habitat kits, entrance plaza props, central fountain, region landmarks, junction signposts and a YOU ARE HERE board — within a Chromebook performance budget, keeping every habitat photographable.",
+  "notes": [
+    "PREREQUISITE: the layout order is complete — src/minigames/zoo/layout.js (regions, habitats, viewpoints, path graph, colliders, landmarks) and the campus world.js with placeholder dressing exist. Read them first, plus SPEC.md §8 'Campus' and the DESIGN_DECISIONS Zoo campus entry.",
+    "ASSETS (already imported, CC0, provenance in public/assets/zoo/environment/README.md; use only these, add nothing from outside the project): quaternius-nature/ glTF+bin+textures ≤512 px — CommonTree_1, CommonTree_3, Pine_1, Pine_2, Pine_5, DeadTree_3 (savanna), Bush_Common, Bush_Common_Flowers, Flower_3_Group, Flower_4_Group, Grass_Common_Tall, Grass_Wispy_Tall, Fern_1, Plant_1_Big, Rock_Medium_1–3, RockPath_Round_Thin, Pebble_Round_1–2; kenney-suburban/ GLB (Textures/colormap.png beside them) — fence-1x3, fence-low, fence, path-stones-long, path-stones-messy, planter, tree-large, tree-small; kaykit-restaurant/ glTF — table_round_A, table_round_A_small, chair_A, crate; quaternius-farm/ OBJ+MTL colour-only — Barn, SmallBarn, OpenBarn, Fence, Well, WaterTower (its CC0 status still needs confirming on quaternius.com: load it behind the same graceful-failure path and keep a procedural barn fallback so removing the folder never breaks the zoo). Tree meshes are 3.5k–6.3k triangles each: use them as accents (a handful per region), not forests; the dense look comes from instanced low-poly bushes/grass/rocks.",
+    "COMPOSITION BY SPEC: Entrance plaza — striped gate (existing), benches/planters (Kenney planter; procedural benches are fine), lamps, a ticket booth or kiosk (procedural or KayKit-furnished), café terrace (KayKit tables/chairs), the YOU ARE HERE board. Central fountain hub — a clear, taller fountain landmark visible from nearby paths. Savanna — warm ground, DeadTree_3 and broad trees sparsely, rocks, a tall giraffe feeder landmark, a mud pool by the elephant. Forest trail — pines, ferns, bushes, pebbles, darker fencing, a giant tree landmark. Farm — Kenney/Quaternius fences as paddocks, a red barn landmark, well/water tower, crates. Penguin Cove — pool with water plane, pale rocks, a railing and a small blue bridge landmark. Build reusable kit functions per region (for example savannaEnclosure, forestEnclosure, farmPaddock, cove) rather than thirteen bespoke scenes.",
+    "SIGNAGE: at the hub and major junctions, signposts pointing along the path toward each region: region name in Japanese (add the strings you need to a NEW local constant in the zoo module, not lesson.js — Claude will move them later if needed) plus that region's animal names in English with the existing animal icons, all equal size and colour, no emphasis. The YOU ARE HERE board at the plaza draws the campus (regions, paths, animal names/icons, a 'you are here' dot at the plaza) from layout.js data, all animals equal, rendered once to a canvas texture. Front-face-only planes with plain backs (a double-sided sign once showed mirrored English). Signs and board must be readable at 1366x768 from the path.",
+    "VISIBILITY AND PHOTOS: for every habitat keep the sightline from its viewpoint to the animal clear — no tree, bush, rock or fence post between them, fences low enough not to dominate the frame, and dressing kept outside the animal's photo bounds. Scenery must never become a photo subject (the framing evaluator only scores habitats). Decorative grass/flowers/small bushes are non-solid; add colliders to layout.js only for large props (barn, booth, fountain, pool rim).",
+    "PERFORMANCE BUDGET: load each unique model once and clone or instance it; InstancedMesh for repeated bushes/grass/flowers/pebbles/rocks; share materials; no textures above 512 px; target at most ~25 unique environment models loaded and a modest draw-call count. Report sceneStats (meshes, instancedMeshes, triangles, unique environment models) in the debug hook, before and after dressing, in your summary. Environment assets load asynchronously; a failed load leaves the placeholder and logs nothing as an error (a console.warn at most); the zoo stays playable without any environment asset.",
+    "PLAYTHROUGH: extend scripts/playthrough-zoo.mjs (keep the layout order's sections) with checks that environment assets finish loading without console errors or failed network requests, that the YOU ARE HERE board and signposts exist and mention all thirteen animals equally (expose their text data in the debug hook), that the 'habitats' section still frames and photographs all thirteen animals from their viewpoints, and save one screenshot per region plus the plaza and hub for the controller's visual review.",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller: your sandbox cannot start the preview. Pass npm test and npm run build; node --check the playthrough; report behavioralValidation honestly (observed: false).",
+    "Append a short DESIGN_DECISIONS.md entry for dressing decisions not already covered (for example the instancing budget or which assets were rejected on the day)."
+  ],
+  "requirements": [
+    "Region kits dress Savanna, Forest, Farm and Penguin Cove distinctly using the imported CC0 assets, with the landmarks named in SPEC §8",
+    "The entrance plaza reads as a zoo entrance (gate, booth or kiosk, benches or planters, café terrace, YOU ARE HERE board) and the central fountain is a clear landmark",
+    "Junction signposts show Japanese region names and all of that region's English animal names equally; the YOU ARE HERE board shows every region and animal equally and never marks a request",
+    "Every habitat keeps a clear sightline from its viewpoint and all thirteen animals can still be framed and photographed; scenery is never a photo subject",
+    "Repeated vegetation is instanced, models load once, textures stay ≤512 px, sceneStats are reported before and after, and missing environment assets fail gracefully",
+    "The Farm Buildings models load behind a graceful fallback so the folder can be removed without breaking the zoo",
+    "The Zoo playthrough adds asset-load, signage and all-habitats checks plus per-region screenshots; npm test passes; npm run build is clean"
+  ],
+  "constraints": [
+    "Do NOT change Zoo gameplay rules, difficulty, scoring, Listen Again or photo delivery — a later order owns those",
+    "Do NOT add assets from outside public/assets/zoo/environment, and do NOT reference the Downloads folder",
+    "Do NOT modify src/config/lesson.js, other minigames, shared systems, SPEC.md, or the other playthrough scripts",
+    "No npm dependencies, postprocessing, large particle systems, or per-frame allocations in the update loop",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "DESIGN_DECISIONS.md",
+    "src/minigames/zoo/layout.js",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/index.js",
+    "public/assets/zoo/environment/README.md",
+    "scripts/playthrough-zoo.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "category": "gameplay-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "decomposed",
+  "visualSurface": true
+}

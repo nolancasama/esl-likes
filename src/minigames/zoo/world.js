@@ -3,24 +3,25 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import {
+  PATH_WIDTH,
+  SIGN_DEPTH,
+  SIGN_WIDTH,
+  bounds as campusBounds,
+  colliders,
+  habitats as campusHabitats,
+  landmarks,
+  pathEdges,
+  pathNodes,
+  regions,
+  signs as campusSigns,
+} from './layout.js';
 
 const TAU = Math.PI * 2;
 
-export const HABITAT_POSITIONS = Object.freeze([
-  Object.freeze({ id: 'elephant', x: -25.28, z: 18 }),
-  Object.freeze({ id: 'giraffe', x: -31.32, z: 8.8 }),
-  Object.freeze({ id: 'penguin', x: -32.94, z: -1.63 }),
-  Object.freeze({ id: 'tiger', x: -29.91, z: -11.83 }),
-  Object.freeze({ id: 'deer', x: -22.63, z: -20.37 }),
-  Object.freeze({ id: 'alpaca', x: -12.18, z: -26.03 }),
-  Object.freeze({ id: 'horse', x: 0, z: -28 }),
-  Object.freeze({ id: 'fox', x: 12.18, z: -26.03 }),
-  Object.freeze({ id: 'wolf', x: 22.63, z: -20.37 }),
-  Object.freeze({ id: 'stag', x: 29.91, z: -11.83 }),
-  Object.freeze({ id: 'bull', x: 32.94, z: -1.63 }),
-  Object.freeze({ id: 'cow', x: 31.32, z: 8.8 }),
-  Object.freeze({ id: 'donkey', x: 25.28, z: 18 }),
-]);
+// Kept as a compatibility export for code that used the original ring data.
+// The authoritative positions now live in the pure campus layout module.
+export const HABITAT_POSITIONS = campusHabitats;
 
 const ANIMAL_VISUALS = Object.freeze({
   elephant: Object.freeze({ ground: 0xb8c990, fence: 0x78644d }),
@@ -306,6 +307,16 @@ export function createZooWorld({ labels = {} } = {}) {
     parent.add(mesh);
     return mesh;
   };
+  const photoOccluders = [];
+  const markPhotoOccluder = (mesh) => {
+    photoOccluders.push(mesh);
+    return mesh;
+  };
+  const visibilityRaycaster = new THREE.Raycaster();
+  const visibilityOrigin = new THREE.Vector3();
+  const visibilityTarget = new THREE.Vector3();
+  const visibilityDirection = new THREE.Vector3();
+  const visibilityHits = [];
 
   const group = new THREE.Group();
   group.name = 'zoo-world';
@@ -314,7 +325,7 @@ export function createZooWorld({ labels = {} } = {}) {
   const cylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 12));
   const lowCylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 24));
   const sphere = ownGeometry(new THREE.SphereGeometry(0.5, 12, 8));
-  const plane = ownGeometry(new THREE.PlaneGeometry(5.1, 2.35));
+  const signPlane = ownGeometry(new THREE.PlaneGeometry(SIGN_WIDTH, 1.57));
   const grass = makeMaterial(0x75b866);
   const pathMaterial = makeMaterial(0xe8d3a4);
   const plazaMaterial = makeMaterial(0xd9cab3);
@@ -327,59 +338,170 @@ export function createZooWorld({ labels = {} } = {}) {
   const gateRed = makeMaterial(0xe95b55);
   const gateWhite = makeMaterial(0xfff7df);
   const dark = makeMaterial(0x29384a);
+  const regionMaterials = Object.freeze({
+    savanna: makeMaterial(0xcdb66f),
+    forest: makeMaterial(0x55865b),
+    farm: makeMaterial(0x8fbd70),
+    penguinCove: makeMaterial(0x8faeb2),
+  });
+  const barnRed = makeMaterial(0xb94e42);
+  const barnTrim = makeMaterial(0xf4e6cb);
+  const timber = makeMaterial(0x9d7448);
+  const hay = makeMaterial(0xd7af50);
+  const paleRock = makeMaterial(0xbec9c7);
 
-  addMesh(group, box, grass, 0, -0.24, 0.8, 100, 0.5, 96);
+  const worldWidth = campusBounds.maxX - campusBounds.minX;
+  const worldDepth = campusBounds.maxZ - campusBounds.minZ;
+  const worldCenterX = (campusBounds.minX + campusBounds.maxX) * 0.5;
+  const worldCenterZ = (campusBounds.minZ + campusBounds.maxZ) * 0.5;
+  addMesh(group, box, grass, worldCenterX, -0.24, worldCenterZ, worldWidth, 0.5, worldDepth);
 
-  // One continuous, overlapping path loop. The plaza intersects the southern
-  // side, so following either direction always visits every habitat and returns.
-  const pathSegments = 144;
-  for (let index = 0; index < pathSegments; index += 1) {
-    const angle = (index / pathSegments) * TAU;
-    const nextAngle = ((index + 1) / pathSegments) * TAU;
-    const point = new THREE.Vector2(Math.sin(angle) * 29.4, Math.cos(angle) * 24.9);
-    const next = new THREE.Vector2(Math.sin(nextAngle) * 29.4, Math.cos(nextAngle) * 24.9);
-    const length = point.distanceTo(next) + 0.22;
-    const slab = addMesh(
-      group,
-      box,
-      pathMaterial,
-      (point.x + next.x) * 0.5,
-      0.015,
-      (point.y + next.y) * 0.5,
-      3.25,
-      0.08,
-      length,
-    );
-    slab.rotation.y = Math.atan2(next.x - point.x, next.y - point.y);
+  // Flat-coloured procedural patches establish the four regions before the
+  // imported dressing arrives in the following work order.
+  const regionPatchScale = Object.freeze({
+    savanna: [30, 24],
+    forest: [32, 27],
+    farm: [34, 26],
+    penguinCove: [18, 17],
+  });
+  for (const region of regions) {
+    const material = regionMaterials[region.id];
+    const scale = regionPatchScale[region.id];
+    if (!material || !scale) continue;
+    const patch = addMesh(group, lowCylinder, material, region.center.x, 0.015, region.center.z,
+      scale[0], 0.04, scale[1]);
+    patch.name = `zoo-region-${region.id}`;
+    patch.rotation.y = region.id === 'forest' ? -0.22 : region.id === 'farm' ? 0.17 : 0;
   }
 
-  const plaza = addMesh(group, lowCylinder, plazaMaterial, 0, 0.015, 27.6, 5.5, 0.14, 5.5);
+  // Edges form a curving figure-eight polyline. Wide slabs plus round joints
+  // make the bends continuous and forgiving without adding geometry per frame.
+  const nodeById = new Map(pathNodes.map((node) => [node.id, node]));
+  const pathWidth = PATH_WIDTH;
+  for (const [fromId, toId] of pathEdges) {
+    const from = nodeById.get(fromId);
+    const to = nodeById.get(toId);
+    if (!from || !to) continue;
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dz) + 0.2;
+    const slab = addMesh(group, box, pathMaterial,
+      (from.x + to.x) * 0.5, 0.015, (from.z + to.z) * 0.5,
+      pathWidth, 0.08, length);
+    slab.name = `zoo-path-${fromId}-${toId}`;
+    slab.rotation.y = Math.atan2(dx, dz);
+  }
+  for (const node of pathNodes) {
+    const joint = addMesh(group, lowCylinder, pathMaterial, node.x, 0.018, node.z,
+      pathWidth, 0.08, pathWidth);
+    joint.name = `zoo-path-node-${node.id}`;
+  }
+
+  const landmarkById = new Map(landmarks.map((landmark) => [landmark.id, landmark]));
+  const plazaPosition = landmarkById.get('plaza')
+    ?? pathNodes.find((node) => node.kind === 'plaza')
+    ?? { x: 0, z: 27.6 };
+  const plaza = addMesh(group, lowCylinder, plazaMaterial,
+    plazaPosition.x, 0.025, plazaPosition.z, 7, 0.14, 6);
+  plaza.name = 'zoo-entrance-plaza';
   plaza.rotation.y = Math.PI / 16;
 
-  // Fountain is offset so it is a clear landmark without blocking the avatar,
-  // visitors, or the path mouth.
-  addMesh(group, lowCylinder, stone, 3.45, 0.25, 28.05, 2.05, 0.5, 2.05);
-  addMesh(group, lowCylinder, water, 3.45, 0.51, 28.05, 1.67, 0.08, 1.67);
-  addMesh(group, cylinder, stoneDark, 3.45, 0.98, 28.05, 0.32, 1.45, 0.32);
-  const fountainTop = addMesh(group, sphere, water, 3.45, 1.82, 28.05, 0.32, 0.5, 0.32);
+  const fountainPosition = landmarkById.get('fountainHub')
+    ?? pathNodes.find((node) => node.kind === 'hub')
+    ?? { x: 0, z: 0 };
+  markPhotoOccluder(addMesh(group, lowCylinder, stone,
+    fountainPosition.x, 0.25, fountainPosition.z, 2.05, 0.5, 2.05));
+  addMesh(group, lowCylinder, water, fountainPosition.x, 0.51, fountainPosition.z, 1.67, 0.08, 1.67);
+  markPhotoOccluder(addMesh(group, cylinder, stoneDark,
+    fountainPosition.x, 0.98, fountainPosition.z, 0.32, 1.45, 0.32));
+  const fountainTop = addMesh(group, sphere, water,
+    fountainPosition.x, 1.82, fountainPosition.z, 0.32, 0.5, 0.32);
+  fountainTop.userData.baseY = 1.82;
   animations.push({ kind: 'fountain', object: fountainTop });
 
-  // A tall, unmistakable tree on the opposite side of the entrance plaza.
-  addMesh(group, cylinder, bark, -4.35, 2.25, 28.15, 0.85, 4.5, 0.85);
-  addMesh(group, sphere, leaf, -4.35, 5.15, 28.15, 3.3, 3.2, 3.3);
-  addMesh(group, sphere, leafLight, -3.25, 5.6, 27.85, 2.15, 2.1, 2.15);
-
-  // Striped entrance gate. The clear centre span is wide enough for movement.
-  for (const x of [-2.8, 2.8]) {
+  // Striped entrance gate, retaining a wide clear centre span.
+  const gatePosition = landmarkById.get('entranceGate') ?? { x: plazaPosition.x, z: plazaPosition.z + 5 };
+  const gatePosts = colliders.filter((collider) => collider.landmarkId === 'entranceGate');
+  const gateXs = gatePosts.length === 2 ? gatePosts.map((collider) => collider.x) : [-2.8, 2.8];
+  for (const gateX of gateXs) {
     for (let stripe = 0; stripe < 5; stripe += 1) {
-      addMesh(group, box, stripe % 2 ? gateWhite : gateRed, x, 0.45 + stripe * 0.9, 32.15, 0.62, 0.9, 0.62);
+      markPhotoOccluder(addMesh(group, box, stripe % 2 ? gateWhite : gateRed,
+        gateX, 0.45 + stripe * 0.9, gatePosition.z, 0.62, 0.9, 0.62));
     }
   }
+  const gateLeft = Math.min(...gateXs);
+  const gateRight = Math.max(...gateXs);
+  const gateStripeWidth = (gateRight - gateLeft) / 7;
   for (let stripe = 0; stripe < 7; stripe += 1) {
-    addMesh(group, box, stripe % 2 ? gateWhite : gateRed, -2.55 + stripe * 0.85, 4.58, 32.15, 0.86, 0.62, 0.62);
+    addMesh(group, box, stripe % 2 ? gateWhite : gateRed,
+      gateLeft + gateStripeWidth * (stripe + 0.5), 4.58, gatePosition.z,
+      gateStripeWidth + 0.02, 0.62, 0.62);
   }
 
-  function createSign(id, habitatGroup, worldX, worldZ) {
+  const treePosition = landmarkById.get('giantForestTree');
+  if (treePosition) {
+    markPhotoOccluder(addMesh(group, cylinder, bark,
+      treePosition.x, 2.6, treePosition.z, 0.95, 5.2, 0.95));
+    addMesh(group, sphere, leaf, treePosition.x, 6, treePosition.z, 3.8, 3.45, 3.8);
+    addMesh(group, sphere, leafLight, treePosition.x + 1.35, 6.55, treePosition.z - 0.35, 2.3, 2.15, 2.3);
+  }
+
+  const feederPosition = landmarkById.get('giraffeFeeder');
+  if (feederPosition) {
+    markPhotoOccluder(addMesh(group, cylinder, timber,
+      feederPosition.x, 2.3, feederPosition.z, 0.24, 4.6, 0.24));
+    markPhotoOccluder(addMesh(group, box, hay,
+      feederPosition.x, 4.05, feederPosition.z, 1.4, 0.75, 0.75));
+    markPhotoOccluder(addMesh(group, box, timber,
+      feederPosition.x, 4.05, feederPosition.z + 0.42, 1.65, 0.13, 0.13));
+  }
+
+  const barnPosition = landmarkById.get('barn');
+  if (barnPosition) {
+    const barnCollider = colliders.find((collider) => collider.landmarkId === 'barn');
+    const barnWidth = (barnCollider?.hw ?? 2.7) * 2;
+    const barnDepth = (barnCollider?.hd ?? 2.1) * 2;
+    const barnBody = addMesh(group, box, barnRed,
+      barnPosition.x, 2, barnPosition.z, barnWidth, 4, barnDepth);
+    markPhotoOccluder(barnBody);
+    barnBody.rotation.y = barnCollider?.rotation ?? 0;
+    const roof = addMesh(group, box, barnTrim, barnPosition.x, 4.35, barnPosition.z, 6.1, 0.75, 4.8);
+    markPhotoOccluder(roof);
+    roof.rotation.y = barnCollider?.rotation ?? 0;
+    markPhotoOccluder(addMesh(group, box, dark,
+      barnPosition.x, 1.4, barnPosition.z + 2.12, 1.8, 2.8, 0.12));
+  }
+
+  const bridgePosition = landmarkById.get('penguinBridge');
+  if (bridgePosition) {
+    markPhotoOccluder(addMesh(group, box, timber,
+      bridgePosition.x, 0.42, bridgePosition.z, 5.6, 0.35, 1.5));
+    for (const zOffset of [-0.8, 0.8]) {
+      markPhotoOccluder(addMesh(group, box, paleRock,
+        bridgePosition.x, 1.05, bridgePosition.z + zOffset, 5.8, 0.18, 0.18));
+      for (const xOffset of [-2.65, 0, 2.65]) {
+        addMesh(group, cylinder, paleRock,
+          bridgePosition.x + xOffset, 0.75, bridgePosition.z + zOffset, 0.15, 1.3, 0.15);
+      }
+    }
+  }
+
+  // Pale pool-edge blocks make every solid cove boundary visible and use the
+  // exact boxes that navigation tests and player collision use.
+  for (const edge of colliders.filter((collider) => collider.role === 'poolEdge')) {
+    const rockEdge = addMesh(group, box, paleRock, edge.x, 0.32, edge.z,
+      edge.hw * 2, 0.64, edge.hd * 2);
+    markPhotoOccluder(rockEdge);
+    rockEdge.rotation.y = edge.rotation;
+  }
+
+  // The cove water remains a simple plane in this layout-only order.
+  const cove = regions.find((region) => region.id === 'penguinCove');
+  const penguinHabitat = campusHabitats.find((habitat) => habitat.id === 'penguin');
+  if (cove && penguinHabitat) addMesh(group, lowCylinder, water,
+    penguinHabitat.x, 0.01, penguinHabitat.z, 6.65, 0.06, 6.1);
+
+  function createSign(id, placement) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 236;
@@ -402,33 +524,47 @@ export function createZooWorld({ labels = {} } = {}) {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     textures.add(texture);
-    // Front face only: a double-sided plane shows the lettering mirrored from
-    // behind, which read as backwards English across the zoo. The back gets a
-    // plain board instead.
+    // A double-sided plane shows the lettering mirrored from behind, so the
+    // board carries two single-sided planes back to back, each reading
+    // correctly. Placement comes from layout.js, beside the viewpoint spur and
+    // clear of the photo sightline.
     const material = ownMaterial(new THREE.MeshBasicMaterial({ map: texture }));
-    const inward = new THREE.Vector2(-worldX, -worldZ).normalize();
-    const tangent = new THREE.Vector2(-inward.y, inward.x);
-    const signX = inward.x * 3.3 + tangent.x * 3.5;
-    const signZ = inward.y * 3.3 + tangent.y * 3.5;
-    const sign = addMesh(habitatGroup, plane, material, signX, 3.0, signZ);
-    sign.rotation.y = Math.atan2(inward.x, inward.y);
-    const backing = addMesh(habitatGroup, plane, ownMaterial(new THREE.MeshBasicMaterial({ color: 0xf3f6fa })),
-      signX + inward.x * 0.04, 3.0, signZ + inward.y * 0.04);
-    backing.rotation.y = sign.rotation.y + Math.PI;
-    addMesh(habitatGroup, cylinder, dark, signX, 1.45, signZ, 0.15, 2.9, 0.15);
-    return sign;
+    const normalX = Math.sin(placement.facing);
+    const normalZ = Math.cos(placement.facing);
+    const boardY = 2.25;
+    const board = addMesh(group, box, dark, placement.x, boardY, placement.z,
+      SIGN_WIDTH + 0.12, 1.69, SIGN_DEPTH * 0.8);
+    board.rotation.y = placement.facing;
+    markPhotoOccluder(board);
+    const half = SIGN_DEPTH * 0.5;
+    const front = addMesh(group, signPlane, material,
+      placement.x + normalX * half, boardY, placement.z + normalZ * half);
+    front.rotation.y = placement.facing;
+    const back = addMesh(group, signPlane, material,
+      placement.x - normalX * half, boardY, placement.z - normalZ * half);
+    back.rotation.y = placement.facing + Math.PI;
+    addMesh(group, cylinder, dark, placement.x, 0.72, placement.z, 0.15, 1.44, 0.15);
+    return front;
   }
 
-  function addFence(habitatGroup, visual) {
+  function addFence(habitatGroup, visual, fenceCollider) {
     const fenceMaterial = makeMaterial(visual.fence);
-    for (const x of [-2.8, 2.8]) {
-      for (const z of [-2.3, 2.3]) addMesh(habitatGroup, cylinder, fenceMaterial, x, 0.7, z, 0.16, 1.4, 0.16);
-    }
-    for (const z of [-2.3, 2.3]) {
-      for (const y of [0.55, 1.05]) addMesh(habitatGroup, box, fenceMaterial, 0, y, z, 5.75, 0.14, 0.14);
-    }
-    for (const x of [-2.8, 2.8]) {
-      for (const y of [0.55, 1.05]) addMesh(habitatGroup, box, fenceMaterial, x, y, 0, 0.14, 0.14, 4.75);
+    const radius = fenceCollider?.r ?? 3.4;
+    const segments = 14;
+    for (let index = 0; index < segments; index += 1) {
+      const angle = (index / segments) * TAU;
+      const nextAngle = ((index + 1) / segments) * TAU;
+      const x = Math.sin(angle) * radius;
+      const z = Math.cos(angle) * radius;
+      const nextX = Math.sin(nextAngle) * radius;
+      const nextZ = Math.cos(nextAngle) * radius;
+      addMesh(habitatGroup, cylinder, fenceMaterial, x, 0.7, z, 0.14, 1.4, 0.14);
+      const railLength = Math.hypot(nextX - x, nextZ - z) + 0.08;
+      for (const y of [0.55, 1.05]) {
+        const rail = addMesh(habitatGroup, box, fenceMaterial,
+          (x + nextX) * 0.5, y, (z + nextZ) * 0.5, 0.14, 0.14, railLength);
+        rail.rotation.y = Math.atan2(nextX - x, nextZ - z);
+      }
     }
   }
 
@@ -452,26 +588,38 @@ export function createZooWorld({ labels = {} } = {}) {
     habitat.animal.worldToLocal(center);
     habitat.photoTarget.position.copy(center);
     habitat.photoRadius = Math.max(0.18, Math.max(size.x, size.z) * 0.5);
+    // Tall, narrow animals (penguin, giraffe, alpaca) were judged by their width
+    // alone and never counted as framed; height is measured separately.
+    habitat.photoHalfHeight = Math.max(0.18, size.y * 0.5);
   }
 
-  const habitats = HABITAT_POSITIONS.map((position, index) => {
+  const habitatColliderById = new Map(colliders
+    .filter((collider) => collider.role === 'habitatFence')
+    .map((collider) => [collider.habitatId, collider]));
+
+  const habitats = campusHabitats.map((position, index) => {
     const visual = ANIMAL_VISUALS[position.id];
+    const fenceCollider = habitatColliderById.get(position.id);
     const habitatGroup = new THREE.Group();
     habitatGroup.name = `zoo-habitat-${position.id}`;
     habitatGroup.position.set(position.x, 0, position.z);
     group.add(habitatGroup);
-    const floor = addMesh(habitatGroup, lowCylinder, makeMaterial(visual.ground), 0, -0.01, 0, 3.45, 0.12, 3.45);
+    const enclosureRadius = (fenceCollider?.r ?? 3.35) * 2.02;
+    const floorMaterial = position.region === 'penguinCove' ? water : makeMaterial(visual.ground);
+    const floor = addMesh(habitatGroup, lowCylinder, floorMaterial,
+      0, -0.01, 0, enclosureRadius, 0.12, enclosureRadius);
     floor.rotation.y = Math.PI / 8;
-    addFence(habitatGroup, visual);
-    const sign = createSign(position.id, habitatGroup, position.x, position.z);
+    addFence(habitatGroup, visual, fenceCollider);
+    const signPlacement = campusSigns.find((entry) => entry.habitatId === position.id);
+    const sign = signPlacement ? createSign(position.id, signPlacement) : null;
     const animal = new THREE.Group();
     animal.name = `zoo-animal-${position.id}`;
     animal.userData.animalId = position.id;
-    const facing = Math.atan2(-position.x, -position.z);
-    const inward = new THREE.Vector2(-position.x, -position.z).normalize();
-    const tangent = new THREE.Vector2(-inward.y, inward.x);
-    const baseX = -tangent.x * 0.85;
-    const baseZ = -tangent.y * 0.85;
+    const facing = position.facing;
+    const tangentX = -Math.cos(facing);
+    const tangentZ = Math.sin(facing);
+    const baseX = -tangentX * 0.55;
+    const baseZ = -tangentZ * 0.55;
     animal.position.set(baseX, 0, baseZ);
     animal.rotation.y = facing;
     habitatGroup.add(animal);
@@ -494,8 +642,10 @@ export function createZooWorld({ labels = {} } = {}) {
     });
     const habitat = {
       id: position.id,
+      region: position.region,
       x: position.x,
       z: position.z,
+      viewpoint: position.viewpoint,
       group: habitatGroup,
       animal,
       photoTarget,
@@ -662,7 +812,7 @@ export function createZooWorld({ labels = {} } = {}) {
     elapsed += Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
     for (const animation of animations) {
       if (animation.kind === 'fountain') {
-        animation.object.position.y = 1.82 + Math.sin(elapsed * 2.2) * 0.08;
+        animation.object.position.y = animation.object.userData.baseY + Math.sin(elapsed * 2.2) * 0.08;
         continue;
       }
       const angle = elapsed * animation.speed + animation.phase;
@@ -697,5 +847,67 @@ export function createZooWorld({ labels = {} } = {}) {
     animations.length = 0;
   }
 
-  return { group, habitats, loadAnimals, update, dispose };
+  function getSceneStats() {
+    let meshes = 0;
+    let instancedMeshes = 0;
+    let triangles = 0;
+    group.traverse((object) => {
+      if (!object.isMesh) return;
+      const instances = object.isInstancedMesh ? object.count : 1;
+      meshes += 1;
+      if (object.isInstancedMesh) instancedMeshes += 1;
+      const geometry = object.geometry;
+      const triangleCount = geometry?.index
+        ? geometry.index.count / 3
+        : (geometry?.attributes?.position?.count ?? 0) / 3;
+      triangles += triangleCount * instances;
+    });
+    return {
+      meshes,
+      instancedMeshes,
+      triangles: Math.round(triangles),
+    };
+  }
+
+  // Counts how many sample points on the animal are hidden from the camera by
+  // opaque scenery (signs, buildings, rock edges). Fence rails are not
+  // occluders: the animal is seen between them.
+  const visibilityRight = new THREE.Vector3();
+  const visibilityUp = new THREE.Vector3();
+  const VISIBILITY_OFFSETS = [[0, 0], [0, 0.55], [0, -0.45], [0.55, 0], [-0.55, 0]];
+  function countBlockedSamples(habitat, camera) {
+    camera.getWorldPosition(visibilityOrigin);
+    visibilityRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    visibilityUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+    const radius = habitat.photoRadius;
+    const halfHeight = habitat.photoHalfHeight ?? radius;
+    let blocked = 0;
+    for (const [right, up] of VISIBILITY_OFFSETS) {
+      habitat.photoTarget.getWorldPosition(visibilityTarget);
+      visibilityTarget.addScaledVector(visibilityRight, right * radius)
+        .addScaledVector(visibilityUp, up * halfHeight);
+      visibilityDirection.subVectors(visibilityTarget, visibilityOrigin);
+      const distance = visibilityDirection.length();
+      if (distance < 0.01) continue;
+      visibilityRaycaster.set(visibilityOrigin, visibilityDirection.divideScalar(distance));
+      visibilityRaycaster.far = distance;
+      visibilityHits.length = 0;
+      visibilityRaycaster.intersectObjects(photoOccluders, false, visibilityHits);
+      if (visibilityHits.length) blocked += 1;
+    }
+    return blocked;
+  }
+
+  function occluderDistances(origin, direction, far) {
+    visibilityRaycaster.set(origin, direction);
+    visibilityRaycaster.far = far;
+    visibilityHits.length = 0;
+    visibilityRaycaster.intersectObjects(photoOccluders, false, visibilityHits);
+    return visibilityHits.map((hit) => hit.distance);
+  }
+
+  return {
+    group, habitats, loadAnimals, update, getSceneStats, dispose,
+    countBlockedSamples, occluderDistances, visibilitySampleCount: VISIBILITY_OFFSETS.length,
+  };
 }

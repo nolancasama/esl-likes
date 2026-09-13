@@ -1,0 +1,62 @@
+{
+  "task": "Rebuild the esl-likes Zoo world from a ring of 13 pens into a compact campus: a pure tested layout module (regions, habitats, photo viewpoints, path graph, colliders, bounds, landmarks), world geometry built from it with simple procedural placeholder dressing, collision, a closer follow camera, richer debug state, and a Zoo playthrough that routes along the path graph — without changing Zoo gameplay rules.",
+  "notes": [
+    "READ FIRST: SPEC.md §8 (rewritten today — 'Campus' is the frozen design), DESIGN_DECISIONS.md entries '2026-09-13 — The Zoo becomes a small campus' and the earlier Zoo entries (shutter nearest-pen scoring, OBJ Kd colour correction, SkeletonUtils cloning), CURRENT_STATE.md. SPEC wins over this brief; say so if they differ.",
+    "THIS ORDER IS LAYOUT + NAVIGATION ONLY. Two later orders follow: (2) dressing with the imported CC0 assets, region kits, signposts and the YOU ARE HERE board; (3) gameplay rules (one photo = one delivery attempt, visitor-specific Listen Again, Challenge 5 requests). Do NOT implement those here. Keep today's gameplay behaviour exactly, including DIFFICULTY 3/4/6 and the current photo/replay rules.",
+    "CURRENT FACTS: src/minigames/zoo/world.js exports HABITAT_POSITIONS (13 habitats on a radius ~33 ring) and builds a 144-segment path loop, an entrance plaza near z 27.6, a fountain and tall tree beside it, a striped gate at z 32, signs per habitat (front-face-only canvas plane + plain backing; a double-sided sign once showed mirrored English), fences, and animals loaded asynchronously behind placeholders (GLTF via SkeletonUtils clone, OBJ/MTL with linear Kd corrected). src/minigames/zoo/index.js: MOVE_SPEED 13.5, TALK_RADIUS 3.2, VISITOR_SPOTS around the plaza, a follow camera preset, evaluateFraming() scoring each habitat by projected photoRadius with a small distance penalty (framing − min(.3, away × .012); ready at ≥ .38, stays ready at ≥ .3). Kenney models face +z. Keep all of that working.",
+    "PURE LAYOUT MODULE: create src/minigames/zoo/layout.js (no three.js, no DOM) exporting frozen data plus small helpers: regions [{ id: 'entrance'|'hub'|'savanna'|'forest'|'farm'|'penguinCove', name, center }]; habitats [{ id, region, x, z, facing, viewpoint: { x, z } }] for all thirteen animals exactly once; pathNodes [{ id, x, z, kind: 'plaza'|'hub'|'junction'|'viewpoint'|'path' }] and pathEdges [[fromId, toId]] with a broad drawn path width; colliders [{ type: 'circle', x, z, r } | { type: 'box', x, z, hw, hd, rotation }] for habitat fences, buildings/landmarks and pool edges; bounds; landmarks [{ id, x, z }] (entrance gate, plaza, fountain hub, giraffe feeder, barn, penguin bridge, giant forest tree). Helpers: shortestPath(fromNodeId, toNodeId) returning node ids and length; canOccupy(x, z, radius) against colliders and bounds; nearestNode(x, z). Region assignment: Savanna elephant, giraffe, tiger (tiger at the savanna/forest transition); Forest deer, fox, wolf, stag; Farm horse, alpaca, cow, bull, donkey; Penguin Cove penguin — placed far from the giraffe. Entrance plaza at the south, the central fountain hub where the main paths meet, an irregular figure-eight through the hub with at least one cross-path (for example Forest ↔ Farm along the north). Keep the world compact: the longest shortest-path from the plaza to any habitat viewpoint must fit in about 10 seconds at MOVE_SPEED (≈ 135 units) — aim well under that.",
+    "UNIT TESTS: src/minigames/zoo/layout.test.mjs (node:test + node:assert/strict): all 13 animals exactly once with a region; every viewpoint is a path node reachable from the plaza and the plaza is reachable from every region; the path graph is connected; no dead-end chain longer than one edge except a viewpoint spur; every viewpoint and every path node lies in bounds and passes canOccupy with the player radius; no collider overlaps a path edge's centreline; plaza → farthest viewpoint path length ≤ 135 units; penguin is at least 25 units from giraffe; each viewpoint is within a sensible photo distance of its habitat (for example 4–9 units) with the habitat roughly in front; signposts/landmarks data never reference a 'current request' concept.",
+    "WORLD: world.js builds the ground, broad curving path strips along pathEdges, the plaza, the fountain hub, habitat enclosures from the layout (fence placement from colliders), and SIMPLE PROCEDURAL placeholder dressing per region (for example flat-coloured ground patches: warm tan savanna, darker green forest, light green farm, blue-grey cove with a water plane) so regions are already distinguishable. Keep the existing per-habitat sign (front-face-only) and animal loading. Keep the gate, plaza fountain and tall tree as placeholders the dressing order will replace. Do not import the new environment models in this order.",
+    "MOVEMENT AND CAMERA: player movement uses layout.canOccupy with axis-separated sliding so the avatar glides along fences instead of sticking; bounds are solid. Move the follow camera closer so roughly one or two habitats are in view at 1366x768 and a bend reveals a new area (keep it directly behind the avatar so pressing forward moves up the screen; do not change the viewfinder or two-shot camera presets). Visitors keep waiting around the entrance plaza.",
+    "DEBUG HOOK: extend window.__eslDebug.zoo with habitats [{ id, region, x, z, viewpoint }], pathGraph { nodes, edges }, landmarks, and sceneStats { meshes, instancedMeshes, triangles } counted from the world group. Keep existing fields (phase, level, player, visitors, carriedPhoto, shutterReady).",
+    "PLAYTHROUGH: update scripts/playthrough-zoo.mjs to route with the path graph (nearestNode → shortestPath → walk node to node with the keyboard, re-planning if progress stalls) instead of straight lines, and to photograph from each habitat's viewpoint. Use scripts/lib/driver.mjs helpers (waitForDebug, clickUntil, holdUntil, the precondition-aware check with trace on FAIL, quiet retries). Add --only <sections> (at least: listening, antiShortcut, habitats) like scripts/playthrough-drink.mjs; the runner already forwards arguments. Keep every existing check. Add a 'habitats' section that walks to all thirteen viewpoints in one session, confirms each can be framed and photographed as the right animal, and logs the measured walking time from the plaza to each (fail if any exceeds 12 s of wall clock under software rendering only after re-planning). Add checks that the player never leaves bounds and that no console or network errors occur.",
+    "HARNESS PITFALLS (this project): software GL clamps frame dt — wait for states, never assert after a fixed duration; never crash on a missing value — record FAIL with a trace and continue; do not let a check pass vacuously.",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller (Claude): your sandbox cannot start the preview server. Make npm test and npm run build pass and node --check the playthrough. Report behavioralValidation honestly (observed: false).",
+    "Append a short DESIGN_DECISIONS.md entry only for layout decisions not covered (for example final region placement or camera distance) — do not rewrite existing entries or SPEC."
+  ],
+  "requirements": [
+    "src/minigames/zoo/layout.js is pure and exports regions, habitats with viewpoints, path nodes and edges, colliders, bounds, landmarks, shortestPath, canOccupy and nearestNode, placing all 13 animals in the SPEC regions with Penguin Cove far from the giraffe",
+    "src/minigames/zoo/layout.test.mjs covers completeness, connectivity, reachability both ways, no long dead ends, viewpoint and node validity against colliders and bounds, the ≤135-unit farthest route, penguin–giraffe distance and viewpoint photo distance",
+    "world.js builds the campus from the layout with a plaza, fountain hub, curving broad paths, region-coloured placeholder ground and fenced habitats, keeping front-face-only signs and asynchronous animal loading",
+    "Movement slides along simple colliders and stays in bounds; the follow camera is closer so the zoo spans several screens, still directly behind the avatar",
+    "The debug hook exposes habitats with regions and viewpoints, the path graph, landmarks and scene statistics, alongside existing fields",
+    "scripts/playthrough-zoo.mjs routes along the path graph, photographs from viewpoints, supports --only sections, keeps all existing checks, and adds the all-habitats framing section with measured travel times, bounds and no-error checks",
+    "Zoo gameplay rules, difficulty, scoring, Listen Again and the turnaround are unchanged in this order",
+    "npm test passes including all existing tests; npm run build is clean; node --check passes for the playthrough"
+  ],
+  "constraints": [
+    "Do NOT change Zoo gameplay rules, DIFFICULTY, scoring.js semantics, Listen Again or photo-delivery behaviour — a later order owns those",
+    "Do NOT import or reference the new environment models in public/assets/zoo/environment — a later order owns dressing",
+    "Do NOT modify other minigames, shared shell/HUD/speech/dialogue/audio/character/progression/save systems, SPEC.md, or scripts/playthrough.mjs / playthrough-drink.mjs",
+    "No npm dependencies, no postprocessing, no per-frame allocations in the update loop",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes already in the working tree (SPEC.md, DESIGN_DECISIONS.md, CURRENT_STATE.md edits and public/assets/zoo are inputs)"
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "DESIGN_DECISIONS.md",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/index.js",
+    "scripts/playthrough-zoo.mjs",
+    "scripts/lib/driver.mjs",
+    "scripts/playthrough-drink.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "category": "gameplay-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "decomposed",
+  "visualSurface": true
+}

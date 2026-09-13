@@ -3,13 +3,23 @@ import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import { measureFraming, pickAnimal, scoreSession } from './scoring.js';
+import {
+  PLAYER_RADIUS,
+  bounds as campusBounds,
+  canOccupy as canOccupyCampus,
+  habitats as campusHabitats,
+  landmarks as campusLandmarks,
+  pathEdges,
+  pathNodes,
+  signs as campusSigns,
+} from './layout.js';
 import { createZooWorld } from './world.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
 const MOVE_SPEED = 13.5;
+const VIEWFINDER_FOV = 34;
 const TALK_RADIUS_SQ = 3.2 * 3.2;
-const WORLD_LIMIT = 41;
 const NPC_MODELS = Object.freeze('bcdefghijklmnopqr'.split(''));
 const DIFFICULTY = Object.freeze({
   1: Object.freeze({ count: 3, concurrent: 1 }),
@@ -93,6 +103,7 @@ export function createZoo(ctx) {
   let zooPhoto = null;
   let shutterReady = false;
   let framedSubject = null;
+  let framingDebug = null;
   let lastGoodSubject = null;
   let lastGoodAt = 0;
   let actionVisitor = null;
@@ -107,6 +118,11 @@ export function createZoo(ctx) {
   const projectedEdge = new THREE.Vector3();
   const worldCenter = new THREE.Vector3();
   const worldEdge = new THREE.Vector3();
+  const cameraRight = new THREE.Vector3();
+  const cameraUp = new THREE.Vector3();
+  const viewfinderEye = new THREE.Vector3();
+  const viewfinderLook = new THREE.Vector3();
+  const viewfinderRay = new THREE.Vector3();
 
   function setInstruction(text) {
     if (instruction) instruction.textContent = text;
@@ -241,7 +257,7 @@ export function createZoo(ctx) {
     }
     activateVisitors(configured.concurrent);
     cameraRig.setTarget(player).setPreset('follow', {
-      offset: [0, 12.2, 15.2], lookOffset: [0, 1.05, -2.1], damping: 5,
+      offset: [0, 8.6, 10.8], lookOffset: [0, 1.05, -1.7], damping: 5,
     });
   }
 
@@ -268,8 +284,7 @@ export function createZoo(ctx) {
   }
 
   function canOccupy(x, z) {
-    if (x < -WORLD_LIMIT || x > WORLD_LIMIT || z < -WORLD_LIMIT || z > WORLD_LIMIT) return false;
-    return true;
+    return canOccupyCampus(x, z, PLAYER_RADIUS);
   }
 
   function updateMovement(dt) {
@@ -295,18 +310,33 @@ export function createZoo(ctx) {
       const distance = move.y * MOVE_SPEED * .62 * dt;
       const nextX = player.position.x + Math.sin(player.rotation.y) * distance;
       const nextZ = player.position.z + Math.cos(player.rotation.y) * distance;
-      if (canOccupy(nextX, nextZ)) player.position.set(nextX, player.position.y, nextZ);
+      if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
+      if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
       player.playAnimation?.('walk');
     } else {
       player.playAnimation?.('idle');
     }
-    const back = 7.6;
-    const cameraX = player.position.x - Math.sin(player.rotation.y) * back;
-    const cameraZ = player.position.z - Math.cos(player.rotation.y) * back;
-    const lookX = player.position.x + Math.sin(player.rotation.y) * 8;
-    const lookZ = player.position.z + Math.cos(player.rotation.y) * 8;
+    // The avatar is hidden while aiming. A distant, high, wide camera shot the
+    // slim animals (fox, penguin, alpaca) too small to frame from their viewpoints.
+    if (camera.fov !== VIEWFINDER_FOV) {
+      followFov = camera.fov;
+      camera.fov = VIEWFINDER_FOV;
+      camera.updateProjectionMatrix();
+    }
+    const back = 3.8;
+    const forwardX = Math.sin(player.rotation.y);
+    const forwardZ = Math.cos(player.rotation.y);
+    viewfinderEye.set(player.position.x - forwardX * back, 3.4, player.position.z - forwardZ * back);
+    viewfinderLook.set(player.position.x + forwardX * 8, 1, player.position.z + forwardZ * 8);
+    // A sign or building behind the player would fill the shot, so the camera
+    // moves along its sightline to just in front of it.
+    viewfinderRay.subVectors(viewfinderLook, viewfinderEye).normalize();
+    const behind = zooWorld.occluderDistances(viewfinderEye, viewfinderRay, back);
+    if (behind.length) {
+      viewfinderEye.addScaledVector(viewfinderRay, Math.min(back - 0.3, Math.max(...behind) + 0.3));
+    }
     cameraRig.setTarget(null).setPreset('fixed', {
-      position: [cameraX, 4.1, cameraZ], lookAt: [lookX, 1.35, lookZ], damping: 10,
+      position: viewfinderEye.toArray(), lookAt: viewfinderLook.toArray(), damping: 10,
     });
   }
 
@@ -328,9 +358,19 @@ export function createZoo(ctx) {
     });
   }
 
+  let followFov = null;
+
+  function restoreFov() {
+    if (followFov === null) return;
+    camera.fov = followFov;
+    camera.updateProjectionMatrix();
+    followFov = null;
+  }
+
   function restoreFollowCamera() {
+    restoreFov();
     cameraRig.setTarget(player).setPreset('follow', {
-      offset: [0, 12.2, 15.2], lookOffset: [0, 1.05, -2.1], damping: 5,
+      offset: [0, 8.6, 10.8], lookOffset: [0, 1.05, -1.7], damping: 5,
     });
   }
 
@@ -498,23 +538,31 @@ export function createZoo(ctx) {
 
   function evaluateFraming() {
     camera.updateMatrixWorld();
+    cameraRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     let best = null;
+    let blockedBest = null;
     for (const habitat of zooWorld.habitats) {
       habitat.photoTarget.getWorldPosition(worldCenter);
       projectedCenter.copy(worldCenter).project(camera);
-      worldEdge.copy(worldCenter).addScaledVector(camera.up, habitat.photoRadius);
+      worldEdge.copy(worldCenter).addScaledVector(cameraUp, habitat.photoHalfHeight ?? habitat.photoRadius);
       projectedEdge.copy(worldEdge).project(camera);
-      const diameter = Math.abs(projectedEdge.y - projectedCenter.y);
+      const height = Math.abs(projectedEdge.y - projectedCenter.y);
+      worldEdge.copy(worldCenter).addScaledVector(cameraRight, habitat.photoRadius);
+      projectedEdge.copy(worldEdge).project(camera);
+      // NDC x spans 2 units over the frame width, y spans 2 over its height, so
+      // a half-extent in NDC is already a full extent as a frame fraction.
+      const width = Math.abs(projectedEdge.x - projectedCenter.x);
       const frame = {
         x: (projectedCenter.x + 1) * .5,
         y: (1 - projectedCenter.y) * .5,
-        width: diameter,
-        height: diameter,
+        width,
+        height,
       };
       const framing = measureFraming(frame);
       const visible = projectedCenter.z >= -1 && projectedCenter.z <= 1
         && frame.x >= .12 && frame.x <= .88 && frame.y >= .1 && frame.y <= .84
-        && diameter >= .11;
+        && Math.sqrt(width * height) >= .11;
       // Prefer the pen the child is standing at. With thirteen habitats a
       // neighbour can frame better than the animal in front of them, so a photo
       // taken at the ALPACA fence came back a horse — and the visitor then
@@ -522,9 +570,23 @@ export function createZoo(ctx) {
       // wins if it is framed considerably better.
       const away = Math.hypot(player.position.x - habitat.x, player.position.z - habitat.z);
       const score = framing - Math.min(.3, away * .012);
-      if (visible && (!best || score > best.score)) best = { habitat, framing, frame, score };
+      if (!visible || (best && score <= best.score)) continue;
+      // A frame hidden behind a sign or a building is not a photo of the
+      // animal, however well the invisible silhouette would have been framed.
+      const blocked = zooWorld.countBlockedSamples(habitat, camera);
+      const visibleFraction = 1 - blocked / zooWorld.visibilitySampleCount;
+      const candidate = { habitat, framing, frame, score, visibleFraction, blocked };
+      if (visibleFraction >= .6) best = candidate;
+      else if (!blockedBest || score > blockedBest.score) blockedBest = candidate;
     }
     framedSubject = best;
+    const reported = best ?? blockedBest;
+    framingDebug = reported ? {
+      habitatId: reported.habitat.id,
+      framing: Number(reported.framing.toFixed(3)),
+      visibleFraction: reported.visibleFraction,
+      blockedSampleCount: reported.blocked,
+    } : null;
     // Hysteresis: the animals wander, so a frame hovering at the threshold made
     // the shutter blink on and off. Once ready it stays ready until the frame is
     // clearly bad.
@@ -719,8 +781,27 @@ export function createZoo(ctx) {
     return {
       phase,
       level,
-      player: { x: player?.position.x ?? 0, z: player?.position.z ?? 0 },
-      habitats: (zooWorld?.habitats || []).map((habitat) => ({ id: habitat.id, x: habitat.x, z: habitat.z })),
+      player: {
+        x: player?.position.x ?? 0,
+        z: player?.position.z ?? 0,
+        yaw: player?.rotation.y ?? 0,
+        forward: { x: Math.sin(player?.rotation.y ?? 0), z: Math.cos(player?.rotation.y ?? 0) },
+      },
+      signs: campusSigns,
+      framing: framingDebug,
+      visibleFraction: framingDebug?.visibleFraction ?? null,
+      blockedSampleCount: framingDebug?.blockedSampleCount ?? null,
+      habitats: campusHabitats.map((habitat) => ({
+        id: habitat.id,
+        region: habitat.region,
+        x: habitat.x,
+        z: habitat.z,
+        viewpoint: habitat.viewpoint,
+      })),
+      pathGraph: { nodes: pathNodes, edges: pathEdges },
+      landmarks: campusLandmarks,
+      bounds: campusBounds,
+      sceneStats: zooWorld?.getSceneStats?.() ?? { meshes: 0, instancedMeshes: 0, triangles: 0 },
       visitors: visitors.map((visitor) => ({
         state: visitor.state,
         asked: visitor.asked,
@@ -854,6 +935,7 @@ export function createZoo(ctx) {
   }
 
   function exit() {
+    restoreFov();
     active = false;
     phase = 'inactive';
     unsubscribeSettings?.();

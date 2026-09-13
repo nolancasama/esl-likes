@@ -668,16 +668,44 @@ First-try share under one half caps the result at two stars.
 
 The exploratory finale, and the largest space — but navigable, not sprawling.
 
-Animals: elephant, giraffe, penguin, tiger, deer, horse, alpaca.
+Animals (thirteen): elephant, giraffe, penguin, tiger, deer, alpaca, horse,
+fox, wolf, stag, bull, cow, donkey.
 
-### Environment (v1, decided 2026-09-12)
+### Campus (revised 2026-09-13 — replaces the single ring of habitats)
 
-An entrance plaza, where visitors wait, and one looping path that passes all
-seven habitats and returns to the plaza, so wandering always arrives somewhere
-useful. Each habitat has a slow-moving blocky animal and a large sign with a
-picture and its English word. Landmarks (the plaza fountain, a tall tree, a
-striped gate) keep the child oriented. The follow camera sits directly behind
-the avatar so that pressing forward always moves up the screen.
+A compact, walkable zoo campus rather than pens around a circle. With every
+animal hidden it must still read as a zoo: an entrance, paths, exhibits,
+landscaping, signage and themed areas. The child should rarely be truly lost.
+
+- **Entrance plaza (home base)** at the south: striped gate, benches, planters,
+  lamps, a ticket booth or kiosk, and a large YOU ARE HERE board. Visitors wait
+  here, and it stays recognisable from nearby paths.
+- **Central fountain** where the main paths meet: the landmark a child learns to
+  return to.
+- **Four themed regions**, visibly different, dressed from reusable kits:
+  - *Savanna* — elephant, giraffe, tiger (as the transition toward the forest):
+    warm dry ground, broad sparse trees, rocks, a tall giraffe feeder, a mud pool.
+  - *Forest trail* — deer, fox, wolf, stag: dense pines, bushes, logs, darker fencing.
+  - *Farm* — horse, alpaca, cow, bull, donkey: wooden paddocks, a red barn, hay, troughs.
+  - *Penguin Cove* — penguin: a pool, pale rocks, a rail or small bridge; well away
+    from the giraffe.
+- **Paths** form an irregular figure-eight through the fountain with one or two
+  cross-paths. Broad, curving, forgiving; no long dead ends (a habitat's viewing
+  spot may be a short spur).
+- **Signposts** at junctions name each region in Japanese and list all of its
+  animals in English, equally. The YOU ARE HERE board shows every region and
+  animal equally and never marks the current request.
+- **Camera**: a closer follow camera, so the campus spans roughly four to six
+  screens and turning a bend reveals a new area. No transitions between areas.
+- **Travel stays short**: entrance to any habitat within about ten seconds at
+  walking speed, measured in playtest. Difficulty never comes from walking.
+- **Every habitat has an obvious photo viewpoint** on the path with a clear
+  sightline. Dressing never blocks the animal and scenery is never a photo subject.
+- **Collision is simple**: buildings, habitat fences and the map edge are solid;
+  grass, flowers and small bushes are not, so the avatar never snags.
+- **Chromebook budget**: low-poly CC0 assets only (provenance in
+  `public/assets/zoo/environment/README.md`), shared or instanced vegetation,
+  textures at most 512 px, no new dependencies.
 
 ### Loop
 
@@ -688,11 +716,14 @@ the avatar so that pressing forward always moves up the screen.
 3. Back at the plaza, the child shows the photo to the visitor. The right
    animal earns a delighted reaction and the visitor leaves happy.
 4. The wrong animal: the visitor says in Japanese that it is not their
-   favourite, without repeating the English, and waits for another try.
-5. 🔊 もういちど きく replays that visitor's answer and forfeits only their
-   memory bonus.
+   favourite, without repeating the English, and waits for another try. **The
+   photo is used up either way** (revised 2026-09-13): one photograph is one
+   delivery attempt, so one photo can never be tested against every waiting
+   visitor; another attempt needs another photograph.
+5. 🔊 もういちど きく, used beside a particular visitor, replays only that
+   visitor's answer and forfeits only their memory bonus.
 6. After the last visitor comes the turnaround: "What animal do you like?" /
-   "I like ___." with any of the six animals.
+   "I like ___." with any of the thirteen animals.
 
 ### Photo mechanic (ADDED — the original had no real action)
 
@@ -708,8 +739,9 @@ listening, and it is also why the photo is worth taking carefully.
 ### Difficulty
 
 L1 3 requests, one visitor at a time. L2 4 requests with two visitors waiting.
-L3 6 requests with three, so several animals are held in memory at once. Time
-is never the challenge here, and there is no failure state.
+L3 5 requests with three (revised 2026-09-13 from 6: the campus adds walking,
+and six askings is repetition), so several animals are held in memory at once.
+Time is never the challenge here, and there is no failure state.
 
 ### Anti-shortcut review (applied before building)
 
@@ -724,6 +756,11 @@ is never the challenge here, and there is no failure state.
   not a shortcut, because which animal is wanted is what the English carries.
 - Nothing points the way. There is no marker, arrow or minimap pointing at the
   wanted habitat, because that would replace the sentence entirely.
+- A shown photo is consumed whether right or wrong, so carrying one photo from
+  visitor to visitor cannot identify who wanted it.
+- Region signposts and the YOU ARE HERE board list every animal equally. They
+  help a child who understood "wolves" find the forest; they never say which
+  word was spoken.
 
 ### Scoring
 
