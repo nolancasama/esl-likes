@@ -8,12 +8,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
-    "test": "node --test \"src/**/*.test.mjs\""
+    "test": "node --test \"src/**/*.test.mjs\"",
+    "playthrough": "node scripts/playthrough-run.mjs",
+    "playthrough:restaurant": "node scripts/playthrough-run.mjs restaurant",
+    "playthrough:drink-stand": "node scripts/playthrough-run.mjs drink-stand",
+    "playthrough:zoo": "node scripts/playthrough-run.mjs zoo",
+    "playthrough:coloring": "node scripts/playthrough-run.mjs coloring",
+    "playthrough:sports": "node scripts/playthrough-run.mjs sports"
   },
   "dependencies": {
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "playwright": "^1.57.0",
     "vite": "^5.4.10"
   }
 }

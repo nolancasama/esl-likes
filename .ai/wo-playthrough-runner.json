@@ -1,0 +1,56 @@
+{
+  "id": "wo-playthrough-runner",
+  "task": "Add a single project-owned playthrough runner that owns the whole preview-server lifecycle, and expose one stable npm script per scenario.",
+  "category": "tooling harness script",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "medium",
+  "composition": "atomic",
+  "executionStyle": "adaptive",
+  "notes": "Today each scripts/playthrough-*.mjs expects a caller to have already built the app and started `vite preview` on some port, then be handed a URL and an output-path PREFIX. That makes every acceptance run a manual three-step coordination, and it scatters screenshots as sibling files with ad-hoc prefixes. One runner should own the lifecycle instead, and each run should leave a bounded, self-describing set of artifacts. Do not change any scenario script's own logic, checks or screenshot names - only how it is launched and where its output prefix points.",
+  "requirements": [
+    "Add scripts/playthrough-run.mjs: a runner taking one scenario name as its first argument (e.g. `node scripts/playthrough-run.mjs zoo`).",
+    "It maps a scenario name to its existing scenario script via an explicit table in the runner: restaurant -> scripts/playthrough.mjs, drink-stand -> scripts/playthrough-drink.mjs, zoo -> scripts/playthrough-zoo.mjs, coloring -> scripts/playthrough-coloring.mjs, sports -> scripts/playthrough-sports.mjs. An unknown name exits 2 listing the valid names.",
+    "Lifecycle, owned end to end by the runner: choose a free TCP port; spawn `vite preview` on it (via the local node_modules/.bin binary, not a global one); poll the URL until it answers or a bounded timeout (~30s) elapses; run the scenario; always terminate the preview process in a finally block, including on error, on a failing scenario, and on SIGINT/SIGTERM.",
+    "If dist/ is missing or empty the runner exits nonzero with a one-line message telling the caller to run `npm run build` first. It must NOT build implicitly.",
+    "Artifacts are bounded to the current run: before running, the runner removes and recreates .tmp/playthrough/<scenario>/ and passes the scenario script an output prefix inside that directory (the scenario scripts already append their own `-NN-name.png` suffixes to the prefix they are given).",
+    "After the scenario finishes, the runner writes .tmp/playthrough/<scenario>/manifest.json containing at least: scenario, command, startedAt, endedAt, durationSeconds, exitCode, passed (boolean), url, and screenshots (an array of paths relative to the repository root, sorted, for THIS run only). It also prints the screenshot list to stdout as a short block - never a directory listing of anything wider than this run's own folder.",
+    "Exit status is the scenario's status: 0 only when the scenario exited 0. A scenario failure, a preview that never became ready, a missing dist/, or an internal runner error must all exit nonzero. The manifest is still written when the scenario ran and failed.",
+    "Output must be bounded: stream the scenario's own stdout/stderr through, but the runner's own chatter is at most a handful of lines (port chosen, waiting, scenario exit, screenshot block).",
+    "Add npm scripts to package.json: `playthrough` (the generic runner, so `npm run playthrough -- zoo` works) plus `playthrough:restaurant`, `playthrough:drink-stand`, `playthrough:zoo`, `playthrough:coloring`, `playthrough:sports`, each invoking the runner with its scenario name.",
+    "Add `.tmp/` to .gitignore if it is not already ignored."
+  ],
+  "constraints": [
+    "Do NOT modify any existing scripts/playthrough*.mjs scenario file, and do not change their checks, selectors, timings or screenshot names.",
+    "Do NOT add any new dependency. `playwright` is already a local devDependency of this project and must stay the only browser framework - do not add @playwright/test, puppeteer, or anything else.",
+    "Do NOT modify src/, index.html, vite.config.js, SPEC.md, or anything under src/minigames/ - other work is in flight there.",
+    "Use only Node built-ins in the runner (node:child_process, node:net, node:fs, node:path, node:url). No shell chaining, no `npx`.",
+    "Resolve the vite binary from this project's own node_modules; never rely on a binary above the project root.",
+    "Write the runner with an editor, not by shelling out a heredoc or a Python rewrite."
+  ],
+  "startingPoints": [
+    "package.json - existing scripts: dev, build, preview, test",
+    "scripts/playthrough-zoo.mjs - read its argv handling (URL, output prefix) to confirm the prefix contract",
+    "scripts/playthrough.mjs - the restaurant scenario, same argv contract",
+    ".gitignore"
+  ],
+  "writeTargets": [
+    "scripts/playthrough-run.mjs",
+    "package.json",
+    ".gitignore"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "validationOwner": "worker",
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "notes": "Launching a real browser is not available in the delegated execution environment, so the controller performs this acceptance after implementation. Do not attempt it and do not report the runner as proven.",
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  }
+}

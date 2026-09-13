@@ -3,84 +3,68 @@
 ## Status
 
 All five minigames are playable end to end: Restaurant, Coloring v1, Drink Stand
-v1, Sports v1 and Zoo v1. The collection is feature complete against SPEC.md.
-The Zoo holds thirteen animals built from the user's own model packs, and the
-game is published: <https://nolancasama.github.io/esl-likes/>, deployed from
-`main` by `.github/workflows/pages.yml` with the unit tests gating the deploy.
-Verified live: the HTML, the JS bundle, an animal model and a character all
-load under the `/esl-likes/` base path.
+v1, Sports v1 and Zoo v1. The game is published at
+<https://nolancasama.github.io/esl-likes/>, deployed from `main` by
+`.github/workflows/pages.yml` with the unit tests gating the deploy.
+
+The 2026-09-12/13 service revision is complete: protected speech focus, the
+Restaurant working-memory redesign and the Drink Stand hold-to-fill revision.
+See the last entries of `DESIGN_DECISIONS.md`.
 
 ## What Exists
 
-- `SPEC.md` — the frozen design: the anti-shortcut rule, the vocabulary rule,
-  the listening-again policy, and all five minigames.
-- Shell: hub with five doors, stamp book (renders the zoo photo), settings, HUD
-  with the two-failure fallback, dialogue, progression and save
-  (`esl-likes-save-v1`), transitions, characters, and `ctx.captureFrame(draw)`
-  so a minigame can copy real pixels out of the renderer.
-- Speech: hold-to-talk plus the forgiving matcher (phonetic variants, singular
-  or plural, closest match, explicit `wolf -> wolves` irregular).
-- Restaurant, Coloring v1, Drink Stand v1, Sports v1 — SPEC sections 4 to 7.
-- Zoo v1 (`src/minigames/zoo/`): entrance plaza, one looping path past thirteen
-  habitats, viewfinder photography, one carried photo, no timer. Animals:
-  elephant, giraffe, penguin, tiger, deer, alpaca, horse, fox, wolf, stag, bull,
-  cow, donkey. Models load asynchronously behind placeholders; a failed load
-  leaves the placeholder rather than breaking the room. glTF animals are cloned
-  with `SkeletonUtils`; OBJ animals load through `OBJLoader`/`MTLLoader` with
-  their linear `Kd` colours corrected. Placement, photo target and photo radius
-  all come from each model's bounding box.
-- Publishing: `vite.config.js` sets `base` to `/esl-likes/` only under GitHub
-  Actions, so local dev, preview and the scripted playthroughs keep serving from
-  the root. `.github/workflows/pages.yml` runs the tests, builds and deploys.
-- Conventions: Kenney models face +z; movement heading is `atan2(x, -y)`; the
-  follow camera sits directly behind the avatar, never off to one side.
+- `SPEC.md` — the frozen design. Sections 3 (protected speech focus), 4
+  (Restaurant) and 6 (Drink Stand) were rewritten for the revision.
+- `src/systems/speechFocus.js` — one service-clock scale; Restaurant and Drink
+  Stand advance every pressure timer by `focus.serviceDelta(dt)`.
+- Restaurant (`src/minigames/restaurant/`): 3/4/5 seated customers; order budget
+  1/3/4 (a raised hand counts against it); raised-hand cue; foods independent
+  with repeats, matched by food; refusal lock + step-away on a wrong delivery;
+  first-try combo; fixed whole-room camera; pure `scoring.js`. A raised hand can
+  be answered while carrying a dish. Click-to-walk steers around tables.
+  Debug hook `window.__eslDebug.restaurant`.
+- Drink Stand (`src/minigames/drinkStand/`): 5/5/5 customers, 1/2/3 windows;
+  hold-to-fill identical at six shuffled stations (pure `fill.js`: valid at 35%,
+  top-up at the same station, a different drink empties, overflow stays valid,
+  never scored); short tap on the action button latches to full; click a station
+  to walk + latch; HUD glass shows the fill; per-station look and synth sound;
+  wrong drink empties the cup; combo; final ラッシュ！.
+- Both service games: click-to-walk opens a talk prompt only for the customer it
+  is walking to, and an open prompt stays with its customer while in range.
+- Shell, speech matcher, Coloring, Sports, Zoo — unchanged by the revision.
+- Playthroughs: `npm run build`, then `npm run playthrough:<scenario>`
+  (restaurant, drink-stand, coloring, sports, zoo). The runner owns the preview.
 
-## Verified
+## Verified (2026-09-13, final tree)
 
-- `npm test` 130/130; `npm run build` clean; `base` confirmed to emit
-  `/assets/...` locally and `/esl-likes/assets/...` under Actions.
-- `scripts/playthrough-zoo.mjs` 24/24 in a single run, both sessions: the
-  listening route (thirteen habitats, exact sentences, 🔊 replay, photograph,
-  show, turnaround, stamp, three stars, clean re-entry) and the anti-shortcut
-  route (a wrong animal is refused in Japanese with no English repeat, the child
-  still finishes, capped at two stars).
-- Screenshots reviewed for every habitat: each animal inside its pen, grounded,
-  correctly scaled and coloured.
-- Regression after the thirteen-animal expansion, all against the same build:
-  Restaurant 23/23, Coloring 25/25, Drink Stand 23/23, Sports 21/21. Repeat
-  these after any further change to shared files.
-
-## Two bugs worth remembering
-
-- **The shutter photographed the neighbouring pen.** `evaluateFraming` picked
-  whichever habitat framed best anywhere in view, so at thirteen pens a photo
-  taken at the ALPACA fence came back a horse and the visitor refused it. It now
-  prefers the pen the child is standing at, with distance only breaking ties.
-- **OBJ colours arrived far too dark.** Those `.mtl` files carry Blender's
-  linear `Kd`, but MTLLoader reads `Kd` as sRGB and converts it again. The white
-  horse rendered grey until the second conversion was undone.
+- `npm test` 153/153; `npm run build` clean.
+- Playthroughs: Restaurant 50/50, Drink Stand 40/40 (four consecutive runs),
+  Coloring 25/25, Sports 21/21, Zoo 24/24.
+- Manual-style probes on the built game at 1366x768 (`.tmp/rest-overlap.mjs`,
+  `.tmp/drink-manual.mjs`, not committed): Restaurant Normal peaks at 3 live
+  orders with 4 seated, Challenge at 4 with 5 seated, with cooking + ready + raised
+  hand + known order observed together; never serial; no stalls. Drink Stand
+  Normal/Challenge: 5 customers, windows peak 2/3, every window, the queue and
+  the rush frozen at all ten questions, Space-hold and click fills all valid.
+- Screenshots reviewed: whole Restaurant room and all cues in frame at every
+  level; fill glass part/full/overflow; rush banner clear of the windows.
 
 ## NOT Verified — Manual Chromebook Pass Required
 
-Real speech recognition cannot run headless. On a classroom Chromebook with its
-microphone: holding the talk button starts listening; "What food do you like?"
-is accepted; failed or partial speech reaches Try Again; after two failures the
-fallback works. Also check real trackpad play and levels 2 and 3 of every
-minigame — only level 1 is scripted.
-
-Watch **"deer"** in particular: four letters, so the matcher allows it no fuzzy
-spelling, and its plural is also "deer". If children are wrongly rejected, add
-heard variants to `VARIANTS` in `src/systems/speechMatch.js` rather than
-loosening the distance rule.
+Real speech recognition cannot run headless. On a classroom Chromebook: holding
+the talk button, a real "What food/drink do you like?", Try Again after a
+misrecognition, and the two-failure fallback. Also real trackpad and touch play
+(the short-tap latch was only scripted with a mouse), levels 2 and 3 of Coloring,
+Sports and Zoo, and whether Restaurant Challenge (4 live orders) is too much for
+Grade 3. Watch "deer" in the matcher.
 
 ## Known Limits
 
-- A habitat sign can overlap its animal from some angles; the child walks round
-  it, and the viewfinder still frames the animal.
-- Zoo photos are framed by the child, so a saved photo may show more sign than
-  animal. The framing score reflects that; it is not a bug.
-- Stag and deer look similar in 3D, as do bull and cow; their signs differ,
-  which is what the game actually requires.
+- Restaurant Easy has one live order, so the dish always belongs to the one
+  customer asked; the answer still has to be heard, but a child can place it by
+  remembering the person alone. The SPEC accepts this; revisit after observation.
+- A Restaurant customer without a raised hand still refuses an offered dish.
+- A habitat sign can overlap its animal from some angles (Zoo).
 - Bundle over 600 kB (three.js) plus ~6 MB of models.
 
 ## Asset licences (checked 2026-09-12)
@@ -96,15 +80,17 @@ loosening the distance rule.
 
 ## Next Steps
 
-1. The manual Chromebook pass above, then extend the phonetic tables from what
-   real children say.
-2. Repeat the four other playthroughs after any further shared-file change.
-3. Possible polish after classroom observation: difficulty tuning, the Coloring
-   result card naming the colour, bundle splitting.
+1. The manual Chromebook pass above, especially Restaurant Challenge load and
+   trackpad/touch hold-to-fill.
+2. Consider a no-undef lint in validation: a renamed-function ReferenceError
+   froze Drink Stand while tests and build were green.
+3. Possible shared playthrough helpers (wait for prompt clear, state-based
+   outcomes, hold-until-state, fail instead of crash).
 
 ## Codex / Delegated Work
 
-None in flight. The thirteen-animal expansion (Codex, Sol) was reviewed and
-accepted with four Claude fixes: proximity-weighted shutter selection, the OBJ
-colour-space correction, the turnaround reframing for the enlarged plaza, and
-the `wolf -> wolves` matcher variant.
+None in flight. The Drink Stand revision was delegated to Codex (PARTIAL: its
+sandbox could not start the playthrough preview). Claude reviewed and accepted it
+with fixes: the render-loop ReferenceError, the fill glass and notice tones, the
+rush banner position, the prompt fixes and harness robustness. Restaurant was
+verified and fixed directly by Claude this session.

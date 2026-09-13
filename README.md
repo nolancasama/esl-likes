@@ -53,14 +53,24 @@ is required to play.
 
 `scripts/playthrough*.mjs` drive each minigame end to end in a real browser
 (Playwright, mic-free), checking both that the game can be completed and that
-ignoring the English cannot reach full marks. They need a build and a local
-server:
+ignoring the English cannot reach full marks. Playwright is a local dev
+dependency of this project. Build once, then run a scenario:
 
 ```
 npm run build
-npx vite preview --port 5199
-node scripts/playthrough-zoo.mjs http://localhost:5199/ .tmp/zoo
+npm run playthrough:zoo        # or :restaurant :drink-stand :coloring :sports
 ```
+
+`scripts/playthrough-run.mjs` owns the whole lifecycle: it picks a free port,
+starts `vite preview` from this project's own `node_modules`, waits for it,
+runs the scenario, and always stops the preview. Its exit status is the
+scenario's. Each run clears and writes only `.tmp/playthrough/<scenario>/`,
+including a `manifest.json` that lists that run's screenshots. It never builds
+for you: a missing `dist/` exits nonzero.
+
+To check the runner itself (known-good and known-bad):
+`npm run playthrough -- selftest-pass` should exit 0, and
+`npm run playthrough -- selftest-fail` should exit 1.
 
 ## Documents
 

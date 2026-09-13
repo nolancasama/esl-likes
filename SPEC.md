@@ -196,6 +196,36 @@ category word is correct — this is expression, not a quiz. The answer is saved
 and referenced later in the hub ("You like pizza!"), which makes it feel heard.
 The matcher for this direction requires `like` plus any one category word.
 
+### Protected speech focus (ADDED 2026-09-12 — applies to every minigame)
+
+> **While the child is speaking, the game stops pressing them.**
+
+Speaking English must never cost a child anything in a game about speaking
+English. Whenever a required speech interaction is open — the talk prompt
+showing, the button held, recognition running, a retry after a failed
+recognition, or the read-and-tap fallback — every source of service pressure
+pauses or nearly pauses:
+
+- all customer patience, not only the customer being spoken to;
+- preparation, cooking and pouring timers;
+- customer spawning, queue promotion and rush scheduling;
+- any other clock that can turn waiting into a worse outcome.
+
+NPC animation, dialogue, recognition and HUD carry on normally. The feel is
+`normal play → approach → focus → speak → hear the answer → play resumes`, not
+a modal pause; there is no large PAUSED overlay.
+
+The consequence that matters: a sentence that needed two recognition attempts
+must not consume twice the service time of one that worked first try. A child
+may never lose a customer, a temperature grade, patience or a combo because
+classroom speech recognition misheard them.
+
+Implemented once, in `src/systems/speechFocus.js`, and used by every minigame
+that has service pressure. Each such minigame keeps a **service clock** that is
+separate from the render clock: spawns, patience, preparation and rush all read
+the service clock, which advances by `dt × focusScale` and therefore freezes
+during focus by construction rather than by a guard at each timer.
+
 ---
 
 ## 4. Minigame 1 — Restaurant
@@ -204,6 +234,17 @@ Player is a waiter. Never a cook.
 
 Foods: curry, pizza, hamburger, noodles, sushi.
 
+### Identity (revised 2026-09-12)
+
+Restaurant is the **working-memory** stage. The question it puts to the child is
+never "what food is this?" but:
+
+> **Curry is ready. Who said curry?**
+
+Drink Stand asks the other question — "she said orange juice, where is that
+machine?" — and the two must never collapse into one service game. Restaurant
+difficulty is therefore memory load and competing demands, never faster speech.
+
 ### Environment
 
 A compact 3D dining room: several tables, a kitchen pickup counter with a bell,
@@ -211,32 +252,92 @@ wide clear pathways. Small enough that crossing it is quick and readable.
 
 ### Loop
 
-1. A customer sits at a table.
+1. Three to five customers are visibly seated. A customer ready to order raises
+   a hand. That cue says *somebody wants to order*; it never says what they
+   want, and it clears the moment the order is taken.
 2. Player walks over and holds to talk: "What food do you like?"
-3. NPC answers "I like curry." — spoken, plus a speech bubble.
-4. The kitchen prepares it automatically. Bell and visual cue when ready.
-5. Player collects the dish from the counter.
-6. Player delivers it to the customer who ordered it, from memory.
+3. NPC answers "I like curry." — spoken, plus a speech bubble, which then
+   clears. Speech focus holds all service pressure while this happens.
+4. The kitchen prepares it automatically. Preparation time belongs to the dish,
+   so dishes finish out of the order they were asked for.
+5. A bell rings and the dish appears at a randomly chosen free counter slot.
+6. Player recognises the food, remembers who asked for it, and carries it to
+   that customer.
+
+Several demands overlap by design: one customer waiting to order, another's
+food cooking, a dish cooling in the player's hands, a third's patience falling.
+The player chooses what to do next. There is no global countdown — the
+interesting decision is "deliver this hot curry now, or take that order first?"
 
 The order is NOT displayed on a ticket, a HUD, or above the table. Memory is
 the mechanic. A secondary 🔊 もういちど きく control re-asks the customer, so a
 child who is stuck always has a way forward; it forfeits that customer's memory
 bonus and never deducts score (see "Listening again").
 
+### Each customer's food is independent, and repeats are allowed
+
+Foods were dealt from a shuffled five-item menu without repetition, so at five
+customers every food appeared exactly once and the last order could be deduced
+by elimination — the leak the anti-shortcut rule names explicitly, and the
+opposite of the Drink Stand's rule that nothing is removed from the choice.
+
+Each customer's food is now chosen independently and uniformly; two customers
+may want the same dish. A ready dish is therefore identified by **what it is**,
+not by which customer it was cooked for: if two people asked for curry and two
+curries are on the counter, either curry satisfies either of them. That keeps
+duplicates fair — a child must never be refused for carrying a visually
+identical dish to the wrong one of two curry customers — and it is simpler than
+binding each plate to one person.
+
 ### Scoring
 
 - Correct delivery — the primary term.
+- First-try delivery drives a visible combo: 2 COMBO!, 3 COMBO!, … A wrong
+  customer resets it. The combo counts physical deliveries only; it is never
+  tied to how fast or how fluently the child spoke, and replaying an answer
+  forfeits that customer's memory bonus without breaking the combo.
 - Food temperature: the dish cools after leaving the counter.
   Hot 3 stars / Warm 2 / Cold 1.
-- Customer patience: a visible, generous meter.
+- Customer patience: a visible, generous meter. A customer who has not yet
+  ordered loses no patience on Easy and loses it slowly above; pressure becomes
+  real only once their order has been taken.
 
-Cold food never fails. On a wrong delivery the customer politely refuses, the
-dish stays in hand, and the player walks it to the right table. No penalty.
+Cold food never fails, and no order is ever permanently lost.
+
+### Wrong delivery (revised 2026-09-12)
+
+Free trial and error was too effective: with three customers, walking the dish
+from table to table beat listening. Guessing must stay possible and stay
+recoverable, but must be *slower* than understanding the answer.
+
+On a wrong delivery the customer politely refuses in Japanese, the English
+answer is not repeated, no hint about the food appears, the dish stays in the
+player's hands, and that order's first-try credit and combo are lost. That
+customer then will not reconsider the same dish for a few seconds, and the
+player must step out of their radius before offering it to anyone else.
+
+Rejected: making the player carry a refused dish back to the pickup counter.
+That converts a listening mistake into a temperature penalty plus a long walk,
+which punishes the unsure child hardest — the opposite of what the friction is
+for. The friction exists to make listening the fast route, not to punish.
 
 ### Difficulty
 
-L1 one customer, one order. L2 two tables overlapping. L3 several tables,
-staggered readiness, longer memory gaps.
+Never one customer. With a single recipient the only ready dish obviously
+belongs to them, and the English answer becomes unnecessary — the anti-shortcut
+rule fails at the easiest level, where it matters most.
+
+- **L1** — 3 customers seated, one active order at a time, one ready dish at a
+  time, very generous patience. The answer must still be remembered, because
+  three people could have asked for it.
+- **L2** — 4 customers, 2–3 orders live at once, overlapping preparation,
+  readiness out of asking order, possibly two ready dishes.
+- **L3** — about 5 customers, 3–4 orders overlapping, staggered preparation,
+  several ready dishes, moderate but still forgiving patience.
+
+Carrying two dishes at once is deliberately NOT in this revision: it adds a
+carry-slot state machine and delivery ambiguity for little pedagogical gain.
+Revisit only after classroom observation.
 
 ---
 
@@ -321,13 +422,28 @@ Each drink looks different at a glance: water (clear, pale blue), milk
 
 - WASD / arrows walk inside the small work area, as in the Restaurant.
   Interaction is by generous proximity: near a station, near a window.
-- Space at a station pours that drink into a cup in the avatar's hands. Pour
-  time is the same for every drink. Pouring while already holding a cup
-  empties the old one first.
+- **Hold to fill (revised 2026-09-12).** Holding Space at a station runs that
+  dispenser and the liquid visibly rises in the cup; releasing stops it. One
+  identical control at all six stations — six stations, not six minigames.
+  Starting a different drink empties the old cup first.
+- Filling is forgiving, and pouring is never a skill that competes with
+  listening. A cup past roughly a third full is already a valid drink; an
+  underfilled cup can be topped up at the same station; holding past full plays
+  a comic overflow and the drink stays valid. Fill level never enters the
+  score — it is feedback and feel only. The child must never lose a correct
+  drink for holding a button slightly too long.
+- A trackpad child must not be worse off: a short tap of the on-screen action
+  latches the dispenser and fills to full on its own, while a real hold behaves
+  as a hold. Every route ends in a valid cup.
 - Space at an asked customer while holding a cup serves it.
 - At an unasked customer, the talk prompt appears (hold to ask).
 - Click / tap a station or a customer: the avatar walks there by itself and
   does the same action on arrival, so a trackpad alone is enough.
+
+Each station has its own look and sound — the pale blue stream of water, milk's
+thick white pour, bright orange, pale gold, amber tea with a wisp of steam,
+green soda with fizz — but never its own controls, and the English word stays
+plainly readable at 1366x768.
 
 ### Loop
 
@@ -348,16 +464,23 @@ Each drink looks different at a glance: water (clear, pale blue), milk
 
 ### Difficulty
 
-Customers per session: L1 6, L2 7, L3 8. At most 1, 2 or 3 customers stand at
+Customers per session: L1 5, L2 5, L3 5 or 6 (revised 2026-09-12 down from
+6/7/8 — asking the same question eight times is repetition, not practice; five
+askings plus the turnaround is enough). At most 1, 2 or 3 customers stand at
 windows at once; anyone beyond that waits in a visible line, not yet asked,
 with their patience paused. Every session ends with a RUSH: the last three
 customers arrive in quick succession, announced by a large ラッシュ！ banner. It
 is a finale, never a fail state.
 
-Patience is a visible, generous meter above each customer at a window. It
-pauses while that customer's talk prompt is open, because slow speech is never
-punished. A customer whose patience runs out waves and leaves. Play continues,
-and there is no failure state.
+Patience is a visible, generous meter above each customer at a window. A
+customer whose patience runs out waves and leaves. Play continues, and there is
+no failure state.
+
+Speech focus (section 3) pauses **every** window's patience, the queue, the
+arrival schedule and the rush — not only the customer being spoken to, which
+was the earlier behaviour and quietly punished the child for speaking whenever
+two or three windows were busy. ラッシュ！ must never make a child hurry their
+English.
 
 ### Anti-shortcut review (applied before building)
 

@@ -586,3 +586,167 @@ uses the raw framing score, so what counts as a good photo is unchanged.
 
 This takes nothing from the anti-shortcut rule: the child must still know which
 animal was asked for. It only makes aiming honest.
+
+## 2026-09-12 — Speaking is protected time, and one service clock enforces it
+
+Every minigame with service pressure now pauses that pressure while a speech
+interaction is open: all patience meters, preparation, spawning, queue
+promotion and the rush, not merely the customer being spoken to. A sentence
+that needed two recognition attempts must not cost twice the service time of
+one that worked first try; classroom recognition noise is the game's problem.
+
+The mechanism is deliberately structural rather than a guard at each timer:
+`src/systems/speechFocus.js` reports a focus scale, and each minigame keeps a
+**service clock** advancing by `dt * focusScale`. Spawns, patience, cooking and
+rush all read that clock, so every one of them freezes by construction. A guard
+per timer was rejected: the Drink Stand already had one (`if (questionCustomer
+!== customer)`) and it is exactly the kind that gets forgotten on the next
+timer added — the other windows kept draining while a child spoke.
+
+Rejected polish: moving the camera toward the speaker during focus. Re-framing
+is what produced the zoo shutter bug, and it buys nothing a duck of the ambient
+mix and a slow-motion world do not already give.
+
+## 2026-09-12 — Restaurant is a memory game, so it never has one customer
+
+Level 1 seated a single customer. With one recipient the only ready dish
+obviously belongs to them, so the child could finish without understanding the
+answer — the anti-shortcut rule failing at the level where it matters most.
+Easy is now three seated customers with one live order: the load is one
+person-food pair, but the answer is still needed to place it.
+
+Difficulty rises by memory load and competing demands (4 customers / 2-3 live
+orders, then ~5 / 3-4, staggered readiness, several ready dishes), never by
+requiring faster or fluent speech. Difficulty happens after the English.
+
+The two service minigames must also stay distinct: Restaurant asks "who said
+curry?", Drink Stand asks "where is the milk machine?". Restaurant is working
+memory and prioritisation; Drink Stand is recognition and fast production.
+
+## 2026-09-12 — A refused dish stays in hand; the customer stops reconsidering
+
+Wrong deliveries were free, so with three tables walking the dish from person
+to person beat listening. Guessing stays possible and stays recoverable, but a
+refused customer will not reconsider that dish for a few seconds and the player
+must leave their radius before trying somebody else. First-try credit and the
+combo are lost; the English answer is not repeated and no food hint appears.
+
+Rejected: requiring the player to carry a refused dish back to the pickup
+counter. That turns a listening mistake into a temperature penalty plus a long
+walk, punishing the least confident child hardest. The friction exists to make
+listening the faster route, not to punish the slower one.
+
+## 2026-09-12 — Hold to fill, forgiving, and never scored
+
+Pouring was "press, wait a second, a cup appears". It is now one hold-to-fill
+control identical at all six stations, with each station differing only in
+look and sound — six stations, not six minigames.
+
+Fill level never enters the score. A cup past about a third is valid, an
+underfilled one can be topped up, and holding past full plays a comic overflow
+that is still a valid drink. A "tiny efficiency component" for overfilling was
+rejected: it creates a pouring-skill axis competing with listening, and a Grade
+3 child cannot tell why their stars dropped. A short tap on the on-screen
+action latches the fill to full, so the trackpad-only child is not worse off
+than the keyboard child.
+
+Drink counts drop from 6/7/8 to 5/5/5-6. Asking one question eight times is
+repetition, not practice.
+
+## 2026-09-12 — Restaurant foods are independent; a dish is matched by food, not by plate
+
+Foods were dealt `shuffled(LESSON.answers)[index]`, one each, no repeats. With
+five foods that was invisible at one or two customers and fatal at five: every
+food appears exactly once, so the last order is deducible without listening to
+it, and a child can rule foods out as they go. The anti-shortcut rule names
+elimination directly, and Drink Stand already forbids it.
+
+Each customer's food is now independent and uniform, repeats allowed. The
+consequence that had to be solved with it: two identical plates must not create
+an unfair delivery. So a ready dish is matched by **food**, not by plate
+identity — either curry satisfies either curry customer. That is fairer than
+binding a plate to a person and is less state, not more.
+
+## 2026-09-13 — The Restaurant camera frames the room, and stops following the waiter
+
+The follow camera (offset `[0, 8.5, 10.5]` behind the player) pushed the front
+tables off the bottom edge whenever the child stood at the pickup counter. At
+three customers that was survivable; at five, with a raised hand as the only
+signal that somebody wants to order, a customer could be asking for service
+from off-screen. That breaks the mechanic the redesign is built on — choosing
+who to serve next is impossible when the demands are not all visible.
+
+The dining room is small enough to frame whole, so it now is: a `fixed` preset
+at `[0, 11.5, 12]` looking at `[0, 0.8, 0.6]`. All five tables, the counter,
+the bell and the host are on screen at 1366x768 at every level, and nothing the
+child must react to can hide. The turnaround still cuts to its own closeup.
+
+Rejected: an off-screen arrow indicator, which adds HUD clutter to solve a
+problem the room's own size makes unnecessary; and keeping the follow camera
+with a wider offset, which still loses corners as the player moves.
+
+## 2026-09-13 — Playthroughs are project commands that own their own lifecycle
+
+Acceptance runs used to be a manual three-step job: build, start `vite preview`
+on some port, then run `node scripts/playthrough-<x>.mjs URL PREFIX`. That made
+every delegated brief carry raw `npx vite preview` instructions, scattered
+screenshots as loose prefixed files, and depended on `playwright` resolving from
+the parent `recipe-tester/node_modules`. That last part is why a sandboxed
+worker (whose writable root is this project) could not run the playthrough at all.
+
+Now `playwright` is this project's own dev dependency, and
+`npm run playthrough:<scenario>` runs `scripts/playthrough-run.mjs`, which starts
+the preview, waits, runs the scenario, always stops the preview, and exits with
+the scenario's status. Each run writes only `.tmp/playthrough/<scenario>/` plus a
+`manifest.json` naming that run's screenshots, so nobody has to list a directory
+of old artifacts. The preview is spawned as `node node_modules/vite/bin/vite.js`,
+not through the `.bin` shim: on Windows the shim needs a shell, and killing that
+shell left vite orphaned and still listening (observed on the first run).
+
+The scenario scripts are unchanged. `selftest-pass` / `selftest-fail` exist so
+the runner can show it reports both outcomes without touching a real scenario.
+
+Rejected: widening the worker sandbox to the parent directory (it grants far
+more than one dependency needs), and a second browser framework.
+
+## 2026-09-13 — Service revision checks: overlap that really happens, and a fill you can see
+
+Found by playing the built game at 1366x768, not by the unit tests.
+
+- **Restaurant budgets sit at the top of each SPEC range: Normal 3, Challenge 4.**
+  The budget was drawn per session and counts a raised hand as well as a taken
+  order, so a drawn 2 could never hold "one cooking, one ready, one waiting to
+  order" at once and Normal played close to one-at-a-time. Easy stays 1. Rejected:
+  keeping the random draw, which bought nothing and failed the overlap that level
+  exists for in roughly half its sessions.
+- **A raised hand can be answered with a dish in hand.** Walking up to it takes
+  the order. It used to count as a wrong delivery — refusal, combo reset, lost
+  first-try credit — punishing exactly the "deliver this now, or take that order
+  first?" choice SPEC 4 is built around. Customers without a raised hand still
+  refuse a dish, as before.
+- **Click-to-walk steers around a table lying across its straight line.** From a
+  front table to the counter the line ran through a back table and the avatar
+  stalled there for good: at Challenge three dishes waited about forty seconds
+  while customers gave up. A trackpad-only child simply stopped.
+- **The Drink Stand fill is shown as a large glass beside the controls**: the
+  drink's colour rising, a dashed line where the cup becomes valid, a check once
+  it is, a gold rim when full and a wobbling spill past it. The 3D cup is a few
+  pixels in the avatar's hands at 1366x768, so the fill was forgiving but not
+  visible. It is still feedback only and never scored. Good-news notices (valid,
+  full, overflow) are green and the top-up hint is blue; all of them used the red
+  of a problem, which made a playful overflow read as an error.
+- **ラッシュ！ sits over the floor band, not the windows**, where it covered the
+  customers and patience meters a child needs to watch during the rush.
+- **A click-to-walk opens a talk prompt only for the customer it is walking to**
+  (Drink Stand and Restaurant). Walking to a far window passed a neighbouring
+  unasked customer, whose prompt opened on the way; a tap on it was cancelled
+  when the walk carried the child out of range and the prompt jumped to the
+  chosen customer, because re-targeting hides the HUD and cancels a read-along
+  in progress. The answer silently vanished and the prompt reopened. Proven with
+  a debug trace (prompt for customer 3, walk target customer 2), after a first
+  guess — keeping the prompt while still in range — did not cure it; that guard
+  stays as a secondary protection. Keyboard walking still opens prompts by
+  proximity. The pattern predates this revision; two and three live windows
+  made it frequent.
+- Drink Stand level 3 keeps five customers, not six: the last-three rush already
+  fills all three windows and still reads as a finale.

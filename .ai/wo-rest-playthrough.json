@@ -1,0 +1,56 @@
+{
+  "task": "Repair scripts/playthrough.mjs, the scripted Restaurant playthrough, so it drives the redesigned Restaurant correctly. The game itself is already verified working — this order fixes the test harness only, and must not change game behaviour to make the harness pass.",
+  "notes": [
+    "READ FIRST: SPEC.md section 4 (the rewritten Restaurant section) and the 2026-09-12 / 2026-09-13 entries at the end of DESIGN_DECISIONS.md. The Restaurant was redesigned today: a service clock that freezes during speech focus, 3/4/5 customers with an active-order limit, independent foods with repeats allowed, delivery matched by food rather than by plate, a per-customer refusal lock, a first-try combo, and a fixed whole-room camera.",
+    "THE HARNESS IS THE DEFECT, NOT THE GAME. This has been verified directly. A probe that drives the game the way the design intends — ask only customers who are actually showing an order cue, then deliver each ready dish to a customer whose debug state says they ordered that food — completes a full level-2 session with 4 delivered, 0 refusals and no page errors, including a session where two different customers both ordered pizza and both were served correctly. The unit suite is green (147 tests) and the build is clean. So do NOT 'fix' the game to satisfy the harness. If you become convinced there is a genuine game bug, stop and report it with evidence rather than changing gameplay.",
+    "ROOT CAUSE 1 — the harness ignores the active-order limit. The redesign deliberately gates how many orders can be live at once (level 1: 1; level 2: 2-3; level 3: 3-4). A customer becomes askable only when that budget allows, and only then shows the raised-hand cue. The current harness tries to ask customers up front regardless, so asks for the customers beyond the limit time out ('customer 1 gives an English food answer FAIL — heard: null'). Its `remembered` map is then missing entries, it offers dishes to people who never ordered them, and the game correctly refuses — which the harness reports as a game failure. Restructure the session loop to interleave properly: repeatedly, ask whichever customers are currently cued, collect whatever dish is ready, deliver it to a customer who ordered that food, and continue until every customer is resolved. Never assume a customer can be asked just because they are seated.",
+    "ROOT CAUSE 2 — offerDish misreads a stale refusal bubble. A refusal bubble stays visible for about 1.8 seconds. offerDish's outcome wait matches /ちがう/ against the current bubble, so an OLD refusal bubble makes the next attempt report 'refused' even when nothing happened. Separately, when a customer is inside their refusal lock, deliver() returns early and silently by design, so the harness sees no state change at all and must not interpret that as a refusal. Make outcome detection depend on debug state transitions — carried cleared, the target's state becoming 'delivered', the target's refusalRemaining — rather than on bubble text that may be left over from a previous event.",
+    "A WORKING REFERENCE EXISTS: .tmp/verify.mjs is a small probe I wrote that drives the redesigned game correctly end to end. Read it. It is not a replacement for the playthrough — it has no assertions, no anti-shortcut session and no screenshots — but its driving loop is the shape the playthrough's loop should take, and it proves the intended interaction sequence works.",
+    "KEEP BOTH SESSIONS AND THEIR MEANING. Session A is the listening route: ask, remember who wanted what, deliver every dish correctly first time, and expect three stars plus the stamp. Session B is the anti-shortcut route: ignore the answers and sweep customers in index order, which must still finish (guessing is never a dead end) but must NOT reach three stars. Keep the separate browser contexts so a best-stars result cannot leak between sessions.",
+    "KEEP AND REPAIR THESE EXISTING CHECKS so they pass honestly: the level-2 customer count; the order cue existing and carrying no food information; speech focus being active during a prompt; ALL customer patience being frozen while a prompt is open; two independently prepared dishes waiting on the counter; a ready dish's counter slot being randomised; collecting a dish; delivering to the correct customer; the first-try combo reaching two; a wrong delivery leaving the dish in the player's hands and NOT repeating the English answer; the order still being recoverable after a mistake; the turnaround opening under speech focus and accepting a food answer; the stamp; the debug hook being removed on exit; and no console or page errors.",
+    "ADD a check that a repeated food works: when two customers order the same food, a dish of that food delivered to either of them is accepted. This is the riskiest part of the redesign and currently has no coverage. The foods are random per session, so write it to skip cleanly when no duplicate occurs rather than failing — or drive enough customers that a duplicate is likely and assert only when one appears.",
+    "The vocabulary sentence is not the vocabulary id: 'hamburger' is answered as 'I like hamburgers.' The harness already imports LESSON_BY_ID from ../src/config/lesson.js and builds FOOD_BY_SENTENCE to map one to the other — keep that and use it everywhere a spoken answer is compared with a debug food id.",
+    "The debug hook is window.__eslDebug.restaurant, exposing phase, level, customers (index, state, food, cueShowing, screen, patience, refusalRemaining), readyDishes (food, slot, screen), carried, combo and focusActive. Extend the snapshot if the harness genuinely needs another field, but prefer using what is there. Interactions are driven by clicking the projected screen points, which auto-walks the avatar; the camera is now fixed and frames the whole room, so every customer and counter slot stays on screen at 1366x768 at every level.",
+    "VALIDATE BY ACTUALLY RUNNING IT, not by reasoning about it: `npm run build`, then serve with `npx vite preview --port 5199`, then `node scripts/playthrough.mjs http://localhost:5199/ .tmp/restaurant`. Iterate until every check passes for real. Report the final pass count and confirm the screenshots were written. Do not weaken, delete or skip a check to make the run green — if a check cannot be made to pass, stop and report which one and why.",
+    "Remember this harness is untrusted while you are changing it: when a check fails, confirm the locator, the debug state and the screenshot before concluding the game is at fault."
+  ],
+  "requirements": [
+    "The session loop interleaves asking and delivering and never assumes a seated customer can be asked, so no ask times out because of the active-order limit",
+    "Delivery outcome is determined from debug state transitions rather than from dialogue bubble text that may be left over from a previous event",
+    "A customer inside their refusal lock is not misreported as having refused a fresh delivery",
+    "Session A asks, remembers, delivers every dish correctly and reaches three stars and the stamp; session B sweeps customers ignoring the answers, still finishes, and does not reach three stars",
+    "A repeated food is covered: a dish delivered to either customer who ordered that food is accepted, with the check skipping cleanly when the random foods produce no duplicate",
+    "All the listed existing checks pass honestly, including frozen patience during a prompt, the wrong delivery keeping the dish and not repeating the English, the combo, the turnaround under focus, debug-hook removal and no page errors",
+    "No game source file is modified; the fix is confined to the harness",
+    "`node scripts/playthrough.mjs http://localhost:5199/ .tmp/restaurant` passes every check against a real build and a real preview server, and the screenshots are written",
+    "npm test still passes (147 tests) and npm run build is still clean"
+  ],
+  "constraints": [
+    "Do NOT modify any file under src/ — this order fixes the harness only. If you believe a game bug exists, stop and report it with evidence instead of changing gameplay",
+    "Do NOT modify src/minigames/drinkStand/** or scripts/playthrough-drink.mjs — a following order owns those",
+    "Do NOT weaken, delete, skip or loosen a check to make the run pass; a green run achieved by removing assertions is a failed task",
+    "Do not modify SPEC.md or rewrite the existing DESIGN_DECISIONS.md entries",
+    "Do not add any npm dependency; playwright resolves from recipe-tester/node_modules as it already does",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite git history, or revert the uncommitted changes already in the working tree"
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    ".tmp/verify.mjs",
+    "src/minigames/restaurant/index.js",
+    "scripts/playthrough-drink.mjs",
+    "SPEC.md",
+    "src/config/lesson.js"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}
