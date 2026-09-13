@@ -1,0 +1,46 @@
+{
+  "task": "Correct two visual defects in the uncommitted Zoo campus dressing (src/minigames/zoo/world.js): the Penguin Cove fence pieces cut through the pool, and every bush renders as a dark red/black speckled blob.",
+  "notes": [
+    "CONTEXT: this corrects your own previous dressing order (.ai/wo-zoo-dressing.json), still uncommitted on top of commit 7882eb0. Controller acceptance ran: npm run playthrough:zoo passed 109/109, so all logic, signage and photo checks are fine. The two defects below were found only by looking at the region screenshots at 1366x768. Change nothing else.",
+    "DEFECT 1 — Penguin Cove (screenshot .tmp/review-dressing/zoo-region-penguinCove.png): orange plank fence segments with orange posts run diagonally across the pool water and intersect the blue-grey pool railing and the pool rim. Expected: the cove's fencing/railing sits along the pool edge (or outside it), following the rim, never crossing the water or the existing railing; nothing orange in the pool. Find the cause (likely the cove low-fence instance transforms — position/yaw/scale or model pivot/orientation) rather than just deleting the fence, unless it adds nothing once placed correctly.",
+    "DEFECT 2 — bushes (screenshots .tmp/review-dressing/zoo-region-savanna.png and zoo-region-forest.png): every Bush_Common / Bush_Common_Flowers instance appears as a noisy dark red and black speckled cluster, including one sitting on the forest log. Expected: leafy green low-poly bushes consistent with the other Quaternius nature assets (the pines and ferns render correctly). Investigate the material/texture path for these instances (for example leaf alpha/alphaTest or transparency lost when building the InstancedMesh, a colour/normal map bound to the wrong slot, vertex colours, or a texture that failed to load and fell back) and fix the cause so the bushes read as foliage.",
+    "ALSO: the playthrough manifest (.tmp/playthrough/zoo/manifest.json) records no sceneStats. Have scripts/playthrough-zoo.mjs write the debug hook's sceneStats report (beforeDressing, afterDressing, current, uniqueEnvironmentModels) into the manifest/console output after the environment finishes loading, so the budget is observable.",
+    "Keep every existing behaviour: photo occluder marking (trees, rocks, barn, well, tower, crates yes; grass, bushes, ferns, flowers, fences no), graceful asset-failure fallbacks, the viewfinder camera and the harness faceHabitat / Listen Again handling.",
+    "BEHAVIOURAL ACCEPTANCE is owned by the controller: your sandbox cannot start the preview. Pass npm test and npm run build; node --check the playthrough; report behavioralValidation honestly (observed: false). If the fix changes a decision recorded in DESIGN_DECISIONS.md, update that entry; otherwise do not add one."
+  ],
+  "requirements": [
+    "No fence, post or rail of the Penguin Cove dressing crosses the pool water, the pool rim or the existing pool railing",
+    "Bush instances render as green foliage, not dark red/black speckle, in every region",
+    "The playthrough reports sceneStats (before/after dressing, current, unique environment models) in its manifest or console output",
+    "npm test passes and npm run build is clean"
+  ],
+  "constraints": [
+    "Change only the cove fence placement, the bush rendering path, and the sceneStats reporting; no other dressing, layout, gameplay, scoring or camera changes",
+    "Do NOT modify src/config/lesson.js, other minigames, shared systems, SPEC.md, or other playthrough scripts",
+    "No new assets, npm dependencies, or per-frame allocations",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant",
+    "Do not commit, push, merge, rewrite history, or revert uncommitted changes"
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/world.js",
+    "scripts/playthrough-zoo.mjs",
+    "public/assets/zoo/environment/quaternius-nature/Bush_Common.gltf"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "category": "gameplay-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "small",
+  "visualSurface": true
+}

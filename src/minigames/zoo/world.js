@@ -65,6 +65,46 @@ const ANIMAL_MODELS = Object.freeze({
   donkey: Object.freeze({ file: 'obj/Donkey.obj', materialFile: 'obj/Donkey.mtl', format: 'obj', targetHeight: 1.9 }),
 });
 
+// Campus copy lives with the Zoo rather than in the shared lesson catalogue.
+// Animal labels remain the lesson vocabulary; these Japanese names are only
+// navigation context and are deliberately unrelated to the active request.
+const REGION_SIGNAGE = Object.freeze({
+  savanna: Object.freeze({ name: 'サバンナ', animals: Object.freeze(['elephant', 'giraffe', 'tiger']) }),
+  forest: Object.freeze({ name: 'もりのどうぶつ', animals: Object.freeze(['deer', 'fox', 'wolf', 'stag']) }),
+  farm: Object.freeze({ name: 'ぼくじょう', animals: Object.freeze(['horse', 'alpaca', 'cow', 'bull', 'donkey']) }),
+  penguinCove: Object.freeze({ name: 'ペンギンいりえ', animals: Object.freeze(['penguin']) }),
+});
+
+const JUNCTION_SIGNPOSTS = Object.freeze([
+  Object.freeze({ id: 'hub-savanna', regionId: 'savanna', x: -4.2, z: 12.8, facing: 0, arrow: '←' }),
+  Object.freeze({ id: 'forest-turn', regionId: 'forest', x: -23.1, z: 5.8, facing: 0, arrow: '←' }),
+  Object.freeze({ id: 'hub-farm', regionId: 'farm', x: 7.1, z: 12.7, facing: 0, arrow: '→' }),
+  Object.freeze({ id: 'cove-turn', regionId: 'penguinCove', x: 25.2, z: -7.1, facing: 0, arrow: '→' }),
+]);
+
+const ENVIRONMENT_MODELS = Object.freeze([
+  Object.freeze({ key: 'common-tree', folder: 'quaternius-nature', file: 'CommonTree_1.gltf', height: 6.2 }),
+  Object.freeze({ key: 'dead-tree', folder: 'quaternius-nature', file: 'DeadTree_3.gltf', height: 5.1 }),
+  Object.freeze({ key: 'pine-1', folder: 'quaternius-nature', file: 'Pine_1.gltf', height: 6.4 }),
+  Object.freeze({ key: 'pine-2', folder: 'quaternius-nature', file: 'Pine_2.gltf', height: 5.5 }),
+  Object.freeze({ key: 'bush', folder: 'quaternius-nature', file: 'Bush_Common.gltf', height: 1.05 }),
+  Object.freeze({ key: 'flower-bush', folder: 'quaternius-nature', file: 'Bush_Common_Flowers.gltf', height: 0.9 }),
+  Object.freeze({ key: 'grass', folder: 'quaternius-nature', file: 'Grass_Common_Tall.gltf', height: 0.75 }),
+  Object.freeze({ key: 'fern', folder: 'quaternius-nature', file: 'Fern_1.gltf', height: 0.85 }),
+  Object.freeze({ key: 'rock-1', folder: 'quaternius-nature', file: 'Rock_Medium_1.gltf', height: 1.05 }),
+  Object.freeze({ key: 'rock-2', folder: 'quaternius-nature', file: 'Rock_Medium_2.gltf', height: 0.85 }),
+  Object.freeze({ key: 'pebble', folder: 'quaternius-nature', file: 'Pebble_Round_1.gltf', height: 0.22 }),
+  Object.freeze({ key: 'planter', folder: 'kenney-suburban', file: 'planter.glb', height: 0.85 }),
+  Object.freeze({ key: 'low-fence', folder: 'kenney-suburban', file: 'fence-low.glb', height: 0.85 }),
+  Object.freeze({ key: 'long-fence', folder: 'kenney-suburban', file: 'fence-1x3.glb', height: 1.05 }),
+  Object.freeze({ key: 'cafe-table', folder: 'kaykit-restaurant', file: 'table_round_A.gltf', height: 0.9 }),
+  Object.freeze({ key: 'cafe-chair', folder: 'kaykit-restaurant', file: 'chair_A.gltf', height: 1.05 }),
+  Object.freeze({ key: 'crate', folder: 'kaykit-restaurant', file: 'crate.gltf', height: 0.8 }),
+  Object.freeze({ key: 'farm-barn', folder: 'quaternius-farm', file: 'Barn.obj', materialFile: 'Barn.mtl', format: 'obj', height: 6.2, optional: true }),
+  Object.freeze({ key: 'farm-well', folder: 'quaternius-farm', file: 'Well.obj', materialFile: 'Well.mtl', format: 'obj', height: 2.4, optional: true }),
+  Object.freeze({ key: 'water-tower', folder: 'quaternius-farm', file: 'WaterTower.obj', materialFile: 'WaterTower.mtl', format: 'obj', height: 7.2, optional: true }),
+]);
+
 function publicPath(path) {
   return `${import.meta.env?.BASE_URL || './'}${path}`;
 }
@@ -282,6 +322,13 @@ export function createZooWorld({ labels = {} } = {}) {
   const animations = [];
   const modelAbort = new AbortController();
   let loadPromise = null;
+  let environmentLoadPromise = null;
+  let environmentStatus = 'loading';
+  let environmentPending = ENVIRONMENT_MODELS.length;
+  let loadedEnvironmentModels = 0;
+  const failedEnvironmentAssets = [];
+  let beforeDressingStats = null;
+  let afterDressingStats = null;
   let elapsed = 0;
   let disposed = false;
 
@@ -320,18 +367,25 @@ export function createZooWorld({ labels = {} } = {}) {
 
   const group = new THREE.Group();
   group.name = 'zoo-world';
+  const environmentRoot = new THREE.Group();
+  environmentRoot.name = 'zoo-environment-dressing';
+  group.add(environmentRoot);
 
   const box = ownGeometry(new THREE.BoxGeometry(1, 1, 1));
   const cylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 12));
   const lowCylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 24));
   const sphere = ownGeometry(new THREE.SphereGeometry(0.5, 12, 8));
   const signPlane = ownGeometry(new THREE.PlaneGeometry(SIGN_WIDTH, 1.57));
+  const junctionSignPlane = ownGeometry(new THREE.PlaneGeometry(4.8, 2.65));
+  const campusBoardPlane = ownGeometry(new THREE.PlaneGeometry(6.4, 5.05));
   const grass = makeMaterial(0x75b866);
   const pathMaterial = makeMaterial(0xe8d3a4);
   const plazaMaterial = makeMaterial(0xd9cab3);
   const stone = makeMaterial(0xb0a79d);
   const stoneDark = makeMaterial(0x777b83);
   const water = makeMaterial(0x4bb9d1, { transparent: true, opacity: 0.8 });
+  const bridgeBlue = makeMaterial(0x3f86b7);
+  const mud = makeMaterial(0x7f5b43, { roughness: 1 });
   const leaf = makeMaterial(0x4f9955);
   const leafLight = makeMaterial(0x72b85d);
   const bark = makeMaterial(0x765137);
@@ -406,6 +460,34 @@ export function createZooWorld({ labels = {} } = {}) {
   plaza.name = 'zoo-entrance-plaza';
   plaza.rotation.y = Math.PI / 16;
 
+  // The plaza reads as an entrance even before any optional model arrives.
+  const boothPosition = landmarkById.get('ticketBooth') ?? { x: 5.8, z: 35.8 };
+  const booth = new THREE.Group();
+  booth.name = 'zoo-ticket-booth';
+  group.add(booth);
+  markPhotoOccluder(addMesh(booth, box, gateWhite, boothPosition.x, 1.35, boothPosition.z, 2.7, 2.7, 2.15));
+  markPhotoOccluder(addMesh(booth, box, gateRed, boothPosition.x, 2.86, boothPosition.z, 3.15, 0.35, 2.55));
+  addMesh(booth, box, dark, boothPosition.x + 0.75, 1.48, boothPosition.z + 1.085, 0.85, 0.78, 0.08);
+
+  const benchMaterial = timber;
+  for (const [x, z, yaw] of [[-4.3, 27.2, -0.18], [4.2, 27.1, 0.18]]) {
+    const bench = new THREE.Group();
+    bench.name = 'zoo-plaza-bench';
+    group.add(bench);
+    const seat = addMesh(bench, box, benchMaterial, x, 0.58, z, 2.35, 0.18, 0.72);
+    seat.rotation.y = yaw;
+    const back = addMesh(bench, box, benchMaterial, x, 1.02, z + 0.31, 2.35, 0.72, 0.16);
+    back.rotation.y = yaw;
+    for (const dx of [-0.85, 0.85]) addMesh(bench, box, dark, x + dx, 0.3, z, 0.12, 0.6, 0.12);
+  }
+  for (const [x, z] of [[-4.2, 34.2], [4.2, 34.2], [-5.2, 25.7], [5.2, 25.7]]) {
+    addMesh(group, cylinder, dark, x, 1.55, z, 0.12, 3.1, 0.12);
+    addMesh(group, sphere, gateWhite, x, 3.18, z, 0.5, 0.58, 0.5);
+  }
+
+  const terrace = addMesh(group, lowCylinder, plazaMaterial, 7.8, 0.04, 32.2, 5.6, 0.1, 4.9);
+  terrace.name = 'zoo-cafe-terrace';
+
   const fountainPosition = landmarkById.get('fountainHub')
     ?? pathNodes.find((node) => node.kind === 'hub')
     ?? { x: 0, z: 0 };
@@ -413,10 +495,13 @@ export function createZooWorld({ labels = {} } = {}) {
     fountainPosition.x, 0.25, fountainPosition.z, 2.05, 0.5, 2.05));
   addMesh(group, lowCylinder, water, fountainPosition.x, 0.51, fountainPosition.z, 1.67, 0.08, 1.67);
   markPhotoOccluder(addMesh(group, cylinder, stoneDark,
-    fountainPosition.x, 0.98, fountainPosition.z, 0.32, 1.45, 0.32));
+    fountainPosition.x, 1.35, fountainPosition.z, 0.36, 2.25, 0.36));
+  addMesh(group, lowCylinder, stone, fountainPosition.x, 2.25, fountainPosition.z, 1.05, 0.22, 1.05);
+  addMesh(group, lowCylinder, water, fountainPosition.x, 2.39, fountainPosition.z, 0.84, 0.08, 0.84);
   const fountainTop = addMesh(group, sphere, water,
-    fountainPosition.x, 1.82, fountainPosition.z, 0.32, 0.5, 0.32);
-  fountainTop.userData.baseY = 1.82;
+    fountainPosition.x, 3.12, fountainPosition.z, 0.25, 1.25, 0.25);
+  fountainTop.userData.baseY = 3.12;
+  fountainTop.name = 'zoo-central-fountain-jet';
   animations.push({ kind: 'fountain', object: fountainTop });
 
   // Striped entrance gate, retaining a wide clear centre span.
@@ -455,29 +540,51 @@ export function createZooWorld({ labels = {} } = {}) {
     markPhotoOccluder(addMesh(group, box, timber,
       feederPosition.x, 4.05, feederPosition.z + 0.42, 1.65, 0.13, 0.13));
   }
+  const mudPool = addMesh(group, lowCylinder, mud, -17.1, 0.06, 9.1, 4.1, 0.1, 2.8);
+  mudPool.name = 'zoo-elephant-mud-pool';
+  mudPool.rotation.y = -0.35;
+
+  const forestLog = markPhotoOccluder(addMesh(group, cylinder, bark, -30, 0.48, -19, 0.72, 3.2, 0.72));
+  forestLog.name = 'zoo-forest-fallen-log';
+  forestLog.rotation.z = Math.PI / 2;
+  forestLog.rotation.y = 0.35;
+
+  for (const [x, z, scaleAmount] of [[27, 27, 1], [28.2, 27.1, 0.78]]) {
+    const bale = addMesh(group, box, hay, x, 0.55 * scaleAmount, z,
+      1.2 * scaleAmount, 1.1 * scaleAmount, 1.1 * scaleAmount);
+    bale.name = 'zoo-farm-hay-bale';
+    bale.rotation.y = 0.12;
+  }
+  const trough = addMesh(group, box, timber, 20.2, 0.45, 27, 2.6, 0.65, 0.8);
+  trough.name = 'zoo-farm-trough';
+  addMesh(group, box, dark, 20.2, 0.7, 27, 2.2, 0.1, 0.58);
 
   const barnPosition = landmarkById.get('barn');
+  let barnFallback = null;
   if (barnPosition) {
+    barnFallback = new THREE.Group();
+    barnFallback.name = 'zoo-barn-procedural-fallback';
+    group.add(barnFallback);
     const barnCollider = colliders.find((collider) => collider.landmarkId === 'barn');
     const barnWidth = (barnCollider?.hw ?? 2.7) * 2;
     const barnDepth = (barnCollider?.hd ?? 2.1) * 2;
-    const barnBody = addMesh(group, box, barnRed,
+    const barnBody = addMesh(barnFallback, box, barnRed,
       barnPosition.x, 2, barnPosition.z, barnWidth, 4, barnDepth);
     markPhotoOccluder(barnBody);
     barnBody.rotation.y = barnCollider?.rotation ?? 0;
-    const roof = addMesh(group, box, barnTrim, barnPosition.x, 4.35, barnPosition.z, 6.1, 0.75, 4.8);
+    const roof = addMesh(barnFallback, box, barnTrim, barnPosition.x, 4.35, barnPosition.z, 6.1, 0.75, 4.8);
     markPhotoOccluder(roof);
     roof.rotation.y = barnCollider?.rotation ?? 0;
-    markPhotoOccluder(addMesh(group, box, dark,
+    markPhotoOccluder(addMesh(barnFallback, box, dark,
       barnPosition.x, 1.4, barnPosition.z + 2.12, 1.8, 2.8, 0.12));
   }
 
   const bridgePosition = landmarkById.get('penguinBridge');
   if (bridgePosition) {
-    markPhotoOccluder(addMesh(group, box, timber,
+    markPhotoOccluder(addMesh(group, box, bridgeBlue,
       bridgePosition.x, 0.42, bridgePosition.z, 5.6, 0.35, 1.5));
     for (const zOffset of [-0.8, 0.8]) {
-      markPhotoOccluder(addMesh(group, box, paleRock,
+      markPhotoOccluder(addMesh(group, box, bridgeBlue,
         bridgePosition.x, 1.05, bridgePosition.z + zOffset, 5.8, 0.18, 0.18));
       for (const xOffset of [-2.65, 0, 2.65]) {
         addMesh(group, cylinder, paleRock,
@@ -501,6 +608,156 @@ export function createZooWorld({ labels = {} } = {}) {
   if (cove && penguinHabitat) addMesh(group, lowCylinder, water,
     penguinHabitat.x, 0.01, penguinHabitat.z, 6.65, 0.06, 6.1);
 
+  function canvasTexture(canvas) {
+    canvases.add(canvas);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    textures.add(texture);
+    return texture;
+  }
+
+  function drawSmallAnimalIcon(context, id, x, y, scale = 0.16) {
+    context.save();
+    context.translate(x, y);
+    context.scale(scale, scale);
+    drawAnimalIcon(context, id, 0, 0);
+    context.restore();
+  }
+
+  function createJunctionSignpost(placement) {
+    const data = REGION_SIGNAGE[placement.regionId];
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 284;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fffaf0';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = '#29384a';
+    context.lineWidth = 12;
+    context.strokeRect(6, 6, canvas.width - 12, canvas.height - 12);
+    context.fillStyle = '#1e2c40';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = '800 35px system-ui, sans-serif';
+    context.fillText(`${placement.arrow} ${data.name}`, 256, 43, 470);
+    const columns = data.animals.length >= 4 ? 2 : 1;
+    const rows = Math.ceil(data.animals.length / columns);
+    const cellWidth = 480 / columns;
+    const cellHeight = 198 / rows;
+    data.animals.forEach((id, index) => {
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const left = 16 + column * cellWidth;
+      const centerY = 78 + row * cellHeight + cellHeight * 0.5;
+      drawSmallAnimalIcon(context, id, left + 38, centerY, 0.15);
+      context.fillStyle = '#26354b';
+      context.textAlign = 'left';
+      context.font = '700 24px system-ui, sans-serif';
+      context.fillText(String(labels[id] ?? id.toUpperCase()), left + 76, centerY, cellWidth - 86);
+    });
+
+    const material = ownMaterial(new THREE.MeshBasicMaterial({ map: canvasTexture(canvas), side: THREE.FrontSide }));
+    const normalX = Math.sin(placement.facing);
+    const normalZ = Math.cos(placement.facing);
+    const y = 2.35;
+    const backing = addMesh(group, box, dark, placement.x, y, placement.z, 4.94, 2.79, 0.18);
+    backing.name = `zoo-region-signpost-${placement.regionId}`;
+    backing.rotation.y = placement.facing;
+    markPhotoOccluder(backing);
+    const face = addMesh(group, junctionSignPlane, material,
+      placement.x + normalX * 0.1, y, placement.z + normalZ * 0.1);
+    face.name = `${backing.name}-face`;
+    face.rotation.y = placement.facing;
+    addMesh(group, cylinder, dark, placement.x, 0.72, placement.z, 0.18, 1.44, 0.18);
+    return face;
+  }
+
+  function createCampusBoard() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fffaf0';
+    context.fillRect(0, 0, 512, 512);
+    context.strokeStyle = '#29384a';
+    context.lineWidth = 12;
+    context.strokeRect(6, 6, 500, 500);
+    context.fillStyle = '#1e2c40';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = '900 28px system-ui, sans-serif';
+    context.fillText('YOU ARE HERE', 256, 31);
+
+    const mapLeft = 30;
+    const mapRight = 482;
+    const mapTop = 58;
+    const mapBottom = 486;
+    const mapX = (x) => mapLeft + ((x - campusBounds.minX) / (campusBounds.maxX - campusBounds.minX)) * (mapRight - mapLeft);
+    const mapY = (z) => mapBottom - ((z - campusBounds.minZ) / (campusBounds.maxZ - campusBounds.minZ)) * (mapBottom - mapTop);
+    const patchColours = { savanna: '#e4c875', forest: '#87b77a', farm: '#abd080', penguinCove: '#a9d9df' };
+    const patchSizes = { savanna: [92, 76], forest: [102, 92], farm: [112, 86], penguinCove: [61, 55] };
+    for (const region of regions) {
+      if (!patchColours[region.id]) continue;
+      context.fillStyle = patchColours[region.id];
+      context.beginPath();
+      context.ellipse(mapX(region.center.x), mapY(region.center.z), ...patchSizes[region.id], 0, 0, TAU);
+      context.fill();
+    }
+    const nodes = new Map(pathNodes.map((node) => [node.id, node]));
+    context.strokeStyle = '#e5d0a5';
+    context.lineWidth = 10;
+    context.lineCap = 'round';
+    for (const [fromId, toId] of pathEdges) {
+      const from = nodes.get(fromId);
+      const to = nodes.get(toId);
+      if (!from || !to) continue;
+      context.beginPath();
+      context.moveTo(mapX(from.x), mapY(from.z));
+      context.lineTo(mapX(to.x), mapY(to.z));
+      context.stroke();
+    }
+    for (const region of regions.filter((entry) => REGION_SIGNAGE[entry.id])) {
+      context.fillStyle = '#26354b';
+      context.font = '700 14px system-ui, sans-serif';
+      context.textAlign = 'center';
+      context.fillText(REGION_SIGNAGE[region.id].name, mapX(region.center.x), mapY(region.center.z) - 20, 105);
+    }
+    for (const habitat of campusHabitats) {
+      const x = mapX(habitat.x);
+      const y = mapY(habitat.z);
+      drawSmallAnimalIcon(context, habitat.id, x, y - 4, 0.075);
+      context.fillStyle = '#26354b';
+      context.font = '700 10px system-ui, sans-serif';
+      context.textAlign = 'center';
+      context.fillText(String(labels[habitat.id] ?? habitat.id.toUpperCase()), x, y + 16, 64);
+    }
+    const hereX = mapX(plazaPosition.x);
+    const hereY = mapY(plazaPosition.z);
+    context.fillStyle = '#e84444';
+    context.beginPath();
+    context.arc(hereX, hereY, 9, 0, TAU);
+    context.fill();
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = 3;
+    context.stroke();
+
+    const x = -5.2;
+    const y = 3.35;
+    const z = 32.2;
+    const material = ownMaterial(new THREE.MeshBasicMaterial({ map: canvasTexture(canvas), side: THREE.FrontSide }));
+    const backing = addMesh(group, box, dark, x, y, z, 6.58, 5.23, 0.2);
+    backing.name = 'zoo-you-are-here-board';
+    markPhotoOccluder(backing);
+    const face = addMesh(group, campusBoardPlane, material, x, y, z + 0.11);
+    face.name = 'zoo-you-are-here-board-face';
+    for (const postX of [x - 2.65, x + 2.65]) addMesh(group, cylinder, dark, postX, 0.72, z, 0.18, 1.44, 0.18);
+    return face;
+  }
+
+  const junctionSignFaces = JUNCTION_SIGNPOSTS.map(createJunctionSignpost);
+  const campusBoardFace = createCampusBoard();
+
   function createSign(id, placement) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
@@ -520,15 +777,7 @@ export function createZooWorld({ labels = {} } = {}) {
     context.font = `900 ${label.length > 8 ? 59 : 70}px system-ui, sans-serif`;
     context.fillText(label, 343, 120, 310);
 
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.minFilter = THREE.LinearFilter;
-    textures.add(texture);
-    // A double-sided plane shows the lettering mirrored from behind, so the
-    // board carries two single-sided planes back to back, each reading
-    // correctly. Placement comes from layout.js, beside the viewpoint spur and
-    // clear of the photo sightline.
-    const material = ownMaterial(new THREE.MeshBasicMaterial({ map: texture }));
+    const material = ownMaterial(new THREE.MeshBasicMaterial({ map: canvasTexture(canvas), side: THREE.FrontSide }));
     const normalX = Math.sin(placement.facing);
     const normalZ = Math.cos(placement.facing);
     const boardY = 2.25;
@@ -540,17 +789,21 @@ export function createZooWorld({ labels = {} } = {}) {
     const front = addMesh(group, signPlane, material,
       placement.x + normalX * half, boardY, placement.z + normalZ * half);
     front.rotation.y = placement.facing;
-    const back = addMesh(group, signPlane, material,
-      placement.x - normalX * half, boardY, placement.z - normalZ * half);
-    back.rotation.y = placement.facing + Math.PI;
     addMesh(group, cylinder, dark, placement.x, 0.72, placement.z, 0.15, 1.44, 0.15);
     return front;
   }
 
-  function addFence(habitatGroup, visual, fenceCollider) {
+  function addFence(habitatGroup, visual, fenceCollider, viewingDirection) {
     const fenceMaterial = makeMaterial(visual.fence);
     const radius = fenceCollider?.r ?? 3.4;
     const segments = 14;
+    const postMatrices = [];
+    const railMatrices = [];
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
     for (let index = 0; index < segments; index += 1) {
       const angle = (index / segments) * TAU;
       const nextAngle = ((index + 1) / segments) * TAU;
@@ -558,14 +811,36 @@ export function createZooWorld({ labels = {} } = {}) {
       const z = Math.cos(angle) * radius;
       const nextX = Math.sin(nextAngle) * radius;
       const nextZ = Math.cos(nextAngle) * radius;
-      addMesh(habitatGroup, cylinder, fenceMaterial, x, 0.7, z, 0.14, 1.4, 0.14);
+      const midpoint = angle + Math.PI / segments;
+      const sightlineDelta = Math.abs(Math.atan2(
+        Math.sin(midpoint - viewingDirection),
+        Math.cos(midpoint - viewingDirection),
+      ));
+      // Collision remains a forgiving circle, but the visible fence has a low,
+      // post-free camera opening centred on the authored viewpoint.
+      if (sightlineDelta < 0.34) continue;
+      position.set(x, 0.55, z);
+      quaternion.identity();
+      scale.set(0.12, 1.1, 0.12);
+      postMatrices.push(matrix.compose(position, quaternion, scale).clone());
       const railLength = Math.hypot(nextX - x, nextZ - z) + 0.08;
-      for (const y of [0.55, 1.05]) {
-        const rail = addMesh(habitatGroup, box, fenceMaterial,
-          (x + nextX) * 0.5, y, (z + nextZ) * 0.5, 0.14, 0.14, railLength);
-        rail.rotation.y = Math.atan2(nextX - x, nextZ - z);
+      for (const y of [0.43, 0.82]) {
+        position.set((x + nextX) * 0.5, y, (z + nextZ) * 0.5);
+        quaternion.setFromAxisAngle(up, Math.atan2(nextX - x, nextZ - z));
+        scale.set(0.14, 0.14, railLength);
+        railMatrices.push(matrix.compose(position, quaternion, scale).clone());
       }
     }
+    const addInstances = (geometry, matrices, name) => {
+      if (!matrices.length) return;
+      const instances = new THREE.InstancedMesh(geometry, fenceMaterial, matrices.length);
+      instances.name = name;
+      matrices.forEach((transform, index) => instances.setMatrixAt(index, transform));
+      instances.instanceMatrix.needsUpdate = true;
+      habitatGroup.add(instances);
+    };
+    addInstances(cylinder, postMatrices, `${habitatGroup.name}-fence-posts`);
+    addInstances(box, railMatrices, `${habitatGroup.name}-fence-rails`);
   }
 
   const placeholderMaterial = makeMaterial(0x91a0aa, { transparent: true, opacity: 0.82 });
@@ -609,7 +884,7 @@ export function createZooWorld({ labels = {} } = {}) {
     const floor = addMesh(habitatGroup, lowCylinder, floorMaterial,
       0, -0.01, 0, enclosureRadius, 0.12, enclosureRadius);
     floor.rotation.y = Math.PI / 8;
-    addFence(habitatGroup, visual, fenceCollider);
+    addFence(habitatGroup, visual, fenceCollider, position.facing);
     const signPlacement = campusSigns.find((entry) => entry.habitatId === position.id);
     const sign = signPlacement ? createSign(position.id, signPlacement) : null;
     const animal = new THREE.Group();
@@ -763,6 +1038,280 @@ export function createZooWorld({ labels = {} } = {}) {
     }
   }
 
+  async function loadEnvironmentGltf(config) {
+    const directory = `assets/zoo/environment/${config.folder}/`;
+    const path = `${directory}${config.file}`;
+    const loader = new GLTFLoader();
+    let source;
+    if (config.folder === 'kaykit-restaurant') {
+      // KayKit's shared atlas is 1024px. Keep the CC0 furniture geometry but
+      // remove texture slots before parsing so the Zoo never requests or uploads
+      // an image above the campus' 512px Chromebook budget.
+      const document = JSON.parse(await fetchAsset(path, 'text'));
+      for (const material of document.materials ?? []) {
+        delete material.normalTexture;
+        delete material.occlusionTexture;
+        delete material.emissiveTexture;
+        if (material.pbrMetallicRoughness) {
+          delete material.pbrMetallicRoughness.baseColorTexture;
+          delete material.pbrMetallicRoughness.metallicRoughnessTexture;
+          material.pbrMetallicRoughness.baseColorFactor = [0.76, 0.55, 0.34, 1];
+        }
+      }
+      delete document.images;
+      delete document.textures;
+      delete document.samplers;
+      source = JSON.stringify(document);
+    } else {
+      source = await fetchAsset(path, 'arrayBuffer');
+    }
+    const gltf = await loader.parseAsync(source, publicPath(directory));
+    return { scene: gltf.scene, materials: [] };
+  }
+
+  async function loadEnvironmentObj(config) {
+    const directory = `assets/zoo/environment/${config.folder}/`;
+    const resourcePath = publicPath(directory);
+    let preparedMaterials = null;
+    try {
+      const materialText = await fetchAsset(`${directory}${config.materialFile}`, 'text');
+      preparedMaterials = new MTLLoader().parse(materialText, resourcePath);
+      preparedMaterials.preload();
+      const modelText = await fetchAsset(`${directory}${config.file}`, 'text');
+      const scene = new OBJLoader().setMaterials(preparedMaterials).parse(modelText);
+      return { scene, materials: Object.values(preparedMaterials.materials) };
+    } catch (error) {
+      if (preparedMaterials) {
+        for (const material of Object.values(preparedMaterials.materials)) material.dispose();
+      }
+      throw error;
+    }
+  }
+
+  function normalisedModel(source, targetHeight) {
+    const clone = source.clone(true);
+    clone.updateMatrixWorld(true);
+    const sourceBounds = new THREE.Box3().setFromObject(clone);
+    const size = sourceBounds.getSize(new THREE.Vector3());
+    if (!Number.isFinite(size.y) || size.y <= 0) throw new Error('environment model has invalid bounds');
+    const scale = targetHeight / size.y;
+    const center = sourceBounds.getCenter(new THREE.Vector3());
+    const root = new THREE.Group();
+    clone.scale.setScalar(scale);
+    clone.position.set(-center.x * scale, -sourceBounds.min.y * scale, -center.z * scale);
+    root.add(clone);
+    root.updateMatrixWorld(true);
+    return root;
+  }
+
+  function addEnvironmentClone(config, source, placement, { occluder = false, name = config.key } = {}) {
+    const root = normalisedModel(source, config.height);
+    root.name = `zoo-env-${name}`;
+    root.position.set(placement.x, placement.y ?? 0, placement.z);
+    root.rotation.y = placement.yaw ?? 0;
+    root.scale.multiplyScalar(placement.scale ?? 1);
+    environmentRoot.add(root);
+    if (occluder) root.traverse((object) => {
+      if (object.isMesh) markPhotoOccluder(object);
+    });
+    return root;
+  }
+
+  function addEnvironmentInstances(config, source, placements, { occluder = false, name = config.key } = {}) {
+    if (!placements.length) return [];
+    const normalised = normalisedModel(source, config.height);
+    normalised.updateMatrixWorld(true);
+    const created = [];
+    const placementMatrix = new THREE.Matrix4();
+    const finalMatrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    let meshIndex = 0;
+    normalised.traverse((mesh) => {
+      if (!mesh.isMesh) return;
+      const instances = new THREE.InstancedMesh(mesh.geometry, mesh.material, placements.length);
+      instances.name = `zoo-env-${name}-instances-${meshIndex++}`;
+      placements.forEach((placement, index) => {
+        position.set(placement.x, placement.y ?? 0, placement.z);
+        quaternion.setFromAxisAngle(up, placement.yaw ?? 0);
+        const amount = placement.scale ?? 1;
+        scale.set(amount, amount, amount);
+        placementMatrix.compose(position, quaternion, scale);
+        finalMatrix.multiplyMatrices(placementMatrix, mesh.matrixWorld);
+        instances.setMatrixAt(index, finalMatrix);
+      });
+      instances.instanceMatrix.needsUpdate = true;
+      environmentRoot.add(instances);
+      if (occluder) markPhotoOccluder(instances);
+      created.push(instances);
+    });
+    return created;
+  }
+
+  const asset = (assets, key) => {
+    const found = assets.get(key);
+    return found ? [ENVIRONMENT_MODELS.find((entry) => entry.key === key), found.scene] : null;
+  };
+
+  function savannaEnclosure(assets) {
+    const commonTree = asset(assets, 'common-tree');
+    const deadTree = asset(assets, 'dead-tree');
+    const grassAsset = asset(assets, 'grass');
+    const bushAsset = asset(assets, 'bush');
+    const rockOne = asset(assets, 'rock-1');
+    if (commonTree) {
+      for (const placement of [{ x: -24, z: 25, scale: 1.05 }, { x: -39, z: 8, scale: 0.9 }, { x: -21, z: 1, scale: 0.82 }]) {
+        addEnvironmentClone(...commonTree, placement, { occluder: true, name: 'savanna-tree' });
+      }
+    }
+    if (deadTree) addEnvironmentClone(...deadTree, { x: -39, z: 14, yaw: 0.4 }, { occluder: true, name: 'savanna-dead-tree' });
+    if (bushAsset) addEnvironmentInstances(...bushAsset, [
+      { x: -21, z: 20 }, { x: -29, z: 10, scale: 0.8 }, { x: -40, z: 21 },
+      { x: -23, z: 7 }, { x: -39, z: -1 }, { x: -10, z: 20, scale: 0.75 },
+    ], { name: 'savanna-bush' });
+    if (grassAsset) addEnvironmentInstances(...grassAsset, [
+      { x: -18, z: 22 }, { x: -20, z: 18 }, { x: -26, z: 21 }, { x: -31, z: 24 },
+      { x: -36, z: 23 }, { x: -40, z: 18 }, { x: -38, z: 5 }, { x: -31, z: 8 },
+      { x: -25, z: 3 }, { x: -18, z: 5 }, { x: -9, z: 8 }, { x: -9, z: 13 },
+    ], { name: 'savanna-grass' });
+    if (rockOne) addEnvironmentInstances(...rockOne, [
+      { x: -27, z: 23, scale: 0.7 }, { x: -41, z: 11, scale: 0.9 }, { x: -25, z: 7, scale: 0.65 },
+    ], { occluder: true, name: 'savanna-rock' });
+  }
+
+  function forestEnclosure(assets) {
+    const pineOne = asset(assets, 'pine-1');
+    const pineTwo = asset(assets, 'pine-2');
+    const fernAsset = asset(assets, 'fern');
+    const bushAsset = asset(assets, 'bush');
+    const flowerBush = asset(assets, 'flower-bush');
+    const pebbleAsset = asset(assets, 'pebble');
+    if (pineOne) for (const placement of [
+      { x: -39, z: -22 }, { x: -25, z: -21, scale: 0.9 }, { x: -2, z: -22, scale: 1.05 },
+    ]) addEnvironmentClone(...pineOne, placement, { occluder: true, name: 'forest-pine' });
+    if (pineTwo) for (const placement of [
+      { x: -31, z: -28, scale: 0.9 }, { x: -12, z: -14, scale: 0.85 }, { x: -4, z: -30, scale: 0.9 },
+    ]) addEnvironmentClone(...pineTwo, placement, { occluder: true, name: 'forest-pine' });
+    if (fernAsset) addEnvironmentInstances(...fernAsset, [
+      { x: -37, z: -18 }, { x: -34, z: -23 }, { x: -30, z: -19 }, { x: -27, z: -26 },
+      { x: -22, z: -17 }, { x: -18, z: -15 }, { x: -15, z: -30 }, { x: -11, z: -12 },
+      { x: -3, z: -19 }, { x: -3, z: -8 }, { x: -31, z: -4 }, { x: -19, z: -11 },
+    ], { name: 'forest-ferns' });
+    if (bushAsset) addEnvironmentInstances(...bushAsset, [
+      { x: -37, z: -16 }, { x: -30, z: -19 }, { x: -23, z: -30 }, { x: -18, z: -15 },
+      { x: -15, z: -30 }, { x: -3, z: -19 }, { x: -31, z: -4 }, { x: -20, z: -13 },
+    ], { name: 'forest-bushes' });
+    if (flowerBush) addEnvironmentInstances(...flowerBush, [
+      { x: -17, z: -14, scale: 0.8 }, { x: -3, z: -8, scale: 0.75 }, { x: -27, z: -24, scale: 0.8 },
+    ], { name: 'forest-flowers' });
+    if (pebbleAsset) addEnvironmentInstances(...pebbleAsset, [
+      { x: -24, z: -13 }, { x: -20, z: -16 }, { x: -16, z: -19 }, { x: -9, z: -19 }, { x: -4, z: -18 },
+    ], { name: 'forest-pebbles' });
+  }
+
+  function farmPaddock(assets) {
+    const barnAsset = asset(assets, 'farm-barn');
+    const wellAsset = asset(assets, 'farm-well');
+    const towerAsset = asset(assets, 'water-tower');
+    const longFence = asset(assets, 'long-fence');
+    const crateAsset = asset(assets, 'crate');
+    if (barnAsset && barnPosition) {
+      addEnvironmentClone(...barnAsset, { x: barnPosition.x, z: barnPosition.z, yaw: -0.08 }, { occluder: true, name: 'farm-barn' });
+      if (barnFallback) {
+        barnFallback.traverse((object) => {
+          const index = photoOccluders.indexOf(object);
+          if (index >= 0) photoOccluders.splice(index, 1);
+        });
+        barnFallback.removeFromParent();
+      }
+    }
+    if (wellAsset) addEnvironmentClone(...wellAsset, { x: 25, z: 25, yaw: -0.35 }, { occluder: true, name: 'farm-well' });
+    if (towerAsset) addEnvironmentClone(...towerAsset, { x: 38.5, z: 28, yaw: 0.15 }, { occluder: true, name: 'farm-water-tower' });
+    if (longFence) addEnvironmentInstances(...longFence, [
+      { x: 19, z: 29, yaw: Math.PI / 2 }, { x: 23, z: 29, yaw: Math.PI / 2 },
+      { x: 27, z: 27, yaw: 0.1 }, { x: 29, z: 25, yaw: 0.1 },
+    ], { name: 'farm-paddock-fence' });
+    if (crateAsset) addEnvironmentInstances(...crateAsset, [
+      { x: 28.5, z: 24.8 }, { x: 29.3, z: 24.8, scale: 0.8 }, { x: 30, z: 24.6, yaw: 0.3 },
+    ], { occluder: true, name: 'farm-crates' });
+  }
+
+  function coveKit(assets) {
+    const rockOne = asset(assets, 'rock-1');
+    const rockTwo = asset(assets, 'rock-2');
+    const lowFence = asset(assets, 'low-fence');
+    if (rockOne) addEnvironmentInstances(...rockOne, [
+      { x: 32, z: -20, scale: 0.8 }, { x: 38.5, z: -19, scale: 0.95 }, { x: 39, z: -10.2, scale: 0.7 },
+    ], { occluder: true, name: 'cove-rock' });
+    if (rockTwo) addEnvironmentInstances(...rockTwo, [
+      { x: 34, z: -20.3 }, { x: 40, z: -17.5 }, { x: 33, z: -9.7, scale: 0.75 },
+    ], { occluder: true, name: 'cove-rock' });
+    if (lowFence) addEnvironmentInstances(...lowFence, [
+      { x: 32.2, z: -10, yaw: Math.PI / 2 }, { x: 35.5, z: -9.6, yaw: Math.PI / 2 },
+      { x: 39, z: -12, yaw: 0 }, { x: 39, z: -15, yaw: 0 },
+    ], { name: 'cove-railing' });
+  }
+
+  function entrancePlazaKit(assets) {
+    const planterAsset = asset(assets, 'planter');
+    const tableAsset = asset(assets, 'cafe-table');
+    const chairAsset = asset(assets, 'cafe-chair');
+    const crateAsset = asset(assets, 'crate');
+    if (planterAsset) addEnvironmentInstances(...planterAsset, [
+      { x: -8.8, z: 34.5 }, { x: -1.5, z: 34.5 }, { x: 6.3, z: 31 }, { x: 9.5, z: 35 },
+    ], { name: 'entrance-planters' });
+    if (tableAsset) addEnvironmentInstances(...tableAsset, [
+      { x: 7.2, z: 31.8 }, { x: 9, z: 33.8, yaw: 0.4 },
+    ], { name: 'cafe-tables' });
+    if (chairAsset) addEnvironmentInstances(...chairAsset, [
+      { x: 6.1, z: 31.8, yaw: Math.PI / 2 }, { x: 8.3, z: 31.8, yaw: -Math.PI / 2 },
+      { x: 7.2, z: 30.7, yaw: Math.PI }, { x: 7.2, z: 32.9 },
+      { x: 7.9, z: 33.8, yaw: Math.PI / 2 }, { x: 10.1, z: 33.8, yaw: -Math.PI / 2 },
+    ], { name: 'cafe-chairs' });
+    if (crateAsset) addEnvironmentClone(...crateAsset,
+      { x: boothPosition.x - 0.8, z: boothPosition.z - 1.35, yaw: 0.2, scale: 0.75 },
+      { occluder: true, name: 'ticket-crate' });
+  }
+
+  async function loadEnvironment() {
+    if (environmentLoadPromise) return environmentLoadPromise;
+    environmentLoadPromise = Promise.all(ENVIRONMENT_MODELS.map(async (config) => {
+      try {
+        const loaded = config.format === 'obj'
+          ? await loadEnvironmentObj(config)
+          : await loadEnvironmentGltf(config);
+        if (disposed) {
+          disposeModelSource(loaded.scene, loaded.materials);
+          return null;
+        }
+        modelSources.add(loaded);
+        loadedEnvironmentModels += 1;
+        return [config.key, loaded];
+      } catch (error) {
+        if (!disposed) {
+          failedEnvironmentAssets.push(config.file);
+          console.warn(`[zoo] Optional environment asset ${config.file} unavailable; keeping procedural dressing.`, error);
+        }
+        return null;
+      } finally {
+        environmentPending -= 1;
+      }
+    })).then((entries) => {
+      if (disposed) return;
+      const assets = new Map(entries.filter(Boolean));
+      entrancePlazaKit(assets);
+      savannaEnclosure(assets);
+      forestEnclosure(assets);
+      farmPaddock(assets);
+      coveKit(assets);
+      environmentStatus = failedEnvironmentAssets.length ? 'ready-with-fallbacks' : 'ready';
+      afterDressingStats = collectSceneStats();
+    });
+    return environmentLoadPromise;
+  }
+
   function findModelNode(root, name) {
     const exact = root.getObjectByName(name);
     if (exact) return exact;
@@ -847,7 +1396,7 @@ export function createZooWorld({ labels = {} } = {}) {
     animations.length = 0;
   }
 
-  function getSceneStats() {
+  function collectSceneStats() {
     let meshes = 0;
     let instancedMeshes = 0;
     let triangles = 0;
@@ -866,7 +1415,59 @@ export function createZooWorld({ labels = {} } = {}) {
       meshes,
       instancedMeshes,
       triangles: Math.round(triangles),
+      uniqueEnvironmentModels: loadedEnvironmentModels,
     };
+  }
+
+  function getSceneStats() {
+    return collectSceneStats();
+  }
+
+  function getSceneStatsReport() {
+    const current = collectSceneStats();
+    return {
+      beforeDressing: beforeDressingStats ?? current,
+      afterDressing: afterDressingStats,
+      current,
+    };
+  }
+
+  function getEnvironmentState() {
+    return {
+      status: environmentStatus,
+      pending: Math.max(0, environmentPending),
+      loadedUniqueModels: loadedEnvironmentModels,
+      failedAssets: [...failedEnvironmentAssets],
+    };
+  }
+
+  const signageData = Object.freeze({
+    youAreHere: Object.freeze({
+      exists: Boolean(campusBoardFace),
+      regions: Object.freeze(Object.entries(REGION_SIGNAGE).map(([id, data]) => Object.freeze({ id, name: data.name }))),
+      animals: Object.freeze(campusHabitats.map((habitat) => Object.freeze({
+        id: habitat.id,
+        label: String(labels[habitat.id] ?? habitat.id.toUpperCase()),
+        region: habitat.region,
+      }))),
+    }),
+    signposts: Object.freeze(JUNCTION_SIGNPOSTS.map((signpost, index) => {
+      const data = REGION_SIGNAGE[signpost.regionId];
+      return Object.freeze({
+        id: signpost.id,
+        exists: Boolean(junctionSignFaces[index]),
+        regionId: signpost.regionId,
+        regionName: data.name,
+        animals: Object.freeze(data.animals.map((id) => Object.freeze({
+          id,
+          label: String(labels[id] ?? id.toUpperCase()),
+        }))),
+      });
+    })),
+  });
+
+  function getSignageData() {
+    return signageData;
   }
 
   // Counts how many sample points on the animal are hidden from the camera by
@@ -906,8 +1507,11 @@ export function createZooWorld({ labels = {} } = {}) {
     return visibilityHits.map((hit) => hit.distance);
   }
 
+  beforeDressingStats = collectSceneStats();
+
   return {
-    group, habitats, loadAnimals, update, getSceneStats, dispose,
+    group, habitats, loadAnimals, loadEnvironment, update, getSceneStats, getSceneStatsReport,
+    getEnvironmentState, getSignageData, dispose,
     countBlockedSamples, occluderDistances, visibilitySampleCount: VISIBILITY_OFFSETS.length,
   };
 }

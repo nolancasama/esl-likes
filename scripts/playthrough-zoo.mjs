@@ -342,6 +342,71 @@ const waitingVisitor = (s) => s?.debug?.visitors?.findIndex(
 ) ?? -1;
 const habitat = (s, id) => s?.debug?.habitats?.find((hb) => hb.id === id) ?? null;
 
+const sortedAnimalIds = (animals) => (animals ?? []).map((animal) => animal?.id).filter(Boolean).sort();
+const sameAnimalIds = (actual, expected) => (
+  actual.length === expected.length && actual.every((id, index) => id === expected[index])
+);
+
+function inspectSignage(debug) {
+  const signage = debug?.signage;
+  const board = signage?.youAreHere;
+  const signposts = signage?.signposts ?? [];
+  const expectedAnimals = [...ANIMALS].sort();
+  const boardAnimals = sortedAnimalIds(board?.animals);
+  const habitatsByRegion = new Map();
+  for (const item of debug?.habitats ?? []) {
+    if (!habitatsByRegion.has(item.region)) habitatsByRegion.set(item.region, []);
+    habitatsByRegion.get(item.region).push(item.id);
+  }
+  for (const animals of habitatsByRegion.values()) animals.sort();
+
+  const boardReady = Boolean(
+    board?.exists
+    && sameAnimalIds(boardAnimals, expectedAnimals)
+    && board.animals.every((animal) => typeof animal.label === 'string' && animal.label.trim())
+    && board.animals.every((animal) => habitatsByRegion.get(animal.region)?.includes(animal.id)),
+  );
+  const coveredRegions = new Set();
+  const signpostsReady = signposts.length > 0 && signposts.every((signpost) => {
+    const expected = habitatsByRegion.get(signpost.regionId);
+    if (!expected) return false;
+    const actual = sortedAnimalIds(signpost.animals);
+    const complete = sameAnimalIds(actual, expected);
+    if (complete) coveredRegions.add(signpost.regionId);
+    return complete
+      && typeof signpost.regionName === 'string'
+      && /[^\x00-\x7f]/.test(signpost.regionName)
+      && signpost.animals.every((animal) => typeof animal.label === 'string' && animal.label.trim());
+  }) && coveredRegions.size === habitatsByRegion.size;
+
+  const labelsByAnimal = new Map(ANIMALS.map((animal) => [animal, new Set()]));
+  for (const animal of board?.animals ?? []) labelsByAnimal.get(animal.id)?.add(animal.label);
+  for (const signpost of signposts) {
+    for (const animal of signpost.animals ?? []) labelsByAnimal.get(animal.id)?.add(animal.label);
+  }
+  const labelsConsistent = ANIMALS.every((animal) => labelsByAnimal.get(animal)?.size === 1);
+  const neutralBoard = boardReady
+    && !/want|request|selected|highlight|emphasis|favou?rite/i.test(JSON.stringify(board));
+
+  return {
+    signage,
+    boardReady,
+    signpostsReady,
+    labelsConsistent,
+    neutralBoard,
+    detail: {
+      boardAnimals,
+      boardRegions: board?.regions?.map((region) => region.id) ?? [],
+      signposts: signposts.map((signpost) => ({
+        id: signpost.id,
+        regionId: signpost.regionId,
+        regionName: signpost.regionName,
+        animals: sortedAnimalIds(signpost.animals),
+      })),
+    },
+  };
+}
+
 async function runSection(name, enabled, run) {
   if (!enabled) return;
   try {
@@ -669,14 +734,62 @@ await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShort
 
 // ---- Session C: visit and photograph every habitat on the campus ----------
 await runSection('habitats', sectionEnabled('habitats'), async () => {
+  const errorStart = errors.length;
+  const networkErrorStart = networkErrors.length;
   const h = await openPage('habitats');
   const entered = await enterZoo(h, 'habitats');
-  await h.sleep(1500);
-  let state = entered ? await h.ui() : null;
+  const environmentDone = entered ? await h.waitFor(
+    (value) => ['ready', 'ready-with-fallbacks'].includes(value.debug?.environment?.status)
+      && value.debug.environment.pending === 0,
+    30000,
+    'environment assets to finish loading',
+  ) : null;
+  let state = environmentDone ?? (entered ? await h.ui() : null);
+  const environment = state?.debug?.environment;
+  const environmentExposed = Boolean(
+    entered
+    && typeof environment?.status === 'string'
+    && Number.isFinite(environment?.pending),
+  );
+  const environmentReady = Boolean(
+    environmentDone
+    && environment.loadedUniqueModels > 0
+    && Array.isArray(environment.failedAssets),
+  );
+  check('environment assets reach a terminal load state', environmentReady,
+    JSON.stringify(environment), environmentExposed, state?.debug);
+  check('environment assets load without fallbacks or failed assets',
+    environmentReady && environment.status === 'ready' && environment.failedAssets.length === 0,
+    JSON.stringify(environment), environmentReady, state?.debug);
+  check('environment loading produces no console or page errors', errors.length === errorStart,
+    errors.slice(errorStart, errorStart + 3).join(' || '), environmentReady, state?.debug);
+  check('environment loading produces no failed network requests', networkErrors.length === networkErrorStart,
+    networkErrors.slice(networkErrorStart, networkErrorStart + 3).join(' || '), environmentReady, state?.debug);
+
+  const stats = state?.debug?.sceneStats;
+  const statsReady = Boolean(stats?.beforeDressing && stats?.afterDressing && stats?.current);
+  check('scene stats expose before and after dressing with instanced scenery',
+    statsReady
+      && stats.afterDressing.instancedMeshes > stats.beforeDressing.instancedMeshes
+      && stats.afterDressing.uniqueEnvironmentModels === environment?.loadedUniqueModels,
+    JSON.stringify(stats), environmentReady && statsReady, state?.debug);
+
+  const signage = inspectSignage(state?.debug);
+  check('YOU ARE HERE board exists and names all thirteen animals once', signage.boardReady,
+    JSON.stringify(signage.detail), Boolean(environmentDone && signage.signage), state?.debug);
+  check('YOU ARE HERE board text is neutral and never marks a request', signage.neutralBoard,
+    JSON.stringify(signage.detail), signage.boardReady, state?.debug);
+  check('junction signposts use Japanese region names and complete regional animal lists',
+    signage.signpostsReady, JSON.stringify(signage.detail), Boolean(environmentDone && signage.signage), state?.debug);
+  check('animal labels are consistent across the board and signposts', signage.labelsConsistent,
+    JSON.stringify(signage.detail), signage.boardReady && signage.signpostsReady, state?.debug);
+
   const graph = state?.debug?.pathGraph;
   const plaza = graph?.nodes?.find((node) => node.kind === 'plaza') ?? null;
+  const hub = graph?.nodes?.find((node) => node.kind === 'hub') ?? null;
   const graphReady = Boolean(
     plaza
+    && hub
     && graph.nodes.length > 0
     && graph.edges.length > 0
     && state?.debug?.habitats?.length === ANIMALS.length,
@@ -684,12 +797,23 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
   check('campus debug exposes a routable graph and all habitat viewpoints', graphReady,
     JSON.stringify({
       plaza: plaza?.id,
+      hub: hub?.id,
       nodes: graph?.nodes?.length ?? 0,
       edges: graph?.edges?.length ?? 0,
       habitats: state?.debug?.habitats?.length ?? 0,
     }), Boolean(entered), state?.debug);
 
+  const plazaReached = graphReady ? await h.walkTo(plaza.x, plaza.z, 0.8) : null;
+  if (plazaReached) await h.page.screenshot({ path: `${OUT}-region-plaza.png` });
+  check('plaza visual-review screenshot is saved', Boolean(plazaReached),
+    JSON.stringify(plazaReached?.debug?.player), graphReady, plazaReached?.debug ?? state?.debug);
+  const hubReached = graphReady ? await h.walkTo(hub.x, hub.z, 0.8) : null;
+  if (hubReached) await h.page.screenshot({ path: `${OUT}-region-hub.png` });
+  check('hub visual-review screenshot is saved', Boolean(hubReached),
+    JSON.stringify(hubReached?.debug?.player), graphReady, hubReached?.debug ?? state?.debug);
+
   const visited = new Set();
+  const regionScreenshots = new Set();
   const travelTimes = [];
   const habitatResults = [];
   for (const animal of ANIMALS) {
@@ -769,10 +893,20 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     console.log(`  habitat result ${JSON.stringify(result)}`);
     if (rightAnimal) visited.add(animal);
     await h.waitFor((value) => value.debug?.phase === 'playing', 5000, `${animal} camera to close`);
+    if (!regionScreenshots.has(hb.region)) {
+      await h.page.screenshot({ path: `${OUT}-region-${hb.region}.png` });
+      regionScreenshots.add(hb.region);
+    }
   }
   check('all thirteen habitats are photographed in one session',
     visited.size === ANIMALS.length && ANIMALS.every((animal) => visited.has(animal)),
     JSON.stringify({ visited: [...visited], travelTimes, habitatResults }), graphReady, (await h.ui()).debug);
+  const expectedRegionScreenshots = [...new Set(state?.debug?.habitats?.map((item) => item.region) ?? [])].sort();
+  check('visual-review screenshots are saved for every habitat region',
+    expectedRegionScreenshots.length > 0
+      && expectedRegionScreenshots.every((region) => regionScreenshots.has(region)),
+    JSON.stringify({ expected: expectedRegionScreenshots, saved: [...regionScreenshots].sort() }),
+    graphReady, (await h.ui()).debug);
   await h.page.close();
 });
 

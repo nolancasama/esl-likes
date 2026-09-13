@@ -896,3 +896,21 @@ bend to reveal a new area while preserving forward movement up the screen.
   sightline to just in front of it. The layout test only clears the
   viewpoint→animal line, and the camera stands behind the player: the deer
   sign, behind its viewpoint, intermittently filled the deer shot.
+
+## 2026-09-13 — Zoo campus dressing stays within a Chromebook budget
+
+Environment sources load once and are cloned only for sparse landmark accents;
+repeated bushes, grass, flowers, pebbles and rocks use instancing and shared
+materials. The dressing targets no more than about 25 unique environment models,
+keeps imported textures at 512 px or smaller, and avoids using the 3.5k–6.3k
+triangle tree meshes as a forest substitute.
+KayKit's retained 1024 px source atlas is not loaded: its furniture texture
+slots are removed before glTF parsing and the café props use flat material colour.
+
+The Quaternius Farm Buildings pack remains behind the same quiet asynchronous
+failure path as the other dressing, with a procedural barn fallback, because
+its archive contains no licence file. Removing that folder must leave the Zoo
+playable; its claimed CC0 status must be confirmed on quaternius.com before a
+public release. The unlicensed/heavier fence, hedge-maze, traffic-sign and
+unnamed Drive archives, unrelated character packs, and 700–800 KB twisted trees
+remain rejected as documented in the environment provenance README.

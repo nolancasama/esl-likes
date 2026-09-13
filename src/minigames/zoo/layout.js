@@ -163,8 +163,10 @@ export const colliders = deepFreeze([
   { id: 'entrance-gate-left', role: 'landmark', landmarkId: 'entranceGate', type: 'box', x: -3.15, z: 35.5, hw: 0.42, hd: 0.5, rotation: 0 },
   { id: 'entrance-gate-right', role: 'landmark', landmarkId: 'entranceGate', type: 'box', x: 3.15, z: 35.5, hw: 0.42, hd: 0.5, rotation: 0 },
   { id: 'fountain', role: 'landmark', landmarkId: 'fountainHub', type: 'circle', x: 3.2, z: 10, r: 1.45 },
+  { id: 'ticket-booth', role: 'landmark', landmarkId: 'ticketBooth', type: 'box', x: 5.8, z: 35.8, hw: 1.45, hd: 1.2, rotation: 0 },
   { id: 'giraffe-feeder', role: 'landmark', landmarkId: 'giraffeFeeder', type: 'box', x: -35, z: 13.4, hw: 0.5, hd: 0.5, rotation: 0 },
   { id: 'barn', role: 'landmark', landmarkId: 'barn', type: 'box', x: 32.5, z: 23.5, hw: 3, hd: 2.3, rotation: -0.08 },
+  { id: 'water-tower', role: 'landmark', landmarkId: 'waterTower', type: 'circle', x: 38.5, z: 28, r: 1.35 },
   { id: 'giant-forest-tree', role: 'landmark', landmarkId: 'giantForestTree', type: 'circle', x: -0.5, z: -27, r: 2.1 },
   { id: 'penguin-pool-west', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 31.65, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
   { id: 'penguin-pool-east', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 38.35, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
@@ -175,9 +177,11 @@ export const colliders = deepFreeze([
 export const landmarks = deepFreeze([
   { id: 'entranceGate', x: 0, z: 35.5 },
   { id: 'plaza', x: 0, z: 31 },
+  { id: 'ticketBooth', x: 5.8, z: 35.8 },
   { id: 'fountainHub', x: 3.2, z: 10 },
   { id: 'giraffeFeeder', x: -35, z: 13.4 },
   { id: 'barn', x: 32.5, z: 23.5 },
+  { id: 'waterTower', x: 38.5, z: 28 },
   { id: 'penguinBridge', x: 35, z: -17.1 },
   { id: 'giantForestTree', x: -0.5, z: -27 },
 ]);

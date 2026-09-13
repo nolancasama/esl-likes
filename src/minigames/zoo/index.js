@@ -281,6 +281,7 @@ export function createZoo(ctx) {
     scene.add(zooWorld.group);
     buildCharacters();
     zooWorld.loadAnimals();
+    zooWorld.loadEnvironment();
   }
 
   function canOccupy(x, z) {
@@ -801,7 +802,15 @@ export function createZoo(ctx) {
       pathGraph: { nodes: pathNodes, edges: pathEdges },
       landmarks: campusLandmarks,
       bounds: campusBounds,
-      sceneStats: zooWorld?.getSceneStats?.() ?? { meshes: 0, instancedMeshes: 0, triangles: 0 },
+      environment: zooWorld?.getEnvironmentState?.() ?? {
+        status: 'loading', pending: 0, loadedUniqueModels: 0, failedAssets: [],
+      },
+      signage: zooWorld?.getSignageData?.() ?? { youAreHere: { exists: false, regions: [], animals: [] }, signposts: [] },
+      sceneStats: zooWorld?.getSceneStatsReport?.() ?? {
+        beforeDressing: null,
+        afterDressing: null,
+        current: { meshes: 0, instancedMeshes: 0, triangles: 0, uniqueEnvironmentModels: 0 },
+      },
       visitors: visitors.map((visitor) => ({
         state: visitor.state,
         asked: visitor.asked,
