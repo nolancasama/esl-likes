@@ -897,6 +897,17 @@ bend to reveal a new area while preserving forward movement up the screen.
   viewpoint→animal line, and the camera stands behind the player: the deer
   sign, behind its viewpoint, intermittently filled the deer shot.
 
+## 2026-09-13 — Zoo animals stand still, no pen signs, no entrance gate
+
+Owner's decision. The per-habitat name boards (animal icon + English word)
+and the red-and-white entrance gate are removed; the Japanese region
+signposts and the YOU ARE HERE board stay. Animals no longer wander: models
+without an idle clip glided around with frozen legs, so every animal now stands
+at its pen centre facing its viewpoint (toward the screen when photographed),
+with a per-model half-turn where the source model faces backwards (tiger,
+deer, penguin, giraffe). Models that ship an idle clip (alpaca, giraffe) play
+it in place.
+
 ## 2026-09-13 — Zoo campus dressing stays within a Chromebook budget
 
 Environment sources load once and are cloned only for sparse landmark accents;

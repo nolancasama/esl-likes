@@ -767,6 +767,15 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     networkErrors.slice(networkErrorStart, networkErrorStart + 3).join(' || '), environmentReady, state?.debug);
 
   const stats = state?.debug?.sceneStats;
+  const reportedSceneStats = {
+    beforeDressing: stats?.beforeDressing ?? null,
+    afterDressing: stats?.afterDressing ?? null,
+    current: stats?.current ?? null,
+    uniqueEnvironmentModels: environment?.loadedUniqueModels
+      ?? stats?.current?.uniqueEnvironmentModels
+      ?? 0,
+  };
+  console.log(`  sceneStats ${JSON.stringify(reportedSceneStats)}`);
   const statsReady = Boolean(stats?.beforeDressing && stats?.afterDressing && stats?.current);
   check('scene stats expose before and after dressing with instanced scenery',
     statsReady

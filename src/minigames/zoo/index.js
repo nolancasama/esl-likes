@@ -11,7 +11,6 @@ import {
   landmarks as campusLandmarks,
   pathEdges,
   pathNodes,
-  signs as campusSigns,
 } from './layout.js';
 import { createZooWorld } from './world.js';
 
@@ -788,7 +787,6 @@ export function createZoo(ctx) {
         yaw: player?.rotation.y ?? 0,
         forward: { x: Math.sin(player?.rotation.y ?? 0), z: Math.cos(player?.rotation.y ?? 0) },
       },
-      signs: campusSigns,
       framing: framingDebug,
       visibleFraction: framingDebug?.visibleFraction ?? null,
       blockedSampleCount: framingDebug?.blockedSampleCount ?? null,

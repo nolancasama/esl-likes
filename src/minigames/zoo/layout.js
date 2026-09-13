@@ -7,8 +7,6 @@
 
 export const PLAYER_RADIUS = 0.72;
 export const PATH_WIDTH = 4.8;
-export const SIGN_WIDTH = 3.4;
-export const SIGN_DEPTH = 0.16;
 
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -60,26 +58,6 @@ export const habitats = deepFreeze(habitatSpecs.map(([id, region, x, z, viewX, v
   facing: Math.atan2(viewX - x, viewZ - z),
   viewpoint: { x: viewX, z: viewZ },
 })));
-
-// Sign centres and front-face yaw are authored independently of habitat
-// fences. Each board sits beside its viewpoint spur, and faces the junction a
-// visitor approaches from. The renderer puts the same texture on a second
-// front-facing plane at facing + PI, so neither side is blank or mirrored.
-export const signs = deepFreeze([
-  { habitatId: 'elephant', x: -9.8, z: 15.5, facing: Math.atan2(-0.2, 3.5) },
-  { habitatId: 'giraffe', x: -28, z: 19.2, facing: Math.atan2(3, -4.2) },
-  { habitatId: 'tiger', x: -30, z: 5.2, facing: Math.atan2(3, -2.2) },
-  { habitatId: 'deer', x: -20.9, z: -7.5, facing: Math.atan2(-4.1, -3.5) },
-  { habitatId: 'fox', x: -19.8, z: -20, facing: Math.atan2(7.8, 1) },
-  { habitatId: 'wolf', x: -4.8, z: -20.5, facing: Math.atan2(-7.2, 1.5) },
-  { habitatId: 'stag', x: -28, z: -6.8, facing: Math.atan2(3, -4.2) },
-  { habitatId: 'horse', x: 13.2, z: 21, facing: Math.atan2(-1.2, -1) },
-  { habitatId: 'alpaca', x: 17.2, z: 16, facing: Math.atan2(-5.2, 4) },
-  { habitatId: 'cow', x: 31, z: 7.2, facing: Math.atan2(-2, -4.2) },
-  { habitatId: 'bull', x: 25.2, z: 17.4, facing: Math.atan2(-0.2, -2.4) },
-  { habitatId: 'donkey', x: 23.5, z: -8.9, facing: Math.atan2(4.5, -1.1) },
-  { habitatId: 'penguin', x: 29, z: -17.2, facing: Math.atan2(-1, 7.2) },
-]);
 
 export const pathNodes = deepFreeze([
   { id: 'plaza', x: 0, z: 31, kind: 'plaza' },
@@ -160,8 +138,6 @@ const habitatColliders = habitats.map(({ id, x, z }) => ({
 
 export const colliders = deepFreeze([
   ...habitatColliders,
-  { id: 'entrance-gate-left', role: 'landmark', landmarkId: 'entranceGate', type: 'box', x: -3.15, z: 35.5, hw: 0.42, hd: 0.5, rotation: 0 },
-  { id: 'entrance-gate-right', role: 'landmark', landmarkId: 'entranceGate', type: 'box', x: 3.15, z: 35.5, hw: 0.42, hd: 0.5, rotation: 0 },
   { id: 'fountain', role: 'landmark', landmarkId: 'fountainHub', type: 'circle', x: 3.2, z: 10, r: 1.45 },
   { id: 'ticket-booth', role: 'landmark', landmarkId: 'ticketBooth', type: 'box', x: 5.8, z: 35.8, hw: 1.45, hd: 1.2, rotation: 0 },
   { id: 'giraffe-feeder', role: 'landmark', landmarkId: 'giraffeFeeder', type: 'box', x: -35, z: 13.4, hw: 0.5, hd: 0.5, rotation: 0 },
@@ -175,7 +151,6 @@ export const colliders = deepFreeze([
 ]);
 
 export const landmarks = deepFreeze([
-  { id: 'entranceGate', x: 0, z: 35.5 },
   { id: 'plaza', x: 0, z: 31 },
   { id: 'ticketBooth', x: 5.8, z: 35.8 },
   { id: 'fountainHub', x: 3.2, z: 10 },

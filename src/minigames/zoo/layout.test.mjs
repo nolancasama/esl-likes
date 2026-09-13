@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
   PLAYER_RADIUS,
-  SIGN_DEPTH,
-  SIGN_WIDTH,
   bounds,
   canOccupy,
   colliders,
@@ -14,7 +12,6 @@ import {
   pathEdges,
   pathNodes,
   regions,
-  signs,
   shortestPath,
 } from './layout.js';
 
@@ -163,37 +160,6 @@ test('the farthest habitat is comfortably within the travel budget', () => {
   assert.ok(farthest <= 135, `farthest route is ${farthest.toFixed(2)} units`);
 });
 
-test('habitat signs are explicit, path-facing, and clear every photo sightline', () => {
-  assert.equal(signs.length, habitats.length);
-  assert.deepEqual(
-    [...signs.map(({ habitatId }) => habitatId)].sort(),
-    [...habitats.map(({ id }) => id)].sort(),
-  );
-  for (const sign of signs) {
-    const habitat = habitats.find(({ id }) => id === sign.habitatId);
-    const viewpointId = `${habitat.id}-viewpoint`;
-    const spur = pathEdges.find(([a, b]) => a === viewpointId || b === viewpointId);
-    const approach = nodesById.get(spur[0] === viewpointId ? spur[1] : spur[0]);
-    const toApproachX = approach.x - sign.x;
-    const toApproachZ = approach.z - sign.z;
-    const approachLength = Math.hypot(toApproachX, toApproachZ);
-    const faceAlignment = (
-      Math.sin(sign.facing) * toApproachX + Math.cos(sign.facing) * toApproachZ
-    ) / approachLength;
-    assert.ok(faceAlignment >= 0.8, `${sign.habitatId} sign does not face its approach path`);
-
-    const margin = 0.45;
-    const crossesSightline = segmentIntersectsBox(habitat.viewpoint, habitat, {
-      x: sign.x,
-      z: sign.z,
-      hw: SIGN_WIDTH * 0.5 + margin,
-      hd: SIGN_DEPTH * 0.5 + margin,
-      rotation: sign.facing,
-    });
-    assert.equal(crossesSightline, false, `${sign.habitatId} sign crosses its photo sightline`);
-  }
-});
-
 function pointInPolygon(point, polygon) {
   let inside = false;
   for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
@@ -267,7 +233,7 @@ test('each viewpoint has a useful photo distance and faces the habitat correctly
 });
 
 test('layout navigation data is frozen and never refers to a current request', () => {
-  for (const value of [regions, habitats, signs, pathNodes, pathEdges, colliders, bounds, landmarks]) {
+  for (const value of [regions, habitats, pathNodes, pathEdges, colliders, bounds, landmarks]) {
     assert.ok(Object.isFrozen(value));
   }
   assert.doesNotMatch(JSON.stringify({ landmarks }), /current[ _-]?request|requested|targetAnimal/i);

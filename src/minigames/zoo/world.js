@@ -5,8 +5,6 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   PATH_WIDTH,
-  SIGN_DEPTH,
-  SIGN_WIDTH,
   bounds as campusBounds,
   colliders,
   habitats as campusHabitats,
@@ -14,7 +12,6 @@ import {
   pathEdges,
   pathNodes,
   regions,
-  signs as campusSigns,
 } from './layout.js';
 
 const TAU = Math.PI * 2;
@@ -48,14 +45,15 @@ const ANIMAL_MODELS = Object.freeze({
     // Colouring by material name is safe precisely because there is no texture.
     tint: Object.freeze({ 'Elephant Gray': 0x9aa4a9, Dark: 0x4b5258, Ivory: 0xf0e7d2 }),
   }),
-  giraffe: Object.freeze({ file: 'giraffe.glb', targetHeight: 3.65 }),
-  penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.55 }),
-  tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65 }),
-  deer: Object.freeze({ file: 'Animals.glb', node: 'deer', targetHeight: 2 }),
+  // yawOffset turns source models that face -z so every animal faces its viewpoint.
+  giraffe: Object.freeze({ file: 'giraffe.glb', targetHeight: 3.65, yawOffset: Math.PI, idleClip: 'iddle' }),
+  penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.55, yawOffset: Math.PI }),
+  tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65, yawOffset: Math.PI }),
+  deer: Object.freeze({ file: 'Animals.glb', node: 'deer', targetHeight: 2, yawOffset: Math.PI }),
   // A .gltf rather than .glb: its buffers and colours are embedded, so the same
   // fetch-and-parse path loads it. Its materials are already distinct browns, so
   // unlike the elephant it needs no tint.
-  alpaca: Object.freeze({ file: 'alpaca.gltf', targetHeight: 1.7 }),
+  alpaca: Object.freeze({ file: 'alpaca.gltf', targetHeight: 1.7, idleClip: 'Idle' }),
   horse: Object.freeze({ file: 'obj/Horse_White.obj', materialFile: 'obj/Horse_White.mtl', format: 'obj', targetHeight: 2.2 }),
   fox: Object.freeze({ file: 'obj/Fox.obj', materialFile: 'obj/Fox.mtl', format: 'obj', targetHeight: 1.05 }),
   wolf: Object.freeze({ file: 'obj/Wolf.obj', materialFile: 'obj/Wolf.mtl', format: 'obj', targetHeight: 1.35 }),
@@ -320,6 +318,7 @@ export function createZooWorld({ labels = {} } = {}) {
   const canvases = new Set();
   const modelSources = new Set();
   const animations = [];
+  const animalMixers = [];
   const modelAbort = new AbortController();
   let loadPromise = null;
   let environmentLoadPromise = null;
@@ -375,7 +374,6 @@ export function createZooWorld({ labels = {} } = {}) {
   const cylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 12));
   const lowCylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 24));
   const sphere = ownGeometry(new THREE.SphereGeometry(0.5, 12, 8));
-  const signPlane = ownGeometry(new THREE.PlaneGeometry(SIGN_WIDTH, 1.57));
   const junctionSignPlane = ownGeometry(new THREE.PlaneGeometry(4.8, 2.65));
   const campusBoardPlane = ownGeometry(new THREE.PlaneGeometry(6.4, 5.05));
   const grass = makeMaterial(0x75b866);
@@ -503,25 +501,6 @@ export function createZooWorld({ labels = {} } = {}) {
   fountainTop.userData.baseY = 3.12;
   fountainTop.name = 'zoo-central-fountain-jet';
   animations.push({ kind: 'fountain', object: fountainTop });
-
-  // Striped entrance gate, retaining a wide clear centre span.
-  const gatePosition = landmarkById.get('entranceGate') ?? { x: plazaPosition.x, z: plazaPosition.z + 5 };
-  const gatePosts = colliders.filter((collider) => collider.landmarkId === 'entranceGate');
-  const gateXs = gatePosts.length === 2 ? gatePosts.map((collider) => collider.x) : [-2.8, 2.8];
-  for (const gateX of gateXs) {
-    for (let stripe = 0; stripe < 5; stripe += 1) {
-      markPhotoOccluder(addMesh(group, box, stripe % 2 ? gateWhite : gateRed,
-        gateX, 0.45 + stripe * 0.9, gatePosition.z, 0.62, 0.9, 0.62));
-    }
-  }
-  const gateLeft = Math.min(...gateXs);
-  const gateRight = Math.max(...gateXs);
-  const gateStripeWidth = (gateRight - gateLeft) / 7;
-  for (let stripe = 0; stripe < 7; stripe += 1) {
-    addMesh(group, box, stripe % 2 ? gateWhite : gateRed,
-      gateLeft + gateStripeWidth * (stripe + 0.5), 4.58, gatePosition.z,
-      gateStripeWidth + 0.02, 0.62, 0.62);
-  }
 
   const treePosition = landmarkById.get('giantForestTree');
   if (treePosition) {
@@ -758,41 +737,6 @@ export function createZooWorld({ labels = {} } = {}) {
   const junctionSignFaces = JUNCTION_SIGNPOSTS.map(createJunctionSignpost);
   const campusBoardFace = createCampusBoard();
 
-  function createSign(id, placement) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 236;
-    canvases.add(canvas);
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#fffaf0';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = '#29384a';
-    context.lineWidth = 14;
-    context.strokeRect(7, 7, canvas.width - 14, canvas.height - 14);
-    drawAnimalIcon(context, id, 105, 119);
-    const label = String(labels[id] ?? id);
-    context.fillStyle = '#1e2c40';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.font = `900 ${label.length > 8 ? 59 : 70}px system-ui, sans-serif`;
-    context.fillText(label, 343, 120, 310);
-
-    const material = ownMaterial(new THREE.MeshBasicMaterial({ map: canvasTexture(canvas), side: THREE.FrontSide }));
-    const normalX = Math.sin(placement.facing);
-    const normalZ = Math.cos(placement.facing);
-    const boardY = 2.25;
-    const board = addMesh(group, box, dark, placement.x, boardY, placement.z,
-      SIGN_WIDTH + 0.12, 1.69, SIGN_DEPTH * 0.8);
-    board.rotation.y = placement.facing;
-    markPhotoOccluder(board);
-    const half = SIGN_DEPTH * 0.5;
-    const front = addMesh(group, signPlane, material,
-      placement.x + normalX * half, boardY, placement.z + normalZ * half);
-    front.rotation.y = placement.facing;
-    addMesh(group, cylinder, dark, placement.x, 0.72, placement.z, 0.15, 1.44, 0.15);
-    return front;
-  }
-
   function addFence(habitatGroup, visual, fenceCollider, viewingDirection) {
     const fenceMaterial = makeMaterial(visual.fence);
     const radius = fenceCollider?.r ?? 3.4;
@@ -885,36 +829,18 @@ export function createZooWorld({ labels = {} } = {}) {
       0, -0.01, 0, enclosureRadius, 0.12, enclosureRadius);
     floor.rotation.y = Math.PI / 8;
     addFence(habitatGroup, visual, fenceCollider, position.facing);
-    const signPlacement = campusSigns.find((entry) => entry.habitatId === position.id);
-    const sign = signPlacement ? createSign(position.id, signPlacement) : null;
+    // Animals stand still at the pen centre facing their viewpoint; models
+    // without an idle clip used to glide around with frozen legs.
     const animal = new THREE.Group();
     animal.name = `zoo-animal-${position.id}`;
     animal.userData.animalId = position.id;
-    const facing = position.facing;
-    const tangentX = -Math.cos(facing);
-    const tangentZ = Math.sin(facing);
-    const baseX = -tangentX * 0.55;
-    const baseZ = -tangentZ * 0.55;
-    animal.position.set(baseX, 0, baseZ);
-    animal.rotation.y = facing;
+    animal.rotation.y = position.facing;
     habitatGroup.add(animal);
     const photoTarget = new THREE.Object3D();
     photoTarget.name = `zoo-photo-target-${position.id}`;
     animal.add(photoTarget);
     const placeholder = createPlaceholder(ANIMAL_MODELS[position.id].targetHeight);
     animal.add(placeholder);
-    animations.push({
-      kind: 'animal',
-      object: animal,
-      phase: index * 1.07,
-      speed: 0.18 + index * 0.012,
-      radiusX: 0.55 + (index % 2) * 0.18,
-      radiusZ: 0.34 + ((index + 1) % 2) * 0.15,
-      baseY: 0,
-      baseX,
-      baseZ,
-      facing,
-    });
     const habitat = {
       id: position.id,
       region: position.region,
@@ -925,7 +851,6 @@ export function createZooWorld({ labels = {} } = {}) {
       animal,
       photoTarget,
       photoRadius: 0,
-      sign,
       placeholder,
     };
     applyPhotoBounds(habitat, placeholder);
@@ -956,7 +881,7 @@ export function createZooWorld({ labels = {} } = {}) {
     for (const geometry of sourceGeometries) geometry.dispose();
   }
 
-  function placeModel(habitat, sourceObject) {
+  function placeModel(habitat, sourceObject, clips = []) {
     const config = ANIMAL_MODELS[habitat.id];
     // The glTF animals may be skinned, and Object3D.clone() does not rebind a
     // skeleton. OBJ animals are static meshes and can use a normal deep clone.
@@ -990,10 +915,21 @@ export function createZooWorld({ labels = {} } = {}) {
     }
     content.updateMatrixWorld(true);
 
+    const oriented = new THREE.Group();
+    oriented.rotation.y = config.yawOffset ?? 0;
+    oriented.add(content);
+    const idle = config.idleClip ? THREE.AnimationClip.findByName(clips, config.idleClip) : null;
+    if (idle) {
+      const mixer = new THREE.AnimationMixer(sourceClone);
+      mixer.clipAction(idle).play();
+      animalMixers.push(mixer);
+    }
+    oriented.updateMatrixWorld(true);
+
     habitat.animal.remove(habitat.placeholder);
-    habitat.animal.add(content);
-    habitat.model = content;
-    applyPhotoBounds(habitat, content);
+    habitat.animal.add(oriented);
+    habitat.model = oriented;
+    applyPhotoBounds(habitat, oriented);
   }
 
   async function fetchAsset(path, responseType) {
@@ -1006,7 +942,7 @@ export function createZooWorld({ labels = {} } = {}) {
     const path = `assets/animals/${file}`;
     const loader = new GLTFLoader();
     const gltf = await loader.parseAsync(await fetchAsset(path, 'arrayBuffer'), publicPath('assets/animals/'));
-    return { scene: gltf.scene, materials: [] };
+    return { scene: gltf.scene, materials: [], animations: gltf.animations };
   }
 
   async function loadObj(config) {
@@ -1249,8 +1185,9 @@ export function createZooWorld({ labels = {} } = {}) {
       { x: 34, z: -20.3 }, { x: 40, z: -17.5 }, { x: 33, z: -9.7, scale: 0.75 },
     ], { occluder: true, name: 'cove-rock' });
     if (lowFence) addEnvironmentInstances(...lowFence, [
-      { x: 32.2, z: -10, yaw: Math.PI / 2 }, { x: 35.5, z: -9.6, yaw: Math.PI / 2 },
-      { x: 39, z: -12, yaw: 0 }, { x: 39, z: -15, yaw: 0 },
+      { x: 33, z: -9, yaw: 0, scale: 0.6 }, { x: 37, z: -9, yaw: 0, scale: 0.6 },
+      { x: 40.2, z: -12, yaw: Math.PI / 2, scale: 0.6 },
+      { x: 40.2, z: -16, yaw: Math.PI / 2, scale: 0.6 },
     ], { name: 'cove-railing' });
   }
 
@@ -1340,7 +1277,7 @@ export function createZooWorld({ labels = {} } = {}) {
           if (config.file !== file) continue;
           const sourceObject = config.node ? findModelNode(asset.scene, config.node) : asset.scene;
           if (!sourceObject) throw new Error(`${file} is missing ${config.node}`);
-          placeModel(habitat, sourceObject);
+          placeModel(habitat, sourceObject, asset.animations);
         }
       } catch (error) {
         if (!disposed) console.warn(`[zoo] ${file} unavailable; keeping animal placeholders.`, error);
@@ -1349,8 +1286,6 @@ export function createZooWorld({ labels = {} } = {}) {
     return loadPromise;
   }
 
-  // Gentle landmark labels are intentionally absent: habitat signs are the
-  // only directional information, and none is connected to a visitor request.
   group.add(new THREE.HemisphereLight(0xffffff, 0x5f844e, 2.35));
   const sun = new THREE.DirectionalLight(0xffffff, 2.15);
   sun.position.set(10, 18, 12);
@@ -1358,21 +1293,12 @@ export function createZooWorld({ labels = {} } = {}) {
 
   function update(dt) {
     if (disposed) return;
-    elapsed += Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
+    const step = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
+    elapsed += step;
     for (const animation of animations) {
-      if (animation.kind === 'fountain') {
-        animation.object.position.y = animation.object.userData.baseY + Math.sin(elapsed * 2.2) * 0.08;
-        continue;
-      }
-      const angle = elapsed * animation.speed + animation.phase;
-      const x = animation.baseX + Math.cos(angle) * animation.radiusX;
-      const z = animation.baseZ + Math.sin(angle) * animation.radiusZ;
-      const previousX = animation.object.position.x;
-      const previousZ = animation.object.position.z;
-      animation.object.position.set(x, animation.baseY, z);
-      const moved = Math.abs(x - previousX) + Math.abs(z - previousZ) > 0.00001;
-      if (moved) animation.object.rotation.y = animation.facing + Math.sin(angle * 1.7) * 0.1;
+      animation.object.position.y = animation.object.userData.baseY + Math.sin(elapsed * 2.2) * 0.08;
     }
+    for (const mixer of animalMixers) mixer.update(step);
   }
 
   function dispose() {
@@ -1394,6 +1320,8 @@ export function createZooWorld({ labels = {} } = {}) {
     canvases.clear();
     modelSources.clear();
     animations.length = 0;
+    for (const mixer of animalMixers) mixer.stopAllAction();
+    animalMixers.length = 0;
   }
 
   function collectSceneStats() {
