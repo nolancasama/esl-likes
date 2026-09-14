@@ -4,11 +4,9 @@
 
 All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
-`.github/workflows/pages.yml` (unit tests gate the deploy). Live = `d311b9c`
-(rival logic only, not wired into the scene; pushed 2026-09-14).
-
-Restaurant Challenge rival waiter integration (part 2) is ACCEPTED and committed
-locally on `main`, not pushed. Push only with the owner's approval.
+`.github/workflows/pages.yml` (unit tests gate the deploy). Live = `7c9e011`
+(Restaurant Challenge rival waiter, accepted and pushed 2026-09-14 with the
+owner's approval).
 
 ## What Exists
 
@@ -83,9 +81,8 @@ locally on `main`, not pushed. Push only with the owner's approval.
 
 ## Next Steps
 
-1. Push the rival integration commit once the owner approves.
-2. Fix the flaky Zoo playthrough route-finding.
-3. Later: `.ai/wo-zoo-rules.json` (re-check against removed pen signs),
+1. Fix the flaky Zoo playthrough route-finding.
+2. Later: `.ai/wo-zoo-rules.json` (re-check against removed pen signs),
    Chromebook pass, Farm Buildings licence, Zoo triangle budget.
 
 ## Codex / Delegated Work
