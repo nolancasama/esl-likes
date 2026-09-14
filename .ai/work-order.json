@@ -35,6 +35,7 @@
     "command": "npm run playthrough:zoo -- --only {section}",
     "sections": ["listening", "antiShortcut", "habitats"]
   },
+  "notes": "Diagnosis (.ai/codex-diagnosis.md) was checked by Claude: walker pulses of 70-210 ms (playthrough-zoo.mjs:253) and a 9-sample stall rule (:245) against a game that clamps dt to 0.05 s (zoo/index.js:881) under SwiftShader; conditional checks at the anti-shortcut turnaround and the habitat `continue` explain the varying total (96/108/109). The graph-clearance idea (layout.test.mjs) was judged low confidence and is out of scope. Purpose: the Zoo playthrough must become a trustworthy regression check. The harness is untrusted after this change until Claude sees it pass on known-good and fail on a known-bad condition, so make it easy to force a known-bad (e.g. an env flag that deliberately stops the walker short) without touching product source. Report per section: pass count, total, and the seed used. Record no DESIGN_DECISIONS entry unless you make a product-facing decision.",
   "category": "test-harness",
   "complexity": "medium",
   "bounded": true,

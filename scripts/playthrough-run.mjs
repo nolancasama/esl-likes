@@ -192,7 +192,19 @@ async function main() {
     const endedAt = new Date();
     const screenshots = await collectScreenshots(runDirectory);
     const command = `node ${script} ${url} ${relativePrefix}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`;
+    let harnessReport = null;
+    if (scenario === 'zoo') {
+      try {
+        harnessReport = JSON.parse(await fs.readFile(
+          path.join(PROJECT_ROOT, `${relativePrefix}-results.json`),
+          'utf8',
+        ));
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
     const manifest = {
+      ...(harnessReport ? { schema: 'acceptance-manifest/1' } : {}),
       scenario,
       command,
       startedAt: startedAt.toISOString(),
@@ -200,6 +212,18 @@ async function main() {
       durationSeconds: Number(((endedAt - startedAt) / 1_000).toFixed(3)),
       exitCode: result.exitCode,
       passed: result.exitCode === 0,
+      ...(harnessReport ? {
+        seed: harnessReport.seed,
+        result: harnessReport.result,
+        counts: {
+          checks: harnessReport.checks.length,
+          passed: harnessReport.checks.filter((check) => check.result === 'PASS').length,
+          failed: harnessReport.checks.filter((check) => check.result !== 'PASS').length,
+        },
+        sections: harnessReport.sections,
+        checks: harnessReport.checks,
+        forcedWalkShort: harnessReport.forcedWalkShort,
+      } : {}),
       url,
       screenshots,
     };

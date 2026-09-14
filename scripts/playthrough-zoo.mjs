@@ -10,7 +10,8 @@
 // first, every time. That must NOT reach three stars.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
-import { clickIfPresent, clickUntil, createCheck, holdUntil, waitForDebug } from './lib/driver.mjs';
+import { writeFile } from 'node:fs/promises';
+import { clickIfPresent, clickUntil, holdUntil, waitForDebug } from './lib/driver.mjs';
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/zoo';
@@ -28,6 +29,21 @@ const SAVE_KEY = 'esl-likes-save-v1';
 const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
   'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey'];
 const MOVE_SPEED = 13.5;
+const DEFAULT_SEED = 0x5eed1234;
+const FORCE_WALK_SHORT = process.env.ZOO_FORCE_WALK_SHORT === '1';
+const seedValue = (input) => {
+  if (input === undefined || input === '') return DEFAULT_SEED;
+  const numeric = Number(input);
+  if (Number.isSafeInteger(numeric)) return numeric >>> 0;
+  let hash = 2166136261;
+  for (const character of input) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+const ZOO_SEED = seedValue(process.env.ZOO_SEED);
+console.log(`Zoo seed: ${ZOO_SEED}${FORCE_WALK_SHORT ? ' (forced short walker)' : ''}`);
 // Adjust to the class names the minigame actually uses.
 const SEL = {
   viewfinder: '.zoo-viewfinder',
@@ -42,35 +58,140 @@ const SEL = {
 // after ~6 minutes of software rendering had already loaded the process, and it
 // crawled badly enough for fixed waits to expire — which looked like three
 // different game bugs in turn and was none of them.
-const browsers = [];
-
 async function newContext() {
   const browser = await chromium.launch({
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
   });
-  browsers.push(browser);
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
-  await context.addInitScript((key) => {
+  await context.addInitScript(({ key, seed }) => {
+    let randomState = seed >>> 0;
+    Math.random = () => {
+      randomState = (randomState + 0x6d2b79f5) >>> 0;
+      let value = randomState;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+    Object.defineProperty(window, '__zooHarnessSeed', { value: seed, configurable: false });
     if (!sessionStorage.getItem('seeded')) {
       localStorage.setItem(key, JSON.stringify({ version: 1, settings: { micFree: true, difficulty: 1 } }));
       sessionStorage.setItem('seeded', '1');
     }
-  }, SAVE_KEY);
-  return context;
+  }, { key: SAVE_KEY, seed: ZOO_SEED });
+  return { browser, context };
 }
 
 const results = [];
 const errors = [];
 const networkErrors = [];
 let lastTrace = null;
-const recordCheck = createCheck(results, { getTrace: () => lastTrace });
-const check = (name, ok, detail = '', precondition = true, trace = null) => {
-  const ready = typeof precondition === 'function' ? precondition() : precondition;
-  return recordCheck(name, ok, {
-    detail: ready ? detail : `HARNESS_PRECONDITION_FAILED${detail ? `: ${detail}` : ''}`,
-    precondition: ready,
-    trace,
+let activeSection = null;
+let activeHarness = null;
+const listeningChecks = [
+  'hub -> Zoo',
+  'debug snapshot exposes every habitat and no wanted animals',
+  'nothing points the way (no marker/arrow/minimap in the overlay)',
+  'question offered: "What animal do you like?"',
+  'visitor answers with an exact vocabulary sentence',
+  'the answer is not left on screen',
+  '🔊 offered while a request is open',
+  'Listen Again control can be clicked',
+  '🔊 replays the visitor\'s exact sentence',
+  ...[1, 2, 3].flatMap((number) => [
+    `request ${number} viewpoint is reached before photographing`,
+    `visitor ${number} is reached before showing the photo`,
+  ]),
+  'the viewfinder only shoots a well-framed animal',
+  'the photo taken is of that animal',
+  'all three requests completed',
+  'turnaround offers every animal sentence',
+  'turnaround answer can be selected',
+  'finishes back to the hub',
+  'hub greets with the animal the child chose',
+  'stamp and answer persisted',
+  'listening + one replay = 3 stars',
+  'a photo was saved for the stamp book',
+  'stamp book control is available',
+  'the stamp book shows the photo',
+  'Zoo can be entered a second time',
+  're-entry leaves no duplicated overlays',
+  'listening section completes without a harness exception',
+];
+const antiShortcutChecks = [
+  ...[1, 2, 3].flatMap((number) => [
+    `request ${number} wrong-photo viewpoint is reached before photographing`,
+    `visitor ${number} is reached before wrong-photo delivery`,
+    `request ${number} correct-photo viewpoint is reached before photographing`,
+    `visitor ${number} is reached before correct-photo delivery`,
+  ]),
+  'a wrong animal is refused in Japanese with no English repeat',
+  'a refused photo is no longer carried',
+  'anti-shortcut turnaround answer can be selected',
+  'showing wrong photos still finishes and earns the stamp (no dead end)',
+  'anti-shortcut: showing a wrong animal first cannot reach 3 stars',
+  'antiShortcut section completes without a harness exception',
+];
+const habitatCheckNames = (animal) => [
+  `${animal} has a graph-backed viewpoint`,
+  `${animal} viewpoint is reached from the plaza`,
+  `${animal} graph route is at most 10 seconds at movement speed`,
+  `${animal} faces the habitat before photographing`,
+  `${animal} reaches shutter-ready from its viewpoint`,
+  `${animal} frames and photographs as the right animal`,
+];
+const habitatChecks = [
+  'environment assets reach a terminal load state',
+  'environment assets load without fallbacks or failed assets',
+  'environment loading produces no console or page errors',
+  'environment loading produces no failed network requests',
+  'scene stats expose before and after dressing with instanced scenery',
+  'YOU ARE HERE board exists and names all thirteen animals once',
+  'YOU ARE HERE board text is neutral and never marks a request',
+  'junction signposts use Japanese region names and complete regional animal lists',
+  'animal labels are consistent across the board and signposts',
+  'campus debug exposes a routable graph and all habitat viewpoints',
+  'plaza visual-review screenshot is saved',
+  'hub visual-review screenshot is saved',
+  ...ANIMALS.flatMap(habitatCheckNames),
+  'all thirteen habitats are photographed in one session',
+  'visual-review screenshots are saved for every habitat region',
+  'habitats section completes without a harness exception',
+];
+const CHECK_REGISTRY = {
+  listening: listeningChecks,
+  antiShortcut: antiShortcutChecks,
+  habitats: habitatChecks,
+  suite: [
+    'no console or page errors',
+    'no network errors',
+    'the player never leaves the campus bounds',
+  ],
+};
+const sectionRuns = new Map();
+const compact = (value) => {
+  if (value == null || value === '') return '';
+  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  return serialized.length > 900 ? `${serialized.slice(0, 897)}...` : serialized;
+};
+const emitCheck = (section, name, ok, detail, classification, trace = null) => {
+  const diagnostic = ok ? compact(detail) : compact({
+    ...(detail ? { detail } : {}),
+    ...((trace ?? lastTrace) == null ? {} : { trace: trace ?? lastTrace }),
   });
+  results.push({ section, name, ok, result: classification });
+  console.log(`${classification}  ${name}${diagnostic ? `  - ${diagnostic}` : ''}`);
+  return ok;
+};
+const check = (name, ok, detail = '', precondition = true, trace = null) => {
+  if (!activeSection) throw new Error(`Check emitted outside a registered section: ${name}`);
+  const run = sectionRuns.get(activeSection);
+  if (!run?.pending.has(name)) throw new Error(`Unknown or duplicate ${activeSection} check: ${name}`);
+  run.pending.delete(name);
+  const ready = typeof precondition === 'function' ? precondition() : precondition;
+  const passed = Boolean(ready) && Boolean(typeof ok === 'function' ? ok() : ok);
+  return emitCheck(activeSection, name, passed,
+    ready ? detail : `HARNESS_PRECONDITION_FAILED${detail ? `: ${detail}` : ''}`,
+    passed ? 'PASS' : ready ? 'PRODUCT_FAILURE' : 'HARNESS_PRECONDITION_FAILED', trace);
 };
 let boundsObserved = false;
 const boundsViolations = [];
@@ -150,7 +271,21 @@ function graphShortestPath(graph, fromId, toId) {
 }
 
 async function openPage(label) {
-  const page = await (await newContext()).newPage();
+  const { browser, context } = await newContext();
+  let page;
+  try {
+    page = await context.newPage();
+  } catch (error) {
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+    throw error;
+  }
+  const close = async () => {
+    await page.close().catch(() => {});
+    await context.close().catch(() => {});
+    await browser.close().catch(() => {});
+  };
+  activeHarness = { close };
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${label}: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`${label}: PAGEERROR ${e.message}`));
   page.on('requestfailed', (request) => networkErrors.push(
@@ -185,6 +320,8 @@ async function openPage(label) {
     const state = await rawUi();
     lastTrace = state?.debug ? {
       phase: state.debug.phase,
+      elapsed: state.debug.elapsed,
+      frame: state.debug.frame,
       player: state.debug.player,
       carriedPhoto: state.debug.carriedPhoto,
       shutterReady: state.debug.shutterReady,
@@ -226,31 +363,64 @@ async function openPage(label) {
   // node lookup and shortest-path plan instead of blindly pressing into a fence.
   let lastRoute = null;
   const walkSegment = async (x, z, radius, stop, maxSteps = 140) => {
-    let bestDistance = Infinity;
-    let stalledSteps = 0;
     for (let step = 0; step < maxSteps; step += 1) {
       const state = await ui();
       if (stop && stop(state)) return state;
       const player = state.debug?.player;
-      if (!player) return null;
+      if (!player || !Number.isFinite(state.debug?.elapsed) || !Number.isFinite(state.debug?.frame)) {
+        throw new Error('Zoo movement debug elapsed/frame/player became unavailable');
+      }
       const dx = x - player.x;
       const dz = z - player.z;
       const distance = Math.hypot(dx, dz);
       if (distance <= radius) return state;
-      if (distance < bestDistance - 0.08) {
-        bestDistance = distance;
-        stalledSteps = 0;
-      } else {
-        stalledSteps += 1;
-        if (stalledSteps >= 9) return null;
-      }
+      if (FORCE_WALK_SHORT && distance <= radius + 2) return null;
       const keys = [];
       if (dz < -0.2) keys.push('KeyW');
       if (dz > 0.2) keys.push('KeyS');
       if (dx > 0.2) keys.push('KeyD');
       if (dx < -0.2) keys.push('KeyA');
       if (!keys.length) return state;
-      await hold(keys, Math.min(210, 70 + distance * 18));
+      for (const key of keys) await page.keyboard.down(key);
+      const held = await ui();
+      const heldPlayer = held.debug?.player;
+      if (!heldPlayer || !Number.isFinite(held.debug?.elapsed) || !Number.isFinite(held.debug?.frame)) {
+        throw new Error('Zoo movement debug disappeared after pressing movement keys');
+      }
+      const heldDistance = Math.hypot(x - heldPlayer.x, z - heldPlayer.z);
+      const heldFrame = held.debug.frame;
+      const heldElapsed = held.debug.elapsed;
+      const wallDeadline = Date.now() + 20000;
+      let observedUpdate = false;
+      let after = held;
+      try {
+        while (Date.now() < wallDeadline) {
+          after = await ui();
+          const afterPlayer = after.debug?.player;
+          if (!afterPlayer || !Number.isFinite(after.debug?.elapsed) || !Number.isFinite(after.debug?.frame)) {
+            throw new Error('Zoo movement debug disappeared while movement keys were held');
+          }
+          const frameDelta = after.debug.frame - heldFrame;
+          observedUpdate ||= frameDelta > 0;
+          const elapsedDelta = after.debug.elapsed - heldElapsed;
+          const afterDistance = Math.hypot(x - afterPlayer.x, z - afterPlayer.z);
+          const progressed = afterDistance < heldDistance - 0.04;
+          if (observedUpdate && (progressed || elapsedDelta >= 0.35 || frameDelta >= 12)) break;
+          await sleep(20);
+        }
+        if (!observedUpdate) {
+          throw new Error('No Zoo update occurred while movement keys were held');
+        }
+      } finally {
+        if (observedUpdate) {
+          for (const key of keys) await page.keyboard.up(key);
+        }
+      }
+      const afterPlayer = after.debug.player;
+      const afterDistance = Math.hypot(x - afterPlayer.x, z - afterPlayer.z);
+      if (stop && stop(after)) return after;
+      if (afterDistance <= radius) return after;
+      if (afterDistance >= heldDistance - 0.04) return null;
     }
     return null;
   };
@@ -298,13 +468,16 @@ async function openPage(label) {
   };
   await page.goto(URL, { waitUntil: 'networkidle' });
   await sleep(3200);
-  return { page, sleep, ui, waitFor, hold, walkTo, getLastRoute: () => lastRoute };
+  const harness = { page, sleep, ui, waitFor, hold, walkTo, getLastRoute: () => lastRoute, close };
+  activeHarness = harness;
+  return harness;
 }
 
 // Hub door for Zoo is the rightmost of the arc.
 async function enterZoo(h, label = 'zoo') {
   await h.hold(['KeyD'], 1500);
-  await holdUntil(h.page, 'KeyW', async () => (await h.ui()).prompt, { maxMs: 7000 });
+  const atDoor = await holdUntil(h.page, 'KeyW', async () => (await h.ui()).prompt, { maxMs: 7000 });
+  if (!atDoor || !(await h.ui()).prompt) return null;
   await h.page.keyboard.press('Space');
   // Campus geometry and thirteen canvas signs can take a good deal longer to
   // build than the hub, especially on a software renderer.
@@ -409,12 +582,35 @@ function inspectSignage(debug) {
 
 async function runSection(name, enabled, run) {
   if (!enabled) return;
+  const expected = CHECK_REGISTRY[name];
+  const start = results.length;
+  const sectionRun = { pending: new Set(expected) };
+  sectionRuns.set(name, sectionRun);
+  activeSection = name;
+  activeHarness = null;
   try {
     await run();
+    check(`${name} section completes without a harness exception`, true);
   } catch (error) {
-    check(`${name} section completes without a harness exception`, false,
-      error?.stack?.split('\n').slice(0, 3).join(' | ') || String(error), true, lastTrace);
+    const completionName = `${name} section completes without a harness exception`;
+    if (sectionRun.pending.has(completionName)) {
+      sectionRun.pending.delete(completionName);
+      emitCheck(name, completionName, false,
+        error?.stack?.split('\n').slice(0, 3).join(' | ') || String(error), 'HARNESS_ERROR', lastTrace);
+    }
     console.log(`  ${name} section failed; continuing: ${error?.message ?? error}`);
+  } finally {
+    for (const missing of [...sectionRun.pending]) {
+      sectionRun.pending.delete(missing);
+      emitCheck(name, missing, false, 'HARNESS_PRECONDITION_FAILED: section did not reach this check',
+        'HARNESS_PRECONDITION_FAILED', lastTrace);
+    }
+    await activeHarness?.close();
+    activeHarness = null;
+    activeSection = null;
+    const sectionResults = results.slice(start);
+    const passed = sectionResults.filter((result) => result.ok).length;
+    console.log(`  ${name}: ${passed}/${expected.length} checks passed (seed ${ZOO_SEED})`);
   }
 }
 
@@ -580,14 +776,24 @@ async function photographVerified(h, animal, tag = '') {
 
 async function showPhoto(h, index) {
   // A refusal or a thank-you plays out before the game accepts input again.
-  await h.waitFor((u) => u.debug?.phase === 'playing', 8000);
+  const playing = await h.waitFor((u) => u.debug?.phase === 'playing', 8000);
+  if (!playing?.debug?.carriedPhoto) return { arrived: false, state: playing, why: 'no carried photo in playing phase' };
   const s = await h.ui();
   const v = s.debug?.visitors?.[index];
-  if (!v) return null;
-  await h.walkTo(v.x, v.z, 1.1);
+  if (!v) return { arrived: false, state: s, why: `visitor ${index} unavailable` };
+  const arrived = await h.walkTo(v.x, v.z, 1.1);
+  const atVisitor = arrived?.debug?.player;
+  const currentVisitor = arrived?.debug?.visitors?.[index];
+  if (!atVisitor || !currentVisitor || distanceBetween(atVisitor, currentVisitor) > 1.1
+    || arrived.debug?.phase !== 'playing' || !arrived.debug?.carriedPhoto) {
+    return { arrived: false, state: arrived, why: 'visitor delivery position was not reached' };
+  }
+  const carriedBefore = arrived.debug.carriedPhoto;
   await h.page.keyboard.press('Space');
-  await h.sleep(1200);
-  return h.ui();
+  const delivered = await h.waitFor((u) => u.debug?.phase !== 'playing'
+    || u.debug?.visitors?.[index]?.served
+    || u.debug?.carriedPhoto !== carriedBefore, 8000, 'photo delivery');
+  return { arrived: true, state: delivered, why: delivered ? null : 'delivery input did not take effect' };
 }
 
 // ---- Session A: the listening route -------------------------------------
@@ -595,7 +801,8 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   const h = await openPage('A');
   const { page } = h;
   let s = await enterZoo(h);
-  check('hub -> Zoo', s?.debug);
+  check('hub -> Zoo', Boolean(s?.debug), '', Boolean(s?.debug));
+  if (!s?.debug) return;
   await h.sleep(1500);
   s = await h.ui();
   check('debug snapshot exposes every habitat and no wanted animals',
@@ -606,9 +813,14 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   await page.screenshot({ path: `${OUT}-01-plaza.png` });
 
   let served = 0;
+  let deliveryPreconditionsMet = true;
   for (let i = 0; i < 3; i += 1) {
     const q = await askNext(h);
-    if (!q) { console.log(`  stalled before visitor ${i + 1}: ${JSON.stringify((await h.ui()).debug)}`); break; }
+    if (!q) {
+      deliveryPreconditionsMet = false;
+      console.log(`  stalled before visitor ${i + 1}: ${JSON.stringify((await h.ui()).debug)}`);
+      break;
+    }
     if (i === 0) {
       check('question offered: "What animal do you like?"', /what animal do you like/i.test(q.asked.fallback[0].text), q.asked.fallback[0].text);
       check('visitor answers with an exact vocabulary sentence', q.animal, q.bubble);
@@ -629,20 +841,30 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
       await h.waitFor((u) => !u.bubble, 6000);
     }
     const shot = await photographVerified(h, q.animal);
+    check(`request ${i + 1} viewpoint is reached before photographing`, true,
+      JSON.stringify(shot), Boolean(shot?.reached));
     if (i === 0) {
-      check('the viewfinder only shoots a well-framed animal', shot?.ready, JSON.stringify(shot));
-      check('the photo taken is of that animal', shot?.carried === q.animal, shot?.carried);
+      check('the viewfinder only shoots a well-framed animal', shot?.ready, JSON.stringify(shot), Boolean(shot?.reached && shot?.facingOk));
+      check('the photo taken is of that animal', shot?.carried === q.animal, shot?.carried, Boolean(shot?.ready));
       await page.screenshot({ path: `${OUT}-03-photo.png` });
     }
-    s = await showPhoto(h, q.index);
+    const delivery = await showPhoto(h, q.index);
+    check(`visitor ${i + 1} is reached before showing the photo`, true,
+      delivery.why ?? '', delivery.arrived, delivery.state?.debug);
+    s = delivery.state;
+    if (!delivery.arrived || !s) {
+      deliveryPreconditionsMet = false;
+      break;
+    }
     if (s?.debug?.visitors[q.index]?.served) served += 1;
     if (i === 0) await page.screenshot({ path: `${OUT}-04-shown.png` });
   }
-  check('all three requests completed', served === 3, `${served}/3`);
+  check('all three requests completed', served === 3, `${served}/3`, deliveryPreconditionsMet);
 
   s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
   const values = s?.fallback.map((f) => f.value) ?? [];
-  check('turnaround offers every animal sentence', values.length === 13 && values.includes('tiger'), s?.fallback.map((f) => f.text).join(' | '));
+  check('turnaround offers every animal sentence', values.length === 13 && values.includes('tiger'),
+    s?.fallback.map((f) => f.text).join(' | '), Boolean(s));
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
   // Never throw here: a missing turnaround used to abort the whole run and take
   // session B's evidence with it. Record it and carry on.
@@ -652,17 +874,18 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   check('turnaround answer can be selected', turnaroundClicked, '', Boolean(s));
   if (!turnaroundClicked) await page.screenshot({ path: `${OUT}-fail-turnaround.png` }).catch(() => {});
   s = await h.waitFor((u) => !u.debug && u.greeting !== null, 15000, 'hub');
-  check('finishes back to the hub', s);
+  const hubReached = Boolean(s);
+  check('finishes back to the hub', Boolean(s), '', Boolean(s));
   await h.sleep(1200);
   s = await h.ui();
-  check('hub greets with the animal the child chose', s.greeting?.includes('tiger'), s.greeting);
+  check('hub greets with the animal the child chose', s.greeting?.includes('tiger'), s.greeting, Boolean(s?.greeting));
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
   check('stamp and answer persisted', saved?.stamps?.zoo === true && saved?.answers?.animal === 'tiger',
-    JSON.stringify({ stamps: saved?.stamps, answers: saved?.answers }));
-  check('listening + one replay = 3 stars', saved?.bestStars?.zoo === 3, JSON.stringify(saved?.bestStars));
+    JSON.stringify({ stamps: saved?.stamps, answers: saved?.answers }), hubReached);
+  check('listening + one replay = 3 stars', saved?.bestStars?.zoo === 3, JSON.stringify(saved?.bestStars), hubReached);
   const photo = saved?.zooPhotos?.zoo ?? saved?.zooPhotos?.animal ?? null;
   check('a photo was saved for the stamp book', typeof photo === 'string' && photo.startsWith('data:image/'),
-    photo ? `${photo.slice(0, 24)}… ${Math.round(photo.length / 1024)} kB` : 'none');
+    photo ? `${photo.slice(0, 24)}… ${Math.round(photo.length / 1024)} kB` : 'none', hubReached);
   const stampClicked = await clickIfPresent(page, '.stamp-button', { timeoutMs: 3000 });
   check('stamp book control is available', stampClicked, '', Boolean(s?.greeting));
   if (stampClicked) {
@@ -676,60 +899,101 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   }
 
   s = await enterZoo(h);
-  check('Zoo can be entered a second time', s?.debug);
+  check('Zoo can be entered a second time', Boolean(s?.debug), '', Boolean(s?.debug));
   await h.sleep(1500);
   const dupes = await page.evaluate((SEL) => ({
     listen: document.querySelectorAll('.listen-again').length,
     hud: document.querySelectorAll('.lesson-hud').length,
     viewfinder: document.querySelectorAll(SEL.viewfinder).length,
   }), SEL);
-  check('re-entry leaves no duplicated overlays', dupes.listen <= 1 && dupes.hud === 1 && dupes.viewfinder <= 1, JSON.stringify(dupes));
-  await page.close();
+  check('re-entry leaves no duplicated overlays', dupes.listen <= 1 && dupes.hud === 1 && dupes.viewfinder <= 1,
+    JSON.stringify(dupes), Boolean(s?.debug));
 });
 
 // ---- Session B: ignore the answers, show a wrong animal first --------------
 await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShortcut'), async () => {
   const h = await openPage('B');
   const { page } = h;
-  await enterZoo(h);
+  const entered = await enterZoo(h);
+  if (!entered?.debug) return;
   await h.sleep(1500);
   let refusal = null;
+  let deliveriesReached = true;
   for (let i = 0; i < 3; i += 1) {
     const q = await askNext(h);
-    if (!q) { console.log(`  B stalled before visitor ${i + 1}: ${JSON.stringify((await h.ui()).debug)}`); break; }
+    if (!q) {
+      deliveriesReached = false;
+      console.log(`  B stalled before visitor ${i + 1}: ${JSON.stringify((await h.ui()).debug)}`);
+      break;
+    }
     await h.waitFor((u) => !u.bubble, 8000);
     const wrong = ANIMALS.find((a) => a !== q.animal);
-    await photograph(h, wrong);
-    let s = await showPhoto(h, q.index);
+    const wrongShot = await photograph(h, wrong);
+    check(`request ${i + 1} wrong-photo viewpoint is reached before photographing`, true,
+      JSON.stringify(wrongShot), Boolean(wrongShot?.reached));
+    if (!wrongShot?.carried) {
+      deliveriesReached = false;
+      break;
+    }
+    const wrongDelivery = await showPhoto(h, q.index);
+    check(`visitor ${i + 1} is reached before wrong-photo delivery`, true,
+      wrongDelivery.why ?? '', wrongDelivery.arrived, wrongDelivery.state?.debug);
+    let s = wrongDelivery.state;
+    if (!wrongDelivery.arrived || !s) {
+      deliveriesReached = false;
+      break;
+    }
     if (refusal === null) {
-      refusal = { bubble: s?.bubble, english: /I like/.test(s?.body ?? ''), served: s?.debug?.visitors[q.index]?.served };
+      refusal = {
+        bubble: s?.bubble,
+        english: /I like/.test(s?.body ?? ''),
+        served: s?.debug?.visitors[q.index]?.served,
+        carriedPhoto: s?.debug?.carriedPhoto,
+      };
       await page.screenshot({ path: `${OUT}-07-wrong-animal.png` });
     }
-    // Retry the correct photo until it is actually in hand: the camera will not
-    // open while the refusal is still playing, and a shot can miss the frame.
+    // A refused photo is consumed. Wait for that state and for play to resume,
+    // then retry the correct photo until it is actually in hand.
+    let correctShot = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const resumed = await h.waitFor((u) => u.debug?.phase === 'playing', 8000, 'play to resume');
+      const resumed = await h.waitFor((u) => u.debug?.phase === 'playing' && u.debug?.carriedPhoto === null,
+        8000, 'refusal to consume photo and play to resume');
+      if (!resumed) break;
       const before = await h.ui();
-      const shot = await photographVerified(h, q.animal, `-B${attempt}`);
+      correctShot = await photographVerified(h, q.animal, `-B${attempt}`);
       const after = await h.ui();
-      console.log(`  B retry ${attempt} for ${q.animal}: resumed=${Boolean(resumed)} phaseBefore=${before.debug?.phase} -> ${JSON.stringify(shot)} phaseAfter=${after.debug?.phase} carried=${after.debug?.carriedPhoto} player=${after.debug?.player?.x?.toFixed(1)},${after.debug?.player?.z?.toFixed(1)}`);
-      if (shot?.carried === q.animal) break;
+      console.log(`  B retry ${attempt} for ${q.animal}: resumed=${Boolean(resumed)} phaseBefore=${before.debug?.phase} -> ${JSON.stringify(correctShot)} phaseAfter=${after.debug?.phase} carried=${after.debug?.carriedPhoto} player=${after.debug?.player?.x?.toFixed(1)},${after.debug?.player?.z?.toFixed(1)}`);
+      if (correctShot?.carried === q.animal) break;
     }
-    await showPhoto(h, q.index);
+    check(`request ${i + 1} correct-photo viewpoint is reached before photographing`, true,
+      JSON.stringify(correctShot), Boolean(correctShot?.reached));
+    if (correctShot?.carried !== q.animal) {
+      deliveriesReached = false;
+      break;
+    }
+    const correctDelivery = await showPhoto(h, q.index);
+    check(`visitor ${i + 1} is reached before correct-photo delivery`, true,
+      correctDelivery.why ?? '', correctDelivery.arrived, correctDelivery.state?.debug);
+    if (!correctDelivery.arrived || !correctDelivery.state) {
+      deliveriesReached = false;
+      break;
+    }
   }
   check('a wrong animal is refused in Japanese with no English repeat',
-    refusal && !refusal.english && refusal.served === false && refusal.bubble, JSON.stringify(refusal));
+    refusal && !refusal.english && refusal.served === false && refusal.bubble,
+    JSON.stringify(refusal), Boolean(refusal));
+  check('a refused photo is no longer carried', refusal?.carriedPhoto === null,
+    JSON.stringify(refusal), Boolean(refusal));
   const s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
-  if (s) {
-    const clicked = await clickIfPresent(page, '.lesson-hud__fallback');
-    check('anti-shortcut turnaround answer can be selected', clicked, '', Boolean(s));
-  }
-  await h.waitFor((u) => !u.debug, 15000, 'hub');
+  const clicked = s ? await clickIfPresent(page, '.lesson-hud__fallback') : false;
+  check('anti-shortcut turnaround answer can be selected', clicked, '', Boolean(s));
+  const hub = await h.waitFor((u) => !u.debug, 15000, 'hub');
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
   const stars = saved?.bestStars?.zoo ?? null;
-  check('showing wrong photos still finishes and earns the stamp (no dead end)', saved?.stamps?.zoo === true);
-  check('anti-shortcut: showing a wrong animal first cannot reach 3 stars', stars !== null && stars < 3, JSON.stringify(saved?.bestStars));
-  await page.close();
+  check('showing wrong photos still finishes and earns the stamp (no dead end)', saved?.stamps?.zoo === true,
+    '', deliveriesReached && Boolean(hub));
+  check('anti-shortcut: showing a wrong animal first cannot reach 3 stars', stars !== null && stars < 3,
+    JSON.stringify(saved?.bestStars), deliveriesReached && Boolean(hub));
 });
 
 // ---- Session C: visit and photograph every habitat on the campus ----------
@@ -815,16 +1079,19 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
   const plazaReached = graphReady ? await h.walkTo(plaza.x, plaza.z, 0.8) : null;
   if (plazaReached) await h.page.screenshot({ path: `${OUT}-region-plaza.png` });
   check('plaza visual-review screenshot is saved', Boolean(plazaReached),
-    JSON.stringify(plazaReached?.debug?.player), graphReady, plazaReached?.debug ?? state?.debug);
+    JSON.stringify(plazaReached?.debug?.player), graphReady && Boolean(plazaReached),
+    plazaReached?.debug ?? state?.debug);
   const hubReached = graphReady ? await h.walkTo(hub.x, hub.z, 0.8) : null;
   if (hubReached) await h.page.screenshot({ path: `${OUT}-region-hub.png` });
   check('hub visual-review screenshot is saved', Boolean(hubReached),
-    JSON.stringify(hubReached?.debug?.player), graphReady, hubReached?.debug ?? state?.debug);
+    JSON.stringify(hubReached?.debug?.player), graphReady && Boolean(hubReached),
+    hubReached?.debug ?? state?.debug);
 
   const visited = new Set();
   const regionScreenshots = new Set();
   const travelTimes = [];
   const habitatResults = [];
+  let allHabitatPreconditionsMet = graphReady;
   for (const animal of ANIMALS) {
     state = await h.ui();
     const hb = habitat(state, animal);
@@ -836,9 +1103,10 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
       && viewpointNode
       && distanceBetween(hb.viewpoint, viewpointNode) < 0.2,
     );
+    check(`${animal} has a graph-backed viewpoint`, habitatReady,
+      JSON.stringify({ habitat: hb, nearest: viewpointNode }), graphReady, state?.debug);
     if (!graphReady || !habitatReady) {
-      check(`${animal} has a graph-backed viewpoint`, false,
-        JSON.stringify({ habitat: hb, nearest: viewpointNode }), graphReady, state?.debug);
+      allHabitatPreconditionsMet = false;
       const result = {
         animal, reached: false, facingOk: false, shutterReady: false,
         photographedAsRightAnimal: false, wallSeconds: null,
@@ -853,6 +1121,7 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     let route = null;
     const routePlan = graphShortestPath(graph, plaza.id, viewpointNode.id);
     const modeledSeconds = routePlan ? routePlan.length / MOVE_SPEED : null;
+    if (!routePlan) allHabitatPreconditionsMet = false;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const reset = await h.walkTo(plaza.x, plaza.z, 0.8);
       if (!reset) break;
@@ -866,7 +1135,7 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     travelTimes.push({ animal, wallSeconds: measured, modeledSeconds, routeLength: routePlan?.length ?? null, route });
     console.log(`  ${animal}: route ${modeledSeconds == null ? 'unavailable' : `${modeledSeconds.toFixed(2)} modeled seconds`}; wall ${measured == null ? 'unreached' : `${measured.toFixed(2)}s`} (${route?.replans ?? '?'} stall replans)`);
     check(`${animal} viewpoint is reached from the plaza`, Boolean(arrived),
-      JSON.stringify({ wallSeconds: measured, route, player: arrived?.debug?.player }), habitatReady,
+      JSON.stringify({ wallSeconds: measured, route, player: arrived?.debug?.player }), Boolean(arrived),
       arrived?.debug ?? state?.debug);
     check(`${animal} graph route is at most 10 seconds at movement speed`,
       modeledSeconds !== null && modeledSeconds <= 10,
@@ -874,6 +1143,7 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
       Boolean(routePlan), state?.debug);
 
     if (!arrived) {
+      allHabitatPreconditionsMet = false;
       const result = {
         animal, reached: false, facingOk: false, shutterReady: false,
         photographedAsRightAnimal: false, wallSeconds: measured,
@@ -885,7 +1155,7 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     const shot = await photograph(h, animal, '-all');
     const rightAnimal = shot?.shutterReady && shot?.carried === animal;
     check(`${animal} faces the habitat before photographing`, shot?.facingOk,
-      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(arrived), (await h.ui()).debug);
+      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.reached), (await h.ui()).debug);
     check(`${animal} reaches shutter-ready from its viewpoint`, shot?.shutterReady,
       JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.facingOk), (await h.ui()).debug);
     check(`${animal} frames and photographs as the right animal`, rightAnimal,
@@ -899,6 +1169,7 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
       wallSeconds: measured,
     };
     habitatResults.push(result);
+    if (!shot?.reached || !shot?.facingOk || !shot?.shutterReady) allHabitatPreconditionsMet = false;
     console.log(`  habitat result ${JSON.stringify(result)}`);
     if (rightAnimal) visited.add(animal);
     await h.waitFor((value) => value.debug?.phase === 'playing', 5000, `${animal} camera to close`);
@@ -909,21 +1180,44 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
   }
   check('all thirteen habitats are photographed in one session',
     visited.size === ANIMALS.length && ANIMALS.every((animal) => visited.has(animal)),
-    JSON.stringify({ visited: [...visited], travelTimes, habitatResults }), graphReady, (await h.ui()).debug);
+    JSON.stringify({ visited: [...visited], travelTimes, habitatResults }), allHabitatPreconditionsMet, (await h.ui()).debug);
   const expectedRegionScreenshots = [...new Set(state?.debug?.habitats?.map((item) => item.region) ?? [])].sort();
   check('visual-review screenshots are saved for every habitat region',
     expectedRegionScreenshots.length > 0
       && expectedRegionScreenshots.every((region) => regionScreenshots.has(region)),
     JSON.stringify({ expected: expectedRegionScreenshots, saved: [...regionScreenshots].sort() }),
-    graphReady, (await h.ui()).debug);
-  await h.page.close();
+    allHabitatPreconditionsMet, (await h.ui()).debug);
 });
 
+activeSection = 'suite';
+sectionRuns.set('suite', { pending: new Set(CHECK_REGISTRY.suite) });
 check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' || '));
 check('no network errors', networkErrors.length === 0, networkErrors.slice(0, 3).join(' || '));
 check('the player never leaves the campus bounds', boundsObserved && boundsViolations.length === 0,
   JSON.stringify(boundsViolations), boundsObserved);
+activeSection = null;
+const sectionSummaries = [...sectionRuns.keys()].map((section) => {
+  const sectionResults = results.filter((result) => result.section === section);
+  return {
+    section,
+    passed: sectionResults.filter((result) => result.ok).length,
+    total: CHECK_REGISTRY[section].length,
+    seed: ZOO_SEED,
+  };
+});
+const suiteSummary = sectionSummaries.find((summary) => summary.section === 'suite');
+console.log(`  suite: ${suiteSummary.passed}/${suiteSummary.total} checks passed (seed ${ZOO_SEED})`);
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
-await Promise.allSettled(browsers.map((browser) => browser.close()));
+const resultClass = results.some((result) => result.result === 'HARNESS_ERROR') ? 'HARNESS_ERROR'
+  : results.some((result) => result.result === 'HARNESS_PRECONDITION_FAILED') ? 'HARNESS_PRECONDITION_FAILED'
+    : results.some((result) => result.result === 'PRODUCT_FAILURE') ? 'PRODUCT_FAILURE'
+      : 'PASS';
+await writeFile(`${OUT}-results.json`, `${JSON.stringify({
+  seed: ZOO_SEED,
+  forcedWalkShort: FORCE_WALK_SHORT,
+  result: resultClass,
+  sections: sectionSummaries,
+  checks: results,
+}, null, 2)}\n`, 'utf8');
 process.exitCode = failed > 0 ? 1 : 0;

@@ -88,6 +88,7 @@ export function createZoo(ctx) {
   let phase = 'inactive';
   let level = 1;
   let elapsed = 0;
+  let frame = 0;
   let noticeRemaining = 0;
   let answerRemaining = 0;
   let replayRemaining = 0;
@@ -784,6 +785,8 @@ export function createZoo(ctx) {
     return {
       phase,
       level,
+      elapsed,
+      frame,
       player: {
         x: player?.position.x ?? 0,
         z: player?.position.z ?? 0,
@@ -850,6 +853,7 @@ export function createZoo(ctx) {
     finishCalled = false;
     phase = 'playing';
     elapsed = 0;
+    frame = 0;
     noticeRemaining = 0;
     answerRemaining = 0;
     replayRemaining = 0;
@@ -881,6 +885,7 @@ export function createZoo(ctx) {
 
   function update(dt) {
     if (!active) return;
+    frame += 1;
     const safeDt = Math.min(Math.max(dt || 0, 0), .05);
     elapsed += safeDt;
     if (noticeRemaining > 0) {
