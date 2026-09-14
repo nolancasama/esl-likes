@@ -257,8 +257,10 @@ export const UI = Object.freeze({
     combo: '{count} コンボ！',
     // Shift phases and progress: small cues, never a countdown.
     rush: 'ラッシュ！',
+    lunchRush: 'ランチラッシュ！',
     finalPush: 'ラストスパート！',
     progress: 'おきゃくさん {done}/{total}',
+    rivalScore: 'きみ {player} ・ ウェイター {rival}',
     turnaround: 'こんどは きみの ばん！',
     complete: 'スタンプを ゲット！',
     tempHot: 'あつあつ！',

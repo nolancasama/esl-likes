@@ -854,6 +854,24 @@ The registry and rival read service delta only, so speech focus and recognition
 retries freeze them structurally, and new rival claims honour the existing
 0.8-second post-focus hold.
 
+Added in acceptance: **a saturated player no longer freezes the room.** Hands
+were gated by the player's live-order limit, so a child holding four orders
+stopped every new hand and the rival stood idle exactly when the restaurant was
+busiest. While the rival can take a customer (under its cap and not already
+serving one), one extra hand may rise above the player's limit outside warm-up.
+A child may still take that hand, so Challenge can briefly reach five live
+orders; a rival idling beside waiting customers read worse than that stretch.
+
+Part 2 integration keeps the comparison and scoring surfaces separate. Shift
+progress comes from the ownership registry, while the existing Restaurant score
+records contain only the child's work, so a rival delivery can neither award nor
+remove a star. The rival's pass dish is a separate scene object with no counter
+slot or interaction metadata. Rival customer endpoints are aisle-side approach
+points; the character steers around tables over the model's exact walk duration,
+with the rendered speed constrained to stay close to the modelled speed. The
+Challenge score remains visible through round-end and turnaround as its plain
+final result; Easy and Normal do not create any of this rival UI or scene state.
+
 Rejected:
 
 - **The two-dish tray remains deferred.** Its carry-slot state machine and
@@ -978,3 +996,13 @@ playable; its claimed CC0 status must be confirmed on quaternius.com before a
 public release. The unlicensed/heavier fence, hedge-maze, traffic-sign and
 unnamed Drive archives, unrelated character packs, and 700–800 KB twisted trees
 remain rejected as documented in the environment provenance README.
+
+## 2026-09-14 — Challenge rival look, score pill and five-order stretch accepted
+
+The owner reviewed the Challenge screenshots and accepted them as they are: the
+rival waiter (seen from above as a dark figure; its white apron does not show
+from the whole-room camera) is clearly distinct from the player, the
+`きみ N ・ ウェイター N` pill under the settings button is readable, and the room
+reads as a busy lunch rush. The brief stretch where the child can hold five live
+orders (the spare hand raised for a free rival is taken by the child) stays;
+capping the child at four was offered and declined.

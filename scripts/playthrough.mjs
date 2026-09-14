@@ -38,7 +38,7 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 
-async function newContext({ micFree = true, mockSpeech = false } = {}) {
+async function newContext({ micFree = true, mockSpeech = false, difficulty = LEVEL } = {}) {
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
   if (mockSpeech) await context.addInitScript(createMockSpeechInitScript());
   await context.addInitScript(([key, level, useMicFree]) => {
@@ -49,7 +49,7 @@ async function newContext({ micFree = true, mockSpeech = false } = {}) {
       }));
       sessionStorage.setItem('seeded', '1');
     }
-  }, [SAVE_KEY, LEVEL, micFree]);
+  }, [SAVE_KEY, difficulty, micFree]);
   return context;
 }
 
@@ -58,6 +58,12 @@ const errors = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok: Boolean(ok) });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  - ${detail}` : ''}`);
+};
+const precondition = (name, value, detail = '') => {
+  const ok = Boolean(value);
+  results.push({ name, ok, classification: ok ? 'PASS' : 'HARNESS_PRECONDITION_FAILED' });
+  console.log(`${ok ? 'PASS' : 'HARNESS_PRECONDITION_FAILED'}  ${name}${detail ? `  - ${detail}` : ''}`);
+  return ok;
 };
 
 async function openPage(label, options = {}) {
@@ -90,6 +96,8 @@ async function openPage(label, options = {}) {
       action: text(selectors.action),
       notice: text(selectors.notice),
       combo: text(selectors.combo),
+      score: text('.restaurant-ui__score'),
+      phasePill: text('.restaurant-ui__phase'),
       instruction: q('.restaurant-ui .scene-card p')?.textContent.trim() ?? null,
       bubble: text('.npc-dialogue__line'),
       listen: visible(q('.listen-again')),
@@ -162,6 +170,23 @@ const samePatience = (before, after) => before.every((value) => {
   const current = after.find((candidate) => candidate.index === value.index);
   return current && (value.patience == null || Math.abs(current.patience - value.patience) < 0.001);
 });
+const customerOwner = (customer) => customer?.owner ?? null;
+const customerReservation = (customer) => customer?.reservation ?? customer?.reservedBy ?? null;
+const playerOrders = (state) => state?.debug?.customers.filter((customer) => {
+  if (['delivered', 'eating', 'leaving', 'left', 'resolved'].includes(customer.state)) return false;
+  return customerOwner(customer) === 'player'
+    || (customerOwner(customer) === null && ['awaiting', 'preparing'].includes(customer.state));
+}) ?? [];
+const rivalIsWalking = (state) => ['walkingToCustomer', 'walkingToPass', 'delivering']
+  .includes(state?.debug?.rival?.state);
+const playerDeliveryCustomer = (state, remembered) => {
+  const carried = state?.debug?.carried;
+  if (!carried) return null;
+  return state.debug.customers.find((customer) => customerOwner(customer) === 'player'
+    && customer.state === 'awaiting'
+    && ((customer.id ?? customer.index) === carried.customer
+      || remembered.get(customer.index) === carried.food)) ?? null;
+};
 
 async function waitForShiftState(h, predicate, label, ms = 120000) {
   const end = Date.now() + ms;
@@ -179,7 +204,7 @@ async function approachCustomer(h, index, predicate, label) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const s = await h.ui();
     const customer = customerAt(s, index);
-    if (!customer?.screen) return null;
+    if (!customer?.screen || customerOwner(customer) === 'rival') return null;
     await clickAt(h.page, customer.screen);
     // Click-to-walk may cross the room before the real-time 1.2 s dwell even
     // begins. Do not re-click during that dwell: doing so deliberately cancels
@@ -190,7 +215,7 @@ async function approachCustomer(h, index, predicate, label) {
   return null;
 }
 
-async function askCustomer(h, index, { checkFreeze = false, remember = true } = {}) {
+async function askCustomer(h, index, { checkFreeze = false, checkRivalFreeze = false, remember = true } = {}) {
   const prompt = await approachCustomer(
     h,
     index,
@@ -199,6 +224,11 @@ async function askCustomer(h, index, { checkFreeze = false, remember = true } = 
   );
   if (!prompt) {
     const missing = await h.ui();
+    // On Challenge the rival may legitimately reach an unclaimed customer first.
+    if (customerOwner(customerAt(missing, index)) === 'rival') {
+      console.log(`  (the rival claimed customer ${index} first)`);
+      return null;
+    }
     check(`question prompt for customer ${index} appears`, false,
       JSON.stringify({ customer: customerAt(missing, index), debug: missing.debug }));
     await h.page.screenshot({ path: `${OUT}-missing-question-${index}.png` });
@@ -217,6 +247,28 @@ async function askCustomer(h, index, { checkFreeze = false, remember = true } = 
     check('speech focus is active for the mic-free prompt', focused.debug.focusActive && afterState.debug.focusActive);
     check('all customer patience is frozen while the prompt is open', samePatience(before, after),
       JSON.stringify({ before, after }));
+  }
+
+  if (checkRivalFreeze) {
+    // Only a moving rival makes this meaningful. Whether it is still walking when
+    // the prompt opens depends on route timing; rival.test.mjs covers zero dt.
+    if (rivalIsWalking(prompt)) {
+      const before = prompt.debug.rival;
+      await h.sleep(1400);
+      const after = (await h.ui()).debug?.rival;
+      const positionStill = Math.hypot(
+        (after?.position?.x ?? Infinity) - before.position.x,
+        (after?.position?.z ?? Infinity) - before.position.z,
+      ) < 0.001;
+      check('speech focus freezes rival state, target, position and carried food',
+        after?.state === before.state
+          && after?.targetCustomer === before.targetCustomer
+          && after?.carryingFood === before.carryingFood
+          && positionStill,
+      JSON.stringify({ before, after }));
+    } else {
+      console.log(`  (rival not mid-walk when customer ${index} prompt opened; freeze not sampled here)`);
+    }
   }
 
   const answerButton = prompt.fallback[0];
@@ -259,9 +311,11 @@ async function askShowingCues(h, remembered, options = {}) {
     let s = await h.ui();
     if (!s.debug?.customers.some((candidate) => candidate.cueShowing)
       && asked < (options.minimum ?? 0)) {
+      // Warm-up caps demand at two until 18 s of SERVICE time, and speech focus
+      // freezes that clock while asking, so the third hand can take a while.
       s = await h.waitFor(
         (state) => state.debug?.customers.some((candidate) => candidate.cueShowing),
-        8000,
+        40000,
         'next order cue',
       );
       if (!s) return asked;
@@ -413,7 +467,7 @@ async function clickAndWaitForArrival(h, customer) {
   return { arrived, arrivedAt };
 }
 
-async function finishTurnaround(h, screenshotName) {
+async function finishTurnaround(h, screenshotName, expectedScore = null) {
   const s = await h.waitFor(
     (state) => serviceLifecycle(state) === 'turnaround' && state.fallback.length >= 3,
     18000,
@@ -421,6 +475,12 @@ async function finishTurnaround(h, screenshotName) {
   );
   check('turnaround opens under speech focus', s?.debug?.focusActive, JSON.stringify(s?.debug));
   if (!s) return null;
+  if (expectedScore) {
+    check('the final result shows both player and rival counts plainly',
+      s.score?.includes(`きみ ${expectedScore.player}`)
+        && s.score.includes(`ウェイター ${expectedScore.rival}`),
+    JSON.stringify({ score: s.score, expectedScore }));
+  }
   await h.sleep(800);
   await h.page.screenshot({ path: screenshotName });
   const choice = s.fallback.find((answer) => answer.value === CHOICE);
@@ -540,7 +600,13 @@ async function finishTurnaround(h, screenshotName) {
   let replacementChecked = false;
   let reachedRush = directorPhase(s) === 'rush';
   let duplicateChecked = false;
-  await askShowingCues(h, remembered, { checkFreeze: true, minimum: 2 });
+  await askShowingCues(h, remembered, { checkFreeze: true, minimum: 3 });
+  s = await h.ui();
+  check('Normal reaches three unresolved player orders', playerOrders(s).length >= 3,
+    JSON.stringify(playerOrders(s).map((customer) => [customer.index, customer.state, customer.owner])));
+  if (playerOrders(s).length >= 3) {
+    await page.screenshot({ path: `${OUT}-08-normal-multiple-unresolved.png` });
+  }
   s = await waitForShiftState(h,
     (state) => state.debug?.readyDishes.length >= 2, 'two ready dishes');
   check('two independently prepared dishes can wait on the counter', s?.debug?.readyDishes.length >= 2,
@@ -822,6 +888,380 @@ async function finishTurnaround(h, screenshotName) {
     JSON.stringify(saved?.stamps));
   check('anti-shortcut sweep cannot reach three stars', stars !== null && stars < 3,
     JSON.stringify({ bestStars: saved?.bestStars, firstTryShare: sweepScore?.firstTryShare }));
+  await page.close();
+}
+
+// ---- Session C: Challenge rival ownership and shared rush ---------------
+{
+  const h = await openPage('challenge-rival', { difficulty: 3 });
+  const { page } = h;
+  let s = await enterRestaurant(h);
+  const enteredChallenge = precondition('Challenge session enters Restaurant at level 3',
+    s?.restaurant && s?.debug?.level === 3, JSON.stringify({ level: s?.debug?.level }));
+  if (enteredChallenge) {
+    check('Challenge opens with the lunch-rush phase pill',
+      s.phasePill === 'ランチラッシュ！' || s.body.includes('ランチラッシュ！'),
+      JSON.stringify({ phasePill: s.phasePill }));
+  }
+
+  const remembered = new Map();
+  let rivalryTarget = null;
+  let takeoverCommitted = false;
+  let rivalPassChecked = false;
+
+  // Camp beside the first hand, then cancel the dwell. This establishes a
+  // reachable target without reserving it, so the later race tests ownership
+  // instead of which waiter happened to start closer to the table.
+  // Click-to-walk parks the player at (seatX, seatZ - 1.65). From there, only
+  // these keys leave the talk radius without walking into or facing another
+  // seat (tables 3 and 4 step toward the centre customer, so they are skipped).
+  const AWAY_KEY_BY_TABLE = { 0: 'KeyD', 1: 'KeyW', 2: 'KeyA' };
+  const stageable = (customer) => customer.cueShowing && customerOwner(customer) === null
+    && AWAY_KEY_BY_TABLE[customer.table] !== undefined;
+  s = await waitForShiftState(h, (state) => state.debug?.customers.some(stageable),
+    'Challenge raised hand at a back table to stage rival race');
+  const campCustomer = s?.debug?.customers.find(stageable) ?? null;
+  const hasCampCustomer = precondition('precondition: an unclaimed raised hand can stage the rival race',
+    campCustomer?.screen, JSON.stringify(campCustomer));
+  if (hasCampCustomer) {
+    // Cancel while the dwell is still running. Waiting for arrival first let
+    // the 1.2 s dwell commit, which claims the customer instead of releasing it.
+    const campId = campCustomer.id ?? campCustomer.index;
+    await clickAt(page, campCustomer.screen);
+    const dwelling = await h.waitFor((state) => state.debug?.dwell?.targetId === campId
+      && state.debug.dwell.phase === 'dwelling'
+      && state.debug.dwell.progress < 0.6
+      && customerReservation(customerAt(state, campCustomer.index)) === 'player', 8000,
+    'staged dwell to reserve the camp customer');
+    // Press away from the customer before any further full ui() round-trip: under
+    // SwiftShader one snapshot can outlast the rest of the 1.2 s dwell.
+    await page.evaluate(() => {
+      window.__stagedDwellAtKeydown = null;
+      window.addEventListener('keydown', () => {
+        const raw = window.__eslDebug?.restaurant;
+        const d = typeof raw === 'function' ? raw() : raw;
+        window.__stagedDwellAtKeydown = JSON.parse(JSON.stringify({
+          dwell: d?.dwell ?? null,
+          committed: d?.question?.committed ?? null,
+          player: d?.player ?? null,
+        }));
+      }, { once: true, capture: true });
+    });
+    // S (+z) would walk into the customer and table; see AWAY_KEY_BY_TABLE.
+    await h.hold([AWAY_KEY_BY_TABLE[campCustomer.table]], 800);
+    console.log(`  (staged dwell at keydown: ${JSON.stringify(
+      await page.evaluate(() => window.__stagedDwellAtKeydown))})`);
+    console.log(`  (staged dwell after keyup: ${JSON.stringify(await page.evaluate(() => {
+      const raw = window.__eslDebug?.restaurant;
+      const d = typeof raw === 'function' ? raw() : raw;
+      return { dwell: d?.dwell ?? null, committed: d?.question?.committed ?? null, player: d?.player ?? null };
+    }))})`);
+    precondition('precondition: the staged dwell reserves the camp customer before commit',
+      dwelling, JSON.stringify(customerAt(dwelling, campCustomer.index)));
+    // Leave the 2.7-unit talk radius: stopping inside it while still locked on
+    // the customer starts a fresh dwell, which then commits.
+    s = await h.waitFor((state) => {
+      const customer = customerAt(state, campCustomer.index);
+      return customerOwner(customer) === null
+        && customerReservation(customer) === null
+        && state.debug?.dwell?.targetId == null
+        && !state.debug?.focusActive;
+    }, 3000, 'staged dwell cancellation to release its reservation');
+    const released = precondition('precondition: cancelling the staged dwell releases the player reservation',
+      s, JSON.stringify(customerAt(await h.ui(), campCustomer.index)));
+    if (!released) {
+      // If the dwell won the race, its open prompt freezes the service clock.
+      // Answer it so the rest of the Challenge run is not measured frozen.
+      const stuck = await h.ui();
+      if (stuck.fallback.length) {
+        await page.click('.lesson-hud__fallback');
+        await h.waitFor((state) => !state.debug?.focusActive, 8000, 'recovery from the committed staged dwell');
+      }
+    }
+    if (released) {
+      s = await h.waitFor((state) => state.debug?.rival?.state === 'walkingToCustomer'
+        && state.debug.rival.targetCustomer === (campCustomer.id ?? campCustomer.index),
+      18000, 'rival to walk toward the staged customer');
+      const rivalStarted = precondition('precondition: the rival walks toward the staged unclaimed customer',
+        s, JSON.stringify((await h.ui()).debug?.rival));
+      if (rivalStarted) {
+        rivalryTarget = campCustomer.id ?? campCustomer.index;
+        const fresh = customerAt(s, campCustomer.index);
+        if (fresh?.screen) await clickAt(page, fresh.screen);
+        const reserved = await h.waitFor((state) => {
+          const customer = customerAt(state, campCustomer.index);
+          return customerReservation(customer) === 'player' || customerOwner(customer) === 'player';
+        }, 1800, 'player reservation on the rival walk target');
+        const reservationReached = precondition(
+          'precondition: player dwell reserves the customer while the rival is approaching',
+          reserved, JSON.stringify(customerAt(await h.ui(), campCustomer.index)),
+        );
+        if (reservationReached) {
+          const prompt = await h.waitFor((state) => state.fallback.length > 0 && state.debug?.focusActive,
+            4000, 'held fallback on the rival walk target');
+          precondition('precondition: speech focus opens on the reserved customer',
+            prompt, JSON.stringify(prompt?.debug?.rival));
+          // A player reservation makes the rival abandon this target by design
+          // (rival.js 'reserved'), so it is often idle by the time focus opens.
+          const walkingFocus = prompt && rivalIsWalking(prompt);
+          if (!walkingFocus) console.log('  (rival already abandoned the reserved target; freeze sampled on the separate-routes prompt)');
+          if (walkingFocus) {
+            const before = prompt.debug.rival;
+            await h.sleep(1400);
+            const after = (await h.ui()).debug?.rival;
+            const positionStill = Math.hypot(
+              (after?.position?.x ?? Infinity) - before.position.x,
+              (after?.position?.z ?? Infinity) - before.position.z,
+            ) < 0.001;
+            check('speech focus freezes rival state, target, position and carried food',
+              after?.state === before.state
+                && after?.targetCustomer === before.targetCustomer
+                && after?.carryingFood === before.carryingFood
+                && positionStill,
+            JSON.stringify({ before, after }));
+          }
+          if (prompt?.fallback[0]) await page.click('.lesson-hud__fallback');
+          const committed = await h.waitFor((state) => {
+            const customer = customerAt(state, campCustomer.index);
+            return customerOwner(customer) === 'player'
+              && customer?.state === 'awaiting'
+              && /^I like .+\.$/.test(state.bubble ?? '');
+          }, 7000, 'player claim to commit after the reserved dwell');
+          const committedReached = precondition(
+            'precondition: the reserved Challenge conversation commits successfully',
+            committed, JSON.stringify(customerAt(await h.ui(), campCustomer.index)),
+          );
+          if (committedReached) {
+            const spoken = committed.bubble.match(/^I like (.+)\.$/)?.[1]?.toLowerCase() ?? null;
+            remembered.set(campCustomer.index, FOOD_BY_SENTENCE.get(spoken) ?? spoken);
+            takeoverCommitted = true;
+            const abandoned = await h.waitFor((state) => state.debug?.rival?.targetCustomer !== rivalryTarget,
+              8000, 'rival to abandon the player-owned target');
+            check('a player dwell keeps the approached customer and makes the rival abandon it',
+              customerOwner(customerAt(abandoned, campCustomer.index)) === 'player',
+              JSON.stringify({ customer: customerAt(abandoned, campCustomer.index), rival: abandoned?.debug?.rival }));
+          }
+        }
+      }
+    }
+  }
+
+  // Let the rival establish ownership before probing the player interaction
+  // filters. A missing claim is setup failure, not evidence about those filters.
+  s = await waitForShiftState(h, (state) => state.debug?.customers.some((customer) =>
+    customerOwner(customer) === 'rival'), 'first rival-owned customer', 40000);
+  let rivalCustomer = s?.debug?.customers.find((customer) => customerOwner(customer) === 'rival') ?? null;
+  const rivalClaimed = precondition('precondition: the rival claims an unclaimed Challenge customer',
+    rivalCustomer, JSON.stringify(s?.debug?.rival));
+  if (rivalClaimed && rivalCustomer.screen) {
+    const rivalId = rivalCustomer.id ?? rivalCustomer.index;
+    await clickAt(page, rivalCustomer.screen);
+    const started = await h.waitFor((state) => state.debug?.player?.autoWalking
+      || state.debug?.dwell?.targetId === rivalId
+      || state.debug?.question?.customer === rivalId,
+    1200, 'click response at rival-owned customer');
+    if (started?.debug?.player?.autoWalking) {
+      await h.waitFor((state) => !state.debug?.player?.autoWalking
+        || !customerAt(state, rivalCustomer.index), 7000, 'arrival beside rival-owned customer');
+    }
+    const forbiddenTalk = await h.waitFor((state) => state.debug?.dwell?.targetId === rivalId
+      || state.debug?.question?.customer === rivalId,
+    1600, 'forbidden rival-owned talk target');
+    check('rival-owned customers never become click-to-talk or dwell targets', !forbiddenTalk,
+      JSON.stringify(forbiddenTalk?.debug));
+  }
+
+  s = await waitForShiftState(h, (state) => state.debug?.rivalPass?.contents?.state === 'ready',
+    'first ready rival-pass dish', 35000);
+  const firstRivalPassReady = precondition(
+    'precondition: the rival pass visibly contains its own ready dish',
+    s?.debug?.rivalPass?.contents?.state === 'ready' && s.debug.rivalPass.screen,
+  JSON.stringify(s?.debug?.rivalPass));
+  if (firstRivalPassReady) {
+    await clickAt(page, s.debug.rivalPass.screen);
+    await h.waitFor((state) => !state.debug?.player?.autoWalking, 8000,
+      'player movement after clicking the rival pass');
+    const afterPassClick = await h.ui();
+    check('the player cannot collect from the rival pass', !afterPassClick.debug?.carried,
+      JSON.stringify({ carried: afterPassClick.debug?.carried, rivalPass: afterPassClick.debug?.rivalPass }));
+    rivalPassChecked = !afterPassClick.debug?.carried;
+    s = afterPassClick;
+  }
+
+  // Preserve enough free order budget for two simultaneous hand cues. This
+  // makes the motion frame prove that each waiter has a different customer.
+  s = await waitForShiftState(h, (state) => (state.debug?.rivalServed ?? 0) >= 1,
+    'rival to complete its first table', 60000);
+  const rivalCompleted = precondition('precondition: the rival completes a claimed customer',
+    (s?.debug?.rivalServed ?? 0) >= 1, JSON.stringify({
+      rival: s?.debug?.rival,
+      rivalServed: s?.debug?.rivalServed,
+    }));
+  if (rivalCompleted) {
+    s = await waitForShiftState(h, (state) => {
+      const target = state.debug?.rival?.targetCustomer;
+      return state.debug?.rival?.state === 'walkingToCustomer'
+        && state.debug.customers.some((customer) => customer.cueShowing
+          && customerOwner(customer) === null
+          && (customer.id ?? customer.index) !== target);
+    }, 'separate customer routes for player and rival', 35000);
+    const playerRouteTarget = s?.debug?.customers.find((customer) => customer.cueShowing
+      && customerOwner(customer) === null
+      && (customer.id ?? customer.index) !== s.debug.rival.targetCustomer) ?? null;
+    const separateRoutes = precondition(
+      'precondition: a second raised hand exists while the rival approaches another customer',
+      s && playerRouteTarget?.screen, JSON.stringify({ rival: s?.debug?.rival, customers: s?.debug?.customers }),
+    );
+    if (separateRoutes) {
+      await clickAt(page, playerRouteTarget.screen);
+      const bothMoving = await h.waitFor((state) => state.debug?.player?.autoWalking
+        && state.debug?.rival?.state === 'walkingToCustomer'
+        && state.debug.rival.targetCustomer !== (playerRouteTarget.id ?? playerRouteTarget.index),
+      1400, 'both waiters moving toward separate customers');
+      const movingReached = precondition('precondition: both waiters begin their separate routes',
+        bothMoving, JSON.stringify((await h.ui()).debug));
+      if (movingReached) {
+        await page.screenshot({ path: `${OUT}-09-player-rival-separate-customers.png` });
+      }
+      const answer = await askCustomer(h, playerRouteTarget.index, { checkRivalFreeze: true });
+      if (answer) remembered.set(answer.index, answer.food);
+    }
+  }
+
+  // Reach three player orders first, then capture the explicit choice between
+  // serving ready food and taking one newly raised fourth order.
+  for (let attempts = 0; attempts < 6 && playerOrders(await h.ui()).length < 3; attempts += 1) {
+    s = await waitForShiftState(h, (state) => state.debug?.customers.some((customer) =>
+      customer.cueShowing && customerOwner(customer) !== 'rival'), 'next player Challenge hand', 16000);
+    const next = s?.debug?.customers.find((customer) =>
+      customer.cueShowing && customerOwner(customer) !== 'rival');
+    if (!next) break;
+    const answer = await askCustomer(h, next.index);
+    if (answer) remembered.set(answer.index, answer.food);
+  }
+  s = await waitForShiftState(h, (state) => playerOrders(state).length >= 3
+    && state.debug?.readyDishes.length >= 1
+    && state.debug.customers.some((customer) => customer.cueShowing
+      && customerOwner(customer) !== 'rival'),
+  'ready food beside a newly raised fourth player hand', 35000);
+  const choiceReached = precondition(
+    'precondition: Challenge offers a new raised hand while player food is ready',
+    s, JSON.stringify(s?.debug));
+  if (choiceReached) {
+    await page.screenshot({ path: `${OUT}-10-raised-hand-or-ready-food.png` });
+  }
+  // The rival may win any single race, so keep taking free hands until four.
+  for (let attempts = 0; attempts < 6 && playerOrders(await h.ui()).length < 4; attempts += 1) {
+    s = await waitForShiftState(h, (state) => state.debug?.customers.some((customer) =>
+      customer.cueShowing && customerOwner(customer) === null), 'fourth player Challenge hand', 16000);
+    const next = s?.debug?.customers.find((customer) =>
+      customer.cueShowing && customerOwner(customer) === null);
+    if (!next) break;
+    const answer = await askCustomer(h, next.index);
+    if (answer) remembered.set(answer.index, answer.food);
+  }
+  s = await h.ui();
+  check('Challenge reaches four unresolved player orders', playerOrders(s).length >= 4,
+    JSON.stringify(playerOrders(s).map((customer) => [customer.index, customer.state, customer.owner])));
+  if (playerOrders(s).length >= 4) {
+    await page.screenshot({ path: `${OUT}-11-challenge-four-unresolved.png` });
+  }
+
+  // Carry a real player dish to a rival table. Ownership must make the offer
+  // a no-op even when food happens to match.
+  s = await waitForShiftState(h, (state) => state.debug?.readyDishes.length > 0,
+    'player dish for rival-owned delivery probe', 30000);
+  const dishForProbe = s?.debug?.readyDishes[0] ?? null;
+  const hasPlayerDish = precondition('precondition: a player dish is ready for the ownership probe',
+    dishForProbe, JSON.stringify(s?.debug?.readyDishes));
+  if (hasPlayerDish) s = await collectDish(h, dishForProbe);
+  if (s?.debug?.carried) {
+    // Owner stays 'rival' after that customer is served and gone, so require one
+    // still waiting at its table; a finished customer's screen point is empty floor.
+    const rivalAwaiting = (customer) => customerOwner(customer) === 'rival' && customer.state === 'awaiting';
+    s = await waitForShiftState(h, (state) => state.debug?.customers.some(rivalAwaiting),
+      'rival-owned delivery target', 35000);
+    rivalCustomer = s?.debug?.customers.find(rivalAwaiting) ?? null;
+    const deliveryTargetReady = precondition(
+      'precondition: a rival-owned customer exists while the player carries a dish',
+      rivalCustomer, JSON.stringify({ carried: s?.debug?.carried, customers: s?.debug?.customers }),
+    );
+    if (deliveryTargetReady) {
+      const carriedBefore = s.debug.carried;
+      await clickAt(page, rivalCustomer.screen);
+      await h.waitFor((state) => !state.debug?.player?.autoWalking
+        || !customerAt(state, rivalCustomer.index), 7000, 'rival-table delivery attempt to settle');
+      const after = await h.ui();
+      check('deliver ignores rival-owned customers and leaves the player dish carried',
+        after.debug?.carried?.customer === carriedBefore.customer
+          && after.debug?.carried?.food === carriedBefore.food,
+      JSON.stringify({ before: carriedBefore, after: after.debug?.carried,
+        target: customerAt(after, rivalCustomer.index) }));
+      s = after;
+    }
+  }
+
+  // Finish the carried plate normally before approaching the rival pass.
+  if (s?.debug?.carried) {
+    const target = playerDeliveryCustomer(s, remembered);
+    if (target) s = (await offerDish(h, target.index)).state;
+  }
+  check('the rival-pass ownership probe completed', rivalPassChecked);
+
+  // Complete the shared shift with the same listen/remember/deliver loop as
+  // Normal, while treating ownership as the authoritative interaction filter.
+  const serviceDeadline = Date.now() + 300000;
+  while (s?.debug && isInService(s) && progressOf(s).done < progressOf(s).total
+    && Date.now() < serviceDeadline) {
+    s = await h.ui();
+    const cue = s.debug.customers.find((customer) => customer.cueShowing
+      && customerOwner(customer) !== 'rival');
+    if (cue) {
+      const answer = await askCustomer(h, cue.index);
+      if (answer) remembered.set(answer.index, answer.food);
+      continue;
+    }
+    if (!s.debug.carried && s.debug.readyDishes.length > 0) {
+      s = await collectDish(h, s.debug.readyDishes[0]);
+      continue;
+    }
+    if (s?.debug?.carried) {
+      const target = playerDeliveryCustomer(s, remembered);
+      if (target) {
+        s = (await offerDish(h, target.index)).state;
+        continue;
+      }
+    }
+    s = await h.waitFor((state) => !isInService(state)
+      || progressOf(state).done >= progressOf(state).total
+      || state.debug?.customers.some((customer) => customer.cueShowing
+        && customerOwner(customer) !== 'rival')
+      || (!state.debug?.carried && state.debug?.readyDishes.length > 0),
+    25000, 'next owned Challenge action');
+    if (!s) s = await h.ui();
+  }
+
+  s = await h.ui();
+  const challengeProgress = progressOf(s);
+  check('Challenge shared service resolves its full reported total',
+    challengeProgress.done === challengeProgress.total,
+    JSON.stringify({ progress: challengeProgress, rival: s?.debug?.rival, customers: s?.debug?.customers }));
+  const scoreReady = precondition('precondition: both waiters complete at least one table for the score HUD',
+    (s?.debug?.playerServed ?? 0) >= 1 && (s?.debug?.rivalServed ?? 0) >= 1,
+  JSON.stringify({ playerServed: s?.debug?.playerServed, rivalServed: s?.debug?.rivalServed }));
+  if (scoreReady) {
+    const playerText = `きみ ${s.debug.playerServed}`;
+    const rivalText = `ウェイター ${s.debug.rivalServed}`;
+    check('Challenge score pill reflects both completed-table counts',
+      s.score?.includes(playerText) && s.score.includes(rivalText),
+      JSON.stringify({ score: s.score, playerText, rivalText }));
+  }
+  const finalCounts = scoreReady
+    ? { player: s.debug.playerServed, rival: s.debug.rivalServed }
+    : null;
+  s = await finishTurnaround(h, `${OUT}-12-final-player-vs-waiter.png`, finalCounts);
+  check('Challenge session finishes back at the hub', s);
+  check('the staged ownership takeover completed', takeoverCommitted);
   await page.close();
 }
 

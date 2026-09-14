@@ -28,7 +28,7 @@ const HAND_SPACING_SECONDS = 0.32;
 
 const SETTLING_STATES = new Set(['seated', 'settling']);
 const RAISED_HAND_STATES = new Set(['orderCue', 'raisedHand']);
-const RESOLVED_STATES = new Set(['delivered', 'left', 'resolved']);
+const RESOLVED_STATES = new Set(['delivered', 'eating', 'leaving', 'left', 'resolved']);
 
 function finiteInt(value, minimum, fallback) {
   const number = Number(value);
@@ -120,11 +120,14 @@ function resolvedCount(view, customers) {
  *     Challenge additionally supplies owner: null | 'player' | 'rival' and
  *     reservedBy: null | 'player'. When any owner is supplied, demand is
  *     derived from these records: player-owned unresolved orders plus
- *     unclaimed raised hands. Rival-owned customers never consume the budget,
+ *     unclaimed raised hands. Eating/leaving customers are already resolved
+ *     for demand purposes, rival-owned customers never consume the budget,
  *     and a player-reserved hand still does.
  *   liveOrders: number // taken, unresolved orders; excludes raised hands
  *     Legacy Easy/Normal fallback used only when owner fields are absent.
  *   focusReleasedAgo: number // Infinity/null before any focus
+ *   rivalAvailable?: boolean // Challenge rival could take a customer now;
+ *     outside warm-up it allows one hand above the player's live-order limit
  *   progress?: { done: number }
  *
  * Returned events are intentionally data-only. The controller owns every scene
@@ -291,10 +294,12 @@ export function createRestaurantDirector({
     return { type: 'seat', table: selected, customer, food: pickFood(rng) };
   }
 
-  function nextHandEvent(customers, liveDemand) {
+  function nextHandEvent(customers, liveDemand, rivalAvailable) {
+    // A saturated player must not freeze the whole room: while the Challenge
+    // rival can take a customer, one extra hand may rise above the player's limit.
     const demandLimit = currentPhase === PHASES.WARMUP
       ? Math.min(configuredLimit, 2)
-      : configuredLimit;
+      : configuredLimit + (rivalAvailable ? 1 : 0);
     if (liveDemand >= demandLimit || serviceTime - lastHandAt < HAND_SPACING_SECONDS) return null;
 
     let selected = null;
@@ -361,7 +366,7 @@ export function createRestaurantDirector({
       const seat = nextSeatEvent();
       if (seat) events.push(seat);
 
-      const hand = nextHandEvent(customers, liveDemand);
+      const hand = nextHandEvent(customers, liveDemand, view.rivalAvailable === true);
       if (hand) events.push(hand);
 
       const ready = nextReadyEvent(customers);

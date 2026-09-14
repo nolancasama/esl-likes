@@ -198,6 +198,56 @@ test('rival-owned orders do not consume the player live-order limit', () => {
   });
 });
 
+test('player-owned eating and leaving customers do not consume the live-order limit', () => {
+  const director = createRestaurantDirector({ level: 3, tables: 5, total: 11, rng: () => 0 });
+  const view = {
+    tables: Array.from({ length: 5 }, () => ({ occupied: true })),
+    customers: [
+      { id: 0, state: 'preparing', owner: 'player', prepRemaining: 5 },
+      { id: 1, state: 'ready', owner: 'player' },
+      { id: 2, state: 'orderCue', owner: null, reservedBy: 'player' },
+      { id: 3, state: 'eating', owner: 'player' },
+      { id: 4, state: 'leaving', owner: 'player' },
+      { id: 5, state: 'settling', owner: null },
+    ],
+    liveOrders: 99,
+    focusReleasedAgo: 0,
+  };
+
+  for (let second = 0; second < 19; second += 1) director.advance(1, view);
+  view.focusReleasedAgo = Infinity;
+  const events = director.advance(0.01, view);
+  assert.deepEqual(events.find((event) => event.type === 'raiseHand'), {
+    type: 'raiseHand', customer: 5,
+  });
+});
+
+test('an available rival lets one hand rise above a saturated player limit', () => {
+  const saturatedView = (rivalAvailable) => ({
+    tables: Array.from({ length: 5 }, () => ({ occupied: true })),
+    customers: [
+      { id: 0, state: 'preparing', owner: 'player', prepRemaining: 50 },
+      { id: 1, state: 'preparing', owner: 'player', prepRemaining: 50 },
+      { id: 2, state: 'preparing', owner: 'player', prepRemaining: 50 },
+      { id: 3, state: 'preparing', owner: 'player', prepRemaining: 50 },
+      { id: 4, state: 'settling', owner: null },
+    ],
+    liveOrders: 4,
+    focusReleasedAgo: 0,
+    rivalAvailable,
+  });
+  const handAfterRush = (rivalAvailable) => {
+    const director = createRestaurantDirector({ level: 3, tables: 5, total: 11, rng: () => 0 });
+    const view = saturatedView(rivalAvailable);
+    for (let second = 0; second < 19; second += 1) director.advance(1, view);
+    view.focusReleasedAgo = Infinity;
+    return director.advance(0.01, view).find((event) => event.type === 'raiseHand') ?? null;
+  };
+
+  assert.deepEqual(handAfterRush(true), { type: 'raiseHand', customer: 4 });
+  assert.equal(handAfterRush(false), null);
+});
+
 for (const [level, tables, total, expected] of [[2, 4, 7, 3], [3, 5, 8, 4]]) {
   test(`level ${level} reaches its ${expected}-order overlap budget`, () => {
     const sim = makeSimulation({ level, tables, total, rng: sequenceRng([0.05, 0.2, 0.4, 0.6]) });
