@@ -103,4 +103,15 @@ owner's approval).
 - Rival part 2 `.ai/wo-restaurant-rival-integration.json`: Codex PARTIAL (usage
   limit) after implementing; Claude completed acceptance and harness fixes
   directly; accepted 2026-09-14.
-- None in flight.
+- Conveyor logic `.ai/wo-restaurant-conveyor-logic.json`: accepted, committed `07f1f64`.
+- Conveyor scene `.ai/wo-restaurant-conveyor-scene.json`: Codex PARTIAL — usage
+  limit (resets 2026-09-14 23:28). UNCOMMITTED, UNREVIEWED partial edit to
+  `src/minigames/restaurant/index.js` only (+372/−211): conveyor created and
+  advanced, sign, dish return, rival hatch, debug fields, counter slots and bell
+  sounds removed. Known defects: cleanup still assigns undeclared `readyCue` /
+  `bellDome` (ReferenceError on exit); `src/config/lesson.js` untouched, so new
+  STRINGS keys may be missing. Owner chose to wait for the Codex reset: resume
+  with `.ai/wo-restaurant-conveyor-scene-resume.json`. Do not revert the partial
+  work and do not re-implement it from scratch.
+- Conveyor harness `.ai/wo-restaurant-conveyor-harness.json`: drafted, not
+  dispatched; runs after the scene is accepted.

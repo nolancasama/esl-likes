@@ -1,0 +1,39 @@
+{
+  "task": "Complete the partially implemented Restaurant conveyor scene integration. A previous run stopped at its usage limit and left UNTRUSTED uncommitted edits in src/minigames/restaurant/index.js.",
+  "requirements": [
+    "First inspect the existing uncommitted diff (`git diff src/minigames/restaurant/index.js`). Preserve what is correct, repair or revert what is wrong, then complete every requirement of .ai/wo-restaurant-conveyor-scene.json, which remains the source of truth for behaviour and the frozen debug contract.",
+    "Fix the known defect: the exit/cleanup code assigns `readyCue = null` and `bellDome = null` although their declarations were removed (a ReferenceError in this ES module when the Restaurant exits). Remove every remaining reference to the counter, bell and ready cue.",
+    "Verify every `STRINGS.<key>` referenced in src/minigames/restaurant/index.js exists under the restaurant block of src/config/lesson.js; add missing Japanese labels (at least the dish-return action) and remove `bellReady`.",
+    "Verify the requirements a partial run is most likely to have skipped: host absent during service and shown only at turnaround with a re-aimed closeup; side-wall kitchen openings with dishes hidden while |x| >= 6.85; belt surface scrolling from beltTravel; MATSUBARA RESTAURANT sign in frame; leading click pickup via predictX; dish return action; rival hatch never collectable and off the belt; debug fields conveyor, dishReturn, sign, host, legacy, rivalHatch.",
+    "Report per requirement: already done by the previous run, repaired, or newly implemented."
+  ],
+  "constraints": [
+    "Do not start over or discard correct partial work.",
+    "Do not touch scripts/playthrough*.mjs or other minigames; do not change conveyor.js semantics (its API is frozen; report a genuine need instead).",
+    "All constraints in .ai/wo-restaurant-conveyor-scene.json apply.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    ".ai/wo-restaurant-conveyor-scene.json",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/conveyor.js",
+    "src/config/lesson.js",
+    "SPEC.md",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "3d-scene",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic",
+  "notes": "Resume after the Codex usage reset (2026-09-14 23:28). Dispatch with --model gpt-5.6-sol --effort high (visual/3D ceiling). Claude owns acceptance: rendered look at 1366x768 first, then the harness slice, then owner screenshots A-E."
+}

@@ -1,0 +1,39 @@
+{
+  "task": "Update the Restaurant playthrough (scripts/playthrough.mjs) for the conveyor revision so it is a trustworthy regression check of SPEC.md §4 'Conveyor (added 2026-09-14)'.",
+  "requirements": [
+    "Replace every counter/bell/readyDishes/slot assumption with the frozen debug contract: conveyor { direction, entryX, exitX, visibleHalfWidth, speed, beltTravel, dishes: [{ id, food, x, filler, screen }], pending }, dishReturn { position, screen }, sign { text, visible, screen }, host { inRoom, position }, legacy { bell, readyCue, counter }, rivalHatch (was rivalPass), carried, customers, player, rival.",
+    "Collect food by the real input paths: clicking a moving dish (leading click-to-walk) and the interact key while standing at the belt front. Wait for state (dish carried, dish id gone from belt), never for fixed time.",
+    "Checks (each a named check; skipped checks reported as HARNESS_PRECONDITION_FAILED so the total never varies): belt enters beyond the right wall and exits beyond the left wall (entryX > 6.85, exitX < -6.85, direction -1); beltTravel increases during service with no dishes on the belt; beltTravel and every dish x stay unchanged while speech focus is active and resume from the same values afterwards; due food enters within the SPEC bound after an order's preparation completes; entry order can differ from asking order (observe over the Normal session; precondition when not observable); several dishes coexist on Normal/Challenge; a dish is observed to exit past exitX; a missed due dish re-enters later; a moving dish can be collected by click and by key; a wrongly picked dish can be returned at dishReturn and the order still completes afterwards; wrong delivery is refused and remains recoverable (existing check kept); legacy bell/readyCue/counter are all false; host.inRoom is false during service and true at turnaround; sign.text is 'MATSUBARA RESTAURANT' and visible with an on-screen position inside the 1366x768 viewport; the player can never collect from rivalHatch on Challenge; no customer shows a food cue (existing check kept); repeated foods still deliver correctly.",
+    "Keep every existing check whose intent still applies (dwell-to-talk, reservation/claims, rival ownership, speech freeze of customers/rival, combo, turnaround, stamp, no console errors); rename rather than delete when only the pickup mechanism changed.",
+    "Seed Math.random in the page through the init script (env RESTAURANT_SEED, logged, fixed default) like scripts/playthrough-zoo.mjs does.",
+    "Add a known-bad switch RESTAURANT_FORCE_MISS_PICKUP=1 that clicks the belt 3 units behind the target dish, so a known-bad run must fail the pickup checks as HARNESS_PRECONDITION_FAILED or PRODUCT_FAILURE, never pass.",
+    "Save review screenshots at 1366x768 with these exact names: restaurant-A-back-wall.png (whole room, belt, both openings, sign), restaurant-B-multiple-dishes.png (Normal or Challenge, >= 2 dishes visible on the belt), restaurant-C-dish-entering.png (a dish within 1.5 units inside the right opening), restaurant-D-dish-exiting.png (a dish within 1.5 units inside the left opening), restaurant-E-rush.png (Challenge, >= 2 unresolved player orders, >= 2 dishes on the belt, a raised hand). Capture each only when its state holds; otherwise report HARNESS_PRECONDITION_FAILED."
+  ],
+  "constraints": [
+    "Do not change game source (src/**); if the debug contract lacks something required, stop and report it instead of adding it.",
+    "Do not touch the other minigame harnesses.",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state not time, classify preconditions, seeded randomness.",
+    "Your sandbox cannot start the preview server; do not fake playthrough results. Claude runs the playthrough.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    "scripts/playthrough-zoo.mjs",
+    "src/minigames/restaurant/index.js",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "notes": "The harness is untrusted after this change until Claude sees a known-good pass and a RESTAURANT_FORCE_MISS_PICKUP=1 failure. Previous pitfalls in this file: click-to-walk parks the player at (seatX, seatZ - 1.65), so walk-away steps must not walk into the seated customer; customer owner stays 'rival' after a served customer leaves, so pick live 'awaiting' targets; a player reservation makes the rival abandon its target by design."
+}
