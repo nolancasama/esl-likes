@@ -1,0 +1,46 @@
+{
+  "task": "Wire the pure conveyor (src/minigames/restaurant/conveyor.js) into the Restaurant scene, replacing the kitchen counter, bell, ready cue and counter slots, per SPEC.md §4 'Conveyor (added 2026-09-14)'.",
+  "requirements": [
+    "Remove the counter boxes, the bell, the rotating ready cue (readyCue/bellDome/updateReadyCue), SLOT_X slot placement, the bell sfx and the STRINGS.bellReady notice. No replacement 'dish ready' alert of any kind.",
+    "The turnaround host is not in the room during service. At beginTurnaround it appears standing in open dining-room floor, facing the camera, and asks the question as today; re-aim the closeup preset so nothing blocks the shot. No kitchen attendant replaces them.",
+    "Conveyor geometry: one straight belt in front of the back wall (back wall at z -7.35), spanning beyond both side walls (walls at x ±6.85) so its ends are never visible inside the room; belt top about 1.1 high, about 1.2 deep, dark belt surface between metal rails. At each side wall, a visible kitchen opening frame the belt passes through (dark recess, stainless trim, a little light/shelving inside). Direction right to left, fixed. Dishes are hidden while |x| >= 6.85 so they emerge from and disappear into the openings.",
+    "The belt surface visibly scrolls from conveyor.snapshot().beltTravel (texture offset or moving slats) whenever service is active, including when empty, and therefore freezes under speech focus and resumes in place.",
+    "A 'MATSUBARA RESTAURANT' environmental sign (mounted-letter look, canvas texture on a plane is fine) centred above the conveyor on the back wall, fully in frame and readable from the standard whole-room camera at 1366x768.",
+    "Each service frame: conveyor.advance(serviceDt, { dueOrders, carriedFood }). dueOrders = player-owned unresolved customers whose director 'ready' event has fired (preparation complete). Create a dish mesh (existing createDish) on 'enter', remove it on 'exit', and set every belt dish mesh x from the snapshot each frame.",
+    "Pickup: when not carrying and the player stands in the belt-front band, show the collect action for conveyor.nearestPickable(player.x, 1.4); interact takes it via take(). Clicking a belt dish walks to the belt front at the x from predictX(dishId, estimated walk seconds), clamped to ±visibleHalfWidth; on arrival collect that dish if within 1.6, otherwise the nearest pickable within 1.6. Clicking the belt itself walks to that belt-front point. Carrying is one dish; temperature is measured from pickup.",
+    "Dish return: a bus tub / return shelf in front of the right (entry) end of the belt, clearly separate from the belt. When carrying and within its radius, the action returns the dish (removed; supply recomputes on the next advance). No other penalty. Wrong delivery behaviour is unchanged.",
+    "Rival (difficulty 3): its pass becomes a small kitchen hatch in the left side wall, not on and not in front of the belt, never collectable by the player; pass the new position to createRival via passPosition. The rival never uses the belt.",
+    "Debug hook (frozen contract for the harness): replace readyDishes with conveyor: { direction, entryX, exitX, visibleHalfWidth, speed, beltTravel, dishes: [{ id, food, x, filler, screen }], pending: [{ food, dueAt, reentry }] }; add dishReturn: { position, screen }; sign: { text, visible, screen }; host: { inRoom, position }; legacy: { bell, readyCue, counter } booleans that must all be false; rename rivalPass to rivalHatch with the same inner shape. Keep carried, customers, player, rival and every other existing field.",
+    "Strings in src/config/lesson.js: remove bellReady; add a Japanese action label for returning a dish (e.g. 'おさらを もどす') and keep existing collect/deliver labels.",
+    "Keep director.js and rival.js logic unchanged except what the ready semantics and pass position strictly require; keep all existing unit tests passing and add tests for any new pure helper."
+  ],
+  "constraints": [
+    "Do not add a food icon over a customer, a line/glow linking dish and table, a ticket, a label of the requested food, or automatic delivery.",
+    "Do not change the English (What food do you like? / I like pizza.), speech focus, dwell-to-talk, hold fallback, claims, rival state machine, scoring terms, or the whole-room camera framing.",
+    "Do not touch other minigames or scripts/playthrough*.mjs (the harness is a separate slice).",
+    "Visual/scene work: judge by rendering, not only tests. Report what you could not observe.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "DESIGN_DECISIONS.md",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/conveyor.js",
+    "src/minigames/restaurant/director.js",
+    "src/config/lesson.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "3d-scene",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic"
+}
