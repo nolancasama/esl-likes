@@ -278,7 +278,7 @@ Foods: curry, pizza, hamburger, noodles, sushi.
 Restaurant is the **working-memory** stage. The question it puts to the child is
 never "what food is this?" but:
 
-> **Curry is ready. Who said curry?**
+> **Curry is going past on the belt. Who said curry?**
 
 Drink Stand asks the other question — "she said orange juice, where is that
 machine?" — and the two must never collapse into one service game. Restaurant
@@ -286,8 +286,11 @@ difficulty is therefore memory load and competing demands, never faster speech.
 
 ### Environment
 
-A compact 3D dining room: several tables, a kitchen pickup counter with a bell,
-wide clear pathways. Small enough that crossing it is quick and readable.
+A compact 3D dining room: several tables, wide clear pathways, and a back wall
+composed as one piece — **MATSUBARA RESTAURANT** as a mounted wall sign on top,
+a moving conveyor below it, kitchen openings in the two side walls. Small enough
+that crossing it is quick and readable. There is no bell and no one standing at
+a pass (revised 2026-09-14).
 
 ### Loop
 
@@ -299,9 +302,48 @@ wide clear pathways. Small enough that crossing it is quick and readable.
    clears. Speech focus holds all service pressure while this happens.
 4. The kitchen prepares it automatically. Preparation time belongs to the dish,
    so dishes finish out of the order they were asked for.
-5. A bell rings and the dish appears at a randomly chosen free counter slot.
-6. Player recognises the food, remembers who asked for it, and carries it to
-   that customer.
+5. The finished dish rides out of the kitchen on the conveyor. No sound or
+   marker announces it; the child sees it moving.
+6. Player recognises the food, grabs it from the moving belt, remembers who
+   asked for it, and carries it to that customer.
+
+### Conveyor (added 2026-09-14)
+
+One continuous straight belt runs across the back of the room: it emerges
+through an opening in the **right** side wall, travels horizontally in front of
+the back wall, and disappears through an opening in the **left** side wall. It
+reads as the visible middle of a larger kitchen system; it never starts or
+stops inside the room, and its direction never changes.
+
+The belt surface moves from service time whenever service is active, including
+when it carries nothing. Speech focus, pause, or another global freeze stops it;
+when that ends it resumes with every dish where it was.
+
+**Supply.** A player order's food becomes due once its preparation completes.
+For each food, due supply is the number of player-owned unresolved orders of
+that food with completed preparation, minus the dishes of that food on the belt
+or in the player's hands. Each unmet unit enters the belt within a bounded delay
+(per difficulty), in shuffled order rather than asking order, with minimum
+spacing between dishes. Any dish of a food satisfies any customer who wants that
+food, so repeats need no binding. A dish that leaves through the far wall while
+still due re-enters after a short delay; one that is no longer due is simply
+gone. Missing a dish costs time, never the order.
+
+**Filler.** Occasional dishes of a food nobody currently needs: none on Easy,
+occasional on Normal, modest on Challenge. Filler never delays a due entry and
+respects the visible-dish cap: Easy 2, Normal 3, Challenge 4. Belt speed is
+moderate on every level; pressure comes from load, not speed.
+
+**Picking up.** Keyboard interaction, click or tap on a dish, and click-to-walk
+all work, with a forgiving pickup window along the belt front; a click leads the
+moving dish rather than demanding precision. A player carries one dish at a
+time. A wrongly picked dish goes into the **dish return** beside the entry end:
+it is removed, due supply is recomputed, and nothing else changes. Wrong pickup
+and wrong delivery are separate mistakes.
+
+**Never added:** a food icon over a customer, a line or glow linking dish and
+table, a ticket, a label of the requested food, or automatic delivery. The
+conveyor changes how food is acquired, never what must be remembered.
 
 Several demands overlap by design: one customer waiting to order, another's
 food cooking, a dish cooling in the player's hands, a third's patience falling.
@@ -335,7 +377,7 @@ binding each plate to one person.
   customer resets it. The combo counts physical deliveries only; it is never
   tied to how fast or how fluently the child spoke, and replaying an answer
   forfeits that customer's memory bonus without breaking the combo.
-- Food temperature: the dish cools after leaving the counter.
+- Food temperature: the dish cools after it is picked up from the belt.
   Hot 3 stars / Warm 2 / Cold 1.
 - Customer patience: a visible, generous meter. A customer who has not yet
   ordered loses no patience on Easy and loses it slowly above; pressure becomes
@@ -414,8 +456,9 @@ second hesitations between steps make it competent but not perfect. Walk
 targets are exposed as positions so the controller can animate them.
 
 A rival order uses the same food-owned preparation time as the player's order,
-but becomes ready only at the rival pass. The rival never touches a player
-dish, a player counter slot, or a player-owned customer. Foods remain
+but becomes ready only at the rival's own kitchen hatch in the left side wall,
+never on the conveyor (revised 2026-09-14). The rival never touches a player
+dish, the conveyor, or a player-owned customer. Foods remain
 independent across both waiters, repeats are allowed, and identical foods keep
 independent dish state. Customer patience still applies after a rival claim; if
 that customer leaves, the rival abandons the task.

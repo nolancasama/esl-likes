@@ -53,12 +53,17 @@ owner's approval).
 - Chromebook: real speech and auto-listening, trackpad/touch, whether Challenge
   with a rival is too much for Grade 3, Zoo frame rate (~137k triangles).
 
-## Known Problems
+## Zoo playthrough (fixed 2026-09-14, harness TRUSTED)
 
-- Zoo playthrough is flaky: route-finding gets stuck near (−27, 1.4) and the
-  check count varies (88/96 on the working tree, 106/108 on a clean `d311b9c`
-  checkout, 109/109 earlier). Harness problem, not caused by the rival work;
-  needs a harness fix before it is a trustworthy regression check.
+- Frame-aware walker (keys held through observed game updates; stalls judged by
+  debug `elapsed`/`frame`), arrival preconditions, fixed per-section check
+  registry (144 checks every run), seeded `Math.random` (`ZOO_SEED`, default
+  1592594996), per-section browser closure, manifest with per-check classes.
+- Known-good 144/144 twice with the same seed; known-bad
+  `ZOO_FORCE_WALK_SHORT=1` fails with only `HARNESS_PRECONDITION_FAILED`.
+- Residual: an occasional recovered route give-up on open ground and one
+  wall-clock wait for the 🔊 control; both retried successfully.
+- Wrong photo is now used up on refusal (SPEC), committed `ca1c246`, not pushed.
 
 ## Known Limits
 
@@ -81,8 +86,15 @@ owner's approval).
 
 ## Next Steps
 
-1. Fix the flaky Zoo playthrough route-finding.
-2. Later: `.ai/wo-zoo-rules.json` (re-check against removed pen signs),
+1. Restaurant conveyor revision (SPEC §4 "Conveyor", DESIGN_DECISIONS
+   2026-09-14): slices (a) pure `conveyor.js` + tests
+   `.ai/wo-restaurant-conveyor-logic.json`, (b) scene integration — remove
+   counter/bell/ready cue, host only at turnaround, belt through side-wall
+   openings, MATSUBARA RESTAURANT sign, dish return, rival hatch on left wall,
+   (c) Restaurant playthrough update. Then Claude acceptance + owner
+   screenshots A–E (back wall, multiple dishes, entry, exit, rush).
+2. Push `ca1c246` (wrong photo used up) and the Zoo harness with the owner's OK.
+3. Later: `.ai/wo-zoo-rules.json` (re-check against removed pen signs),
    Chromebook pass, Farm Buildings licence, Zoo triangle budget.
 
 ## Codex / Delegated Work

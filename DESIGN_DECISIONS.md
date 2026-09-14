@@ -1006,3 +1006,37 @@ from the whole-room camera) is clearly distinct from the player, the
 reads as a busy lunch rush. The brief stretch where the child can hold five live
 orders (the spare hand raised for a free rival is taken by the child) stays;
 capping the child at four was offered and declined.
+
+## 2026-09-14 — Restaurant food arrives on a moving conveyor, not a bell counter
+
+The kitchen counter, its bell, the ready cue and the expediter position are
+replaced by a continuous conveyor that enters through an opening in the right
+side wall, crosses the back wall and leaves through the left wall, under a
+MATSUBARA RESTAURANT sign. The child notices food by seeing it move; no
+"dish ready" alert of any kind replaces the bell. The identity question becomes
+"Curry is going past — who said curry?"
+
+- Supply is demand-count based, not plate-per-customer: for each food, the
+  belt must supply (player-owned orders of that food whose prep is complete) −
+  (dishes of that food on the belt or in the player's hands). This follows the
+  existing rule that any curry serves any curry customer. Rejected: binding a
+  belt dish to one customer — duplicates would become unfair and invisible.
+- Prep timing survives: the director's per-customer `ready` now means the food
+  may enter the belt, so dishes still arrive out of asking order. Each unmet
+  unit must enter within a per-difficulty bound; a dish that leaves unmet
+  re-enters after a short delay. Missing a dish costs time, never the order.
+- Filler is always a food nobody currently needs, never delays a required
+  entry, and respects a visible-dish cap (Easy 2 with no filler, Normal 3,
+  Challenge 4). Pressure rises through load, not belt speed.
+- Temperature is measured from pickup, keeping "cools after leaving the pass".
+- The belt surface scrolls from service time, so it keeps running when empty,
+  freezes under speech focus and resumes without resetting positions.
+- Wrong pickup is recovered at a dish-return tub beside the entry end; it is a
+  separate mistake from wrong delivery, whose behaviour is unchanged.
+- The turnaround host (previously standing at the counter by the bell) is not in
+  the room during service and appears in the dining room only to ask the
+  turnaround question. No kitchen attendant replaces them.
+- The Challenge rival never uses the belt: it prepares at its own hatch on the
+  left wall, so ownership stays strictly safe without labelling food.
+- No looping motor audio is added; the bell sounds are removed and pickup keeps
+  a soft plate sound.

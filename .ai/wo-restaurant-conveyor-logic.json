@@ -1,0 +1,37 @@
+{
+  "task": "Add a pure, service-clock-driven Restaurant conveyor scheduler (src/minigames/restaurant/conveyor.js) with unit tests, following the frozen design in SPEC.md §4 'Conveyor (added 2026-09-14)'. Logic only; do not wire it into the scene.",
+  "requirements": [
+    "Export `createConveyor(options)` and a frozen `CONVEYOR_CONFIG` keyed by difficulty 1/2/3. Options: `difficulty`, `foods` (array of food ids used for filler), `rng` (default Math.random), and optional per-field overrides of the config.",
+    "Config per difficulty (frozen defaults): speed units/s 1: 0.9, 2: 1.05, 3: 1.2; entryX 7.2 (inside the right wall), exitX -7.2 (inside the left wall), direction -1 (x decreases); visibleHalfWidth 6.6 (a dish is pickable only while |x| <= visibleHalfWidth); minSpacing 2.2 units; maxEntryDelay seconds 1: 3, 2: 4, 3: 5; reentryDelay range [1.5, 2.5] s; filler: 1 disabled, 2 mean interval 12 s, 3 mean interval 8 s; visibleCap 1: 2, 2: 3, 3: 4 (the cap limits filler only; due entries always enter).",
+    "`advance(serviceDt, view)` returns an array of plain events. `view` = `{ dueOrders: [{ customer, food }], carriedFood: string|null }` where dueOrders are player-owned unresolved orders whose preparation has completed (the caller computes this). A non-finite or <= 0 serviceDt makes no progress at all: no movement, no timers, no RNG calls, no events.",
+    "Demand-count supply: for each food, deficit = (dueOrders of that food) - (dishes of that food on the belt, filler included) - (1 if carriedFood is that food) - (pending entries of that food). A positive deficit enqueues that many pending entries; a negative deficit cancels pending entries of that food (never removes a dish already on the belt). Dishes are never bound to a customer.",
+    "Entry timing: a newly due unit is scheduled at now + a random delay in [0.4, 0.7 x maxEntryDelay]; a unit that became due again because its dish exited is scheduled at now + a random value in reentryDelay. Pending units are released in shuffled order, not in the order they became due. A unit may enter only when the most recently entered dish has travelled at least minSpacing from entryX. Guarantee (unit-tested): the k-th (0-based) of units that become due in the same instant enters within maxEntryDelay + k * (minSpacing / speed) service seconds.",
+    "Motion: every dish moves by direction * speed * dt. `beltTravel` accumulates speed * dt so the caller can scroll the belt surface even when it is empty. A dish whose x passes exitX is removed and emits `{ type: 'exit', dish: { id, food, filler } }`; if that food is still due it re-enters later per the rule above. Entry emits `{ type: 'enter', dish: { id, food, x, filler } }`. Ids are unique increasing integers.",
+    "Filler: only when filler is enabled for the difficulty, there are no pending due entries, visible dish count < visibleCap and spacing allows. Choose uniformly from `foods` with zero due demand and not equal to carriedFood; if none, skip. Time between filler attempts is exponential-like around the mean interval using rng. Filler never delays a due entry.",
+    "`take(dishId)` removes a dish only if it is on the belt and |x| <= visibleHalfWidth; returns a plain `{ id, food, filler, x }` or null. After a take, the carried food is reported by the caller through view.carriedFood.",
+    "`nearestPickable(x, window)` returns the pickable dish with the smallest |dish.x - x| within `window`, or null. `predictX(dishId, seconds)` returns the dish x after `seconds` of motion (for leading a click-to-walk), or null.",
+    "`snapshot()` returns plain data: `{ speed, direction, entryX, exitX, visibleHalfWidth, beltTravel, dishes: [{ id, food, x, filler }], pending: [{ food, dueAt, reentry }], serviceTime }`.",
+    "Unit tests in src/minigames/restaurant/conveyor.test.mjs (node:test, same style as rival.test.mjs), using a seeded rng: belt travel accumulates with no dishes; zero dt freezes everything and consumes no rng; bounded entry guarantee for 1, 3 and 4 simultaneous due units at each difficulty; entry order can differ from due order across seeds; multiple dishes coexist with >= minSpacing between consecutive entries; repeated foods (two pizza orders -> two pizzas, no duplication beyond demand); carried food counts as supply; a dish travels fully past exitX and emits exit; a missed due dish re-enters within reentryDelay max + spacing; a non-due dish that exits does not re-enter; cancelled demand cancels pending entries but leaves belt dishes; filler never uses a due or carried food, never starves due entries, respects visibleCap, and is absent on difficulty 1; take() respects visibleHalfWidth and removes the dish; nearestPickable and predictX behave."
+  ],
+  "constraints": [
+    "Pure module: no three.js, DOM, audio or scene imports; plain data in and out, like rival.js and claims.js.",
+    "Do not modify src/minigames/restaurant/index.js, director.js, rival.js, claims.js, scripts, or any other minigame.",
+    "Read SPEC.md §4 (Restaurant, especially 'Conveyor (added 2026-09-14)') and the 2026-09-14 conveyor entry in DESIGN_DECISIONS.md; if a requirement here conflicts with them, stop and report the conflict instead of choosing.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "SPEC.md",
+    "DESIGN_DECISIONS.md",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/scoring.js"
+  ],
+  "validation": ["npm test"],
+  "category": "game-logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Slice 1 of 3 for the conveyor revision. Its exported API is the frozen contract that the scene integration and harness slices will build on, so implement exactly the names and shapes above. No DESIGN_DECISIONS entry is needed; the decisions are already recorded."
+}
