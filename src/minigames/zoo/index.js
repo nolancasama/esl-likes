@@ -688,6 +688,9 @@ export function createZoo(ctx) {
       dialogue.show({ text: STRINGS.wrongPhoto, anchor: visitor.character, offsetY: 1.9, speak: false });
       showNotice(STRINGS.wrongPhoto);
       audio.playSfx('retry');
+      // SPEC: one photograph is one delivery attempt, so a wrong photo is used up.
+      carriedPhoto = null;
+      renderCarriedPhoto();
       reactionRemaining = 2.0;
       phase = 'reacting-wrong';
       return;

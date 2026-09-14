@@ -1,54 +1,44 @@
 {
-  "task": "Add src/systems/speechFocus.js: the shared 'protected speech focus' rule for esl-likes, plus its unit tests. This is the contract two minigame redesigns will be built on immediately afterwards, so the API shape matters more than the line count.",
-  "notes": [
-    "WHY THIS EXISTS. esl-likes is an ESL game for Japanese Grade 3 children. Its second frozen rule is 'recognition noise is the game's problem, not the child's'. Today a child who has to repeat a sentence because Chrome mis-heard them loses service time, patience and combo in the service minigames. SPEC.md section 3, subsection 'Protected speech focus (ADDED 2026-09-12)', is the frozen design you are implementing. READ IT FIRST. Also read the new entry '2026-09-12 - Speaking is protected time, and one service clock enforces it' in DESIGN_DECISIONS.md.",
-    "THE DESIGN, in one line: while a speech interaction is open, every service-pressure clock in the minigame freezes, and it freezes structurally (one clock scaled to zero) rather than by a guard written at each individual timer.",
-    "The existing Drink Stand shows the failure mode this replaces. src/minigames/drinkStand/index.js has `if (questionCustomer !== customer) customer.patience -= dt` - a per-timer guard that pauses only the customer being spoken to, so the other two windows keep draining while the child speaks. That is exactly the kind of guard that gets forgotten on the next timer added. Do not reproduce that pattern.",
-    "SCOPE. This order adds the module and its tests ONLY. Do not modify the Restaurant or the Drink Stand; two follow-up orders do that against your API. Do not modify src/systems/speech.js or speechPrompt.js unless a change there is genuinely required, in which case keep it additive and say so in the summary.",
-    "API SHAPE - this is a proposal, and you may improve it, but anything you change you must justify in the summary, because two parallel implementations are about to be written against it. createSpeechFocus(options) returns an object with: begin(reason) - enter focus; end() - leave focus, starting the release ramp; cancel() - leave focus immediately with no ramp (used on minigame exit); active (boolean getter) - true while focused or ramping; scale (number getter) - the current service-time multiplier; update(dt) - advance the ramp, called once per frame from the minigame's update with the real frame dt; serviceDelta(dt) - the convenience the minigames will actually use everywhere: returns dt * scale.",
-    "SEMANTICS. scale is 1 in normal play and drops to a floor while focused. The floor must be configurable, default to 0 (a true freeze), and must tolerate a small non-zero value such as 0.08 for a 'nearly paused' feel - SPEC deliberately says 'pause or nearly pause'. Entering focus should be near-instant (a short ease is fine, roughly 0.12s) and leaving it should ramp back to 1 over a short, configurable time (roughly 0.35s) so play resumes smoothly rather than snapping. begin() while already focused must be idempotent, not restart a ramp or nest a counter incorrectly. If you do use a nesting/refcount model so overlapping begin/end pairs cannot leave focus stuck on, that is an improvement - say so.",
-    "FOCUS MUST COVER THE WHOLE SPEECH INTERACTION, not just the moment the microphone is live: the talk prompt being open at all, the button held, recognition running, the pause while recognition is judged, a retry after a failed recognition, and the read-and-tap fallback route used by mic-free rooms. A sentence that took two attempts must not consume more service time than one that worked first try. Practically this means a minigame will call begin() when it opens the prompt and end() when the prompt resolves or is abandoned - your API just has to make that usable and hard to get wrong.",
-    "The module must be pure logic: no DOM, no three.js, no timers of its own, no import of the speech system. It is driven entirely by begin/end/update. That is what makes it unit-testable under `node --test`, which is how this repo tests (see src/minigames/drinkStand/scoring.test.mjs for the house style: node:test + node:assert/strict, .test.mjs beside the module).",
-    "OPTIONAL SECOND EXPORT, only if it stays small and obviously useful: a tiny helper that owns the service clock itself, e.g. createServiceClock(focus) with elapsed (getter) and advance(dt). Both minigames need 'a clock that only moves when not focused', and both will otherwise hand-roll `serviceElapsed += focus.serviceDelta(dt)`. If it does not earn its keep, leave it out and say so; do not build an abstraction for its own sake.",
-    "An optional audio duck belongs to the CALLER, not this module - accept an onChange or similar callback at most, and do not reach for the audio system from here.",
-    "TESTS. Cover: scale is 1 at rest; scale reaches the floor while focused; serviceDelta returns 0 (or floor*dt) while focused; the release ramp returns to exactly 1 and does not overshoot past it; begin() twice then end() once does not leave a stuck state (whatever your chosen model, assert the stuck-state case explicitly); cancel() restores scale to 1 immediately; a configured non-zero floor is respected; update(dt) tolerates a dt of 0, a negative dt and an absurdly large dt without producing NaN or a scale outside 0..1. Accumulating many small updates must not drift the resting scale away from 1.",
-    "Add the file, its test file, and nothing else. Do not add dependencies. Do not add a build step. Do not touch SPEC.md or DESIGN_DECISIONS.md - Claude has already written those and they are the input to this task, not the output."
-  ],
+  "task": "Make the Zoo playthrough harness deterministic and frame-aware so the same code gives the same verdict every run",
   "requirements": [
-    "src/systems/speechFocus.js exists and exports createSpeechFocus, with no DOM, three.js, timer or speech-system dependency",
-    "The returned object supports entering focus, leaving focus with a short release ramp, cancelling focus outright, reporting whether focus is active, reporting the current service-time scale, advancing on a frame dt, and converting a frame dt into a service dt",
-    "The service scale is 1 in normal play, reaches a configurable floor (default 0) while focused, and returns to exactly 1 after the release ramp with no overshoot",
-    "Overlapping or repeated begin/end calls cannot leave focus permanently stuck on or permanently stuck off",
-    "update(dt) is numerically safe for dt of 0, negative dt and very large dt: scale stays within 0..1 and never becomes NaN",
-    "src/systems/speechFocus.test.mjs covers every behaviour listed in the notes and passes under `npm test`",
-    "The whole existing suite still passes and the build is still clean",
-    "The summary states the final API exactly as implemented, including any deviation from the proposed shape and why, because two implementations will be written against it in parallel"
+    "Add read-only fields to the Zoo debug snapshot (debugSnapshot in src/minigames/zoo/index.js): `elapsed` (sum of clamped game dt in seconds) and `frame` (count of update() calls while active). No gameplay change.",
+    "Rewrite the route walker (walkSegment in scripts/playthrough-zoo.mjs): keep movement keys held until the player's position has progressed or a game-time budget has elapsed, and judge a stall by game `elapsed`/`frame` advancing without progress, not by wall-clock pulse length or number of ui() samples. A key must never be released before at least one game update has applied it.",
+    "Any step that presses Space/interact after walking (showPhoto, photographing at a viewpoint) must first verify the player actually arrived; if not, record that step and every dependent check as HARNESS_PRECONDITION_FAILED instead of pressing from far away.",
+    "Fixed check registry: each section registers its expected check names up front; checks skipped because a precondition failed are reported as HARNESS_PRECONDITION_FAILED. For the same selected sections the total check count is identical on every run (no `if (s) check(...)` or `continue` that makes checks vanish).",
+    "Seed Math.random in the page through the browser init script with a logged seed (default fixed, overridable with env ZOO_SEED), so the same seed gives the same visitor spots, models and wanted animals.",
+    "Close each section's browser context/page when that section finishes.",
+    "Keep every existing assertion's intent; do not remove or weaken checks.",
+    "Claude already changed showPhotoToVisitor so a wrong photo is used up on refusal (SPEC: one photo is one delivery attempt). Update any harness step that assumed a refused photo is still carried, and add a check that a refused photo is no longer carried."
   ],
   "constraints": [
-    "Do not modify src/minigames/restaurant/index.js or src/minigames/drinkStand/index.js in this order - follow-up orders own those files",
-    "Do not modify SPEC.md, DESIGN_DECISIONS.md or CURRENT_STATE.md",
-    "Do not add any npm dependency",
-    "Keep the module small and readable: this is a rule, not a framework. If it grows past roughly 120 lines, something has been over-built",
-    "Match the house code style: ES modules, named factory function returning an object literal, JSDoc one-liner on the export, comments that explain why rather than what",
-    "Do not inline test code into a shell command; tests live in a .test.mjs file run by npm test"
+    "Do not change Zoo gameplay, movement, collision, layout or visuals; only the two debug fields may be added to src/minigames/zoo/index.js.",
+    "Do not touch the Restaurant, Drink Stand, Coloring or Sports harnesses.",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state, not time; classify preconditions; seeded or invariant-based randomness.",
+    "Edit source with structured file edits, never whole-file shell or regex rewrites.",
+    "Your sandbox may not be able to start the preview server; do not fake playthrough results. Claude runs the playthrough."
   ],
   "startingPoints": [
-    "SPEC.md",
-    "DESIGN_DECISIONS.md",
-    "src/systems/speech.js",
-    "src/systems/speechPrompt.js",
-    "src/minigames/drinkStand/scoring.test.mjs",
-    "src/minigames/drinkStand/index.js"
+    "scripts/playthrough-zoo.mjs",
+    "scripts/lib/driver.mjs",
+    "scripts/playthrough-run.mjs",
+    "src/minigames/zoo/index.js",
+    ".ai/codex-diagnosis.md"
   ],
-  "validation": [
-    "npm test",
-    "npm run build"
-  ],
-  "category": "core-logic",
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:zoo"],
+    "artifacts": ".tmp/playthrough/zoo/manifest.json"
+  },
+  "diagnostic": {
+    "command": "npm run playthrough:zoo -- --only {section}",
+    "sections": ["listening", "antiShortcut", "habitats"]
+  },
+  "category": "test-harness",
   "complexity": "medium",
   "bounded": true,
   "exploration": "local",
   "risk": "medium",
-  "expectedCost": "small",
-  "composition": "atomic"
+  "expectedCost": "medium"
 }
