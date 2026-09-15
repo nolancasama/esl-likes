@@ -17,17 +17,29 @@ function installStyles() {
     .lesson-hud__talk { width: min(82vw, 360px); min-height: 84px; border-radius: 28px;
       padding: 14px 24px; background: #3a86ff; color: #fff; touch-action: none;
       display: flex; align-items: center; justify-content: center; gap: 14px;
-      font-size: calc(1.25rem * var(--lesson-text-scale, 1)); }
+      font-size: calc(1.25rem * var(--lesson-text-scale, 1)); position: relative; }
     .lesson-hud__talk:focus-visible, .lesson-hud__fallback:focus-visible {
       outline: 6px solid #ffcf33; outline-offset: 4px; }
     .lesson-hud__talk:disabled { cursor: default; opacity: .72; }
     .lesson-hud__talk-icon { font-size: 2rem; line-height: 1; }
+    .lesson-hud__talk-key { border: 2px solid rgba(255,255,255,.8); border-radius: 7px;
+      padding: 3px 7px; font-size: .7rem; line-height: 1; background: rgba(17,37,70,.2); }
     .lesson-hud__fallback-list { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
     .lesson-hud__fallback-list.is-choices { max-width: min(94vw, 760px); }
     .lesson-hud__fallback-list.is-choices .lesson-hud__fallback { width: auto; min-width: 0; flex: 0 1 auto;
       min-height: 68px; padding: 10px 18px; font-size: calc(1.2rem * var(--lesson-text-scale, 1)); }
     .lesson-hud__talk[data-state="listening"] { background: #e94f64; transform: translateY(3px);
       box-shadow: 0 3px 0 rgba(28,48,78,.3), 0 6px 18px rgba(28,48,78,.2); }
+    .lesson-hud__talk[data-state="listening"]::after { content: ''; position: absolute; inset: -10px;
+      border: 5px solid rgba(233,79,100,.75); border-radius: 36px; pointer-events: none;
+      animation: lesson-talk-pulse 1.15s ease-out infinite; }
+    @keyframes lesson-talk-pulse {
+      0% { transform: scale(.96); opacity: .95; }
+      70%, 100% { transform: scale(1.1); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lesson-hud__talk[data-state="listening"]::after { animation: none; opacity: .8; }
+    }
     .lesson-hud__talk[data-state="detected"] { background: #ef8a17; }
     .lesson-hud__talk[data-state="accepted"] { background: #35a853; }
     .lesson-hud__talk[data-state="try-again"] { background: #b24ee8; }
@@ -73,7 +85,7 @@ function readTextSize(settings) {
   return settings.textSize || settings.value?.textSize || 'normal';
 }
 
-/** DOM overlay for hold-to-talk and the no-dead-end read-along fallback. */
+/** DOM overlay for press-to-talk and the no-dead-end read-along fallback. */
 export function createHud({ root = document.body, strings = {}, audio = null, settings = null } = {}) {
   installStyles();
 
@@ -92,7 +104,10 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
   talkIcon.setAttribute('aria-hidden', 'true');
   const talkLabel = document.createElement('span');
   talkLabel.className = 'lesson-hud__talk-label';
-  talkButton.append(talkIcon, talkLabel);
+  const talkKey = document.createElement('kbd');
+  talkKey.className = 'lesson-hud__talk-key';
+  talkKey.textContent = 'Enter';
+  talkButton.append(talkIcon, talkLabel, talkKey);
 
   const fallbackWrap = document.createElement('div');
   fallbackWrap.className = 'lesson-hud__fallback-wrap';
@@ -179,6 +194,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     talkButton.dataset.state = nextState;
     const label = labelForState(strings, nextState);
     talkLabel.textContent = label;
+    talkKey.hidden = nextState !== SPEECH_STATE.READY;
     talkButton.setAttribute('aria-label', label);
   }
 
@@ -267,8 +283,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
       micFree = options.micFree ?? micFree;
       renderWords();
       setTalkState(SPEECH_STATE.READY);
-      if (micFree) showFallback();
-      else showTalk();
+      showTalk();
     },
     recordFailure() {
       failures += 1;
@@ -283,17 +298,17 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     },
     setMicFree(nextMicFree) {
       micFree = Boolean(nextMicFree);
-      if (micFree) showFallback();
-      else if (failures < FALLBACK_AFTER_FAILURES) showTalk();
+      if (failures < FALLBACK_AFTER_FAILURES) showTalk();
     },
     setTextSize(size) {
       const scale = size === 'extraLarge' ? 1.3 : size === 'large' ? 1.15 : 1;
       element.style.setProperty('--lesson-text-scale', String(scale));
     },
     show() {
-      if (micFree || failures >= FALLBACK_AFTER_FAILURES) showFallback();
+      if (failures >= FALLBACK_AFTER_FAILURES) showFallback();
       else showTalk();
     },
+    showFallback,
     hide() {
       clearAnimation();
       talkButton.disabled = true;

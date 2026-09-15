@@ -610,7 +610,6 @@ export function createColoring(ctx) {
     buildWorld();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
       hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });

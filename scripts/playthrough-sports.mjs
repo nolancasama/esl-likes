@@ -9,6 +9,7 @@
 // in a fixed order until each NPC joins. That must NOT reach three stars.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
+import { openFallback } from './lib/pressTalk.mjs';
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/sports';
@@ -58,6 +59,7 @@ async function openPage(label) {
         .map((b) => ({ text: b.getAttribute('aria-label') || b.textContent, value: b.dataset.value ?? null })),
       greeting: q('.greeting')?.textContent.trim() ?? null,
       prompt: visible(q('.interaction-prompt')),
+      talk: visible(q('.lesson-hud__talk')),
       body: document.body.innerText,
     };
   });
@@ -117,7 +119,8 @@ async function askNext(h) {
   if (!s) return null;
   const index = waitingNpc(s);
   const npc = s.debug.npcs[index];
-  const asked = await h.walkTo(npc.x, npc.z, 0.8, (u) => u.fallback.length > 0);
+  const reached = await h.walkTo(npc.x, npc.z, 0.8, (u) => u.talk || u.fallback.length > 0);
+  const asked = reached ? await openFallback(h) : null;
   if (!asked?.fallback.length) return null;
   await h.page.click('.lesson-hud__fallback');
   const a = await h.waitFor((u) => u.bubble && /^I like .+\.$/.test(u.bubble), 7000, 'answer');
@@ -185,7 +188,8 @@ if (!process.env.ONLY_B) {
   }
   check('all three NPCs joined their zones', joined === 3, `${joined}/3`);
 
-  s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
+  s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
+  s = s ? await openFallback(h, 3) : s;
   const values = s?.fallback.map((f) => f.value) ?? [];
   check('turnaround offers all four sport sentences', values.length === 4 && values.includes('soccer'), s?.fallback.map((f) => f.text).join(' | '));
   await h.sleep(1500);
@@ -247,7 +251,8 @@ if (!process.env.ONLY_B) {
   }
   check('a wrong zone: Japanese reaction, no English repeat, still following',
     wrong && !wrong.english && wrong.stillFollowing && wrong.bubble, JSON.stringify(wrong));
-  const s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
+  const reachedTurnaround = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
+  const s = reachedTurnaround ? await openFallback(h, 3) : null;
   if (s) await page.click('.lesson-hud__fallback');
   await h.waitFor((u) => !u.debug, 15000, 'hub');
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);

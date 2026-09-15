@@ -1,0 +1,37 @@
+{
+  "task": "Make the Restaurant Challenge rival compete for shared conveyor dishes instead of cooking at its own hatch, and move player ownership commit to question acceptance (pure modules only).",
+  "requirements": [
+    "rival.js state machine becomes: idle → choosing → walkingToCustomer → takingOrder → watchingBelt → walkingToDish → carrying → delivering → idle. Remove the pass/hatch and all rival cooking: passPosition, prepScale/prepSeconds use, dishReady, walkToPass, waitingAtPass and pass pickups.",
+    "RIVAL_SPEED becomes 4.25. Keep RIVAL_SHARE_CAP 3, RIVAL_MIN_HAND_AGE 4, TAKE_ORDER 1.2 s, 0.3–0.9 s hesitations, 0.6–1.2 s abandon pauses, and the 0.8 s post-focus hold on new customer claims.",
+    "Belt access: createRestaurantRival accepts `conveyor` (an object with take(dishId), snapshot() → { dishes: [{id, food, x}], visibleHalfWidth, speed, direction }, predictX(dishId, seconds)) plus options beltFrontZ (default -4.4), pickupWindow (default 1.4) and dishNoticeSeconds (default 0.6). The controller may also pass it via view.conveyor; document which one wins.",
+    "Noticing: the rival records the service time at which each dish id is first seen visible (|x| <= visibleHalfWidth). A dish qualifies only after dishNoticeSeconds of service time visible.",
+    "watchingBelt: after taking an order, look for a qualifying dish whose food equals the task food and that is reachable: solve for walk time t from the rival position to (predictX(id, t), beltFrontZ) at RIVAL_SPEED such that the predicted x is still within visibleHalfWidth on arrival; choose the earliest arrival. Emit `targetDish { customer, dishId, food, position, from, delay, duration, speed }` and enter walkingToDish (hesitation delay allowed). If none qualifies, keep watching (no rng sampling per frame beyond what is needed).",
+    "walkingToDish: if the target dish disappears from the snapshot before arrival (taken by the player or exited), emit `abandonDish { customer, dishId, reason: 'taken' }` at once and return to watchingBelt after an abandon pause. On arrival, if the dish is on the belt and |dish.x - arrival.x| <= pickupWindow, call conveyor.take(dishId); a non-null result emits `pickUpDish { customer, dishId, food, position }` and enters carrying. A null take or out-of-window dish emits `abandonDish` with reason 'taken' or 'missed' and returns to watchingBelt.",
+    "carrying → delivering → served as today (walk to the customer position, resolve 'served', emit servedCustomer with counts).",
+    "If the task customer is resolved/left or ownership was lost at any point, emit `abandonTask { customer, reason, discardedDish }` (discardedDish is the carried { dishId, food } or null); a carried dish is discarded, never returned to the belt.",
+    "The rival never claims a reserved or player-owned customer (existing registry rules) and never interacts with anything but the belt and its own customers. Zero, negative or invalid dt: no progress, no rng sampling, no take() calls, no noticing time.",
+    "Expose getters for tests and the controller: state, position, targetCustomer, targetDishId, carriedDish ({ dishId, food } or null), claims, counts.",
+    "claims.js: keep the API. Update the controller contract comment: reservePlayer on Talk press, releasePlayerReservation on cancel press or leaving range before acceptance, commitPlayer when the question is accepted (spoken or read-along). Add a test that a customer reserved by the player cannot be claimed by the rival across many service seconds, and that release makes it claimable again.",
+    "Tests (rival.test.mjs, using a small fake conveyor implementing the API above — do NOT import conveyor.js, which another order is rewriting): rival targets a matching dish only after the notice delay; walk duration = distance / 4.25; player takes the dish first → rival abandons with 'taken' and later targets another matching dish; rival arrives first → its take succeeds and a later player take returns null; exactly one success; rival ignores non-matching foods; unreachable dishes (would exit first) are not targeted; customer leaving while the rival carries discards the dish; full freeze at dt 0; share cap still honoured."
+  ],
+  "constraints": [
+    "Only src/minigames/restaurant/rival.js, claims.js, rival.test.mjs, claims.test.mjs. Do not edit src/minigames/restaurant/index.js (the scene is wired in a later order) or conveyor.js (parallel order).",
+    "Read SPEC.md §4 'Challenge rival waiter' and DESIGN_DECISIONS.md 2026-09-15 first; they are current.",
+    "Keep the model pure and data-only: no scene, DOM or timers; injected rng.",
+    "Edit files with structured edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/claims.js",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/claims.test.mjs",
+    "SPEC.md"
+  ],
+  "validation": ["npm test"],
+  "category": "game-logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

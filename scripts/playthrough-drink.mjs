@@ -185,10 +185,19 @@ async function openQuestion(h) {
     { attempts: 4, timeoutMs: 1600 },
   );
   if (!started) return null;
+  // Arrival only selects the customer; one Talk press commits (SPEC §3).
+  const selected = await h.waitFor(
+    (value) => !value.debug?.player?.autoWalking && value.talkVisible
+      && value.debug?.question?.customer === customerIndex,
+    9000,
+    `question ${customerIndex} to be selected on arrival`,
+  );
+  if (!selected) return null;
+  await h.page.click('.lesson-hud__talk');
   const committed = await h.waitFor(
     (value) => value.debug?.question?.committed && value.debug.question.customer === customerIndex,
-    9000,
-    `question ${customerIndex} to commit after dwell`,
+    4000,
+    `question ${customerIndex} to commit on one Talk press`,
   );
   if (!committed) return null;
   const promptState = committed.fallback.length > 0
@@ -365,7 +374,7 @@ async function clickAndWaitForArrival(h, customerIndex) {
   if (!started) return { arrived: null, arrivedAt: 0 };
   const arrived = await h.waitFor(
     (state) => !state.debug?.player?.autoWalking
-      && (state.debug?.dwell?.targetId === customerIndex || state.debug?.question?.customer === customerIndex),
+      && state.debug?.question?.customer === customerIndex,
     7000,
     `arrival at customer ${customerIndex}`,
   );
@@ -395,28 +404,28 @@ if (sectionEnabled('mic')) {
     await h.page.evaluate(() => window.__mockSpeech.queueTranscript('What drink do you like?'));
     const startsBeforeCorrect = await h.page.evaluate(() => window.__mockSpeech.starts);
     const arrival = await clickAndWaitForArrival(h, correctCustomer.index);
-    const committedPromise = waitForDebug(
+    // Nothing may listen on approach: arriving and standing still open no mic.
+    await h.sleep(2000);
+    const startsWhileStanding = await h.page.evaluate(() => window.__mockSpeech.starts);
+    check('click-to-walk arrival and standing still open no microphone',
+      Boolean(arrival.arrived) && startsWhileStanding === startsBeforeCorrect,
+      JSON.stringify({ startsBeforeCorrect, startsWhileStanding, arrived: Boolean(arrival.arrived) }),
+      Boolean(arrival.arrived));
+    await h.page.keyboard.press('Enter');
+    const committed = await waitForDebug(
       h.page,
       'drinkStand',
       (debug) => debug?.question?.committed && debug.question.customer === correctCustomer.index,
-      { timeoutMs: 9000, label: 'correct-speech conversation to commit after dwell' },
+      { timeoutMs: 4000, label: 'correct-speech conversation to commit on one Enter press' },
     );
-    await h.sleep(600);
-    const startsDuringDwell = await h.page.evaluate(() => window.__mockSpeech.starts);
-    check('click-to-walk arrival does not listen before the dwell completes',
-      Boolean(arrival.arrived) && startsDuringDwell === startsBeforeCorrect,
-      JSON.stringify({ startsBeforeCorrect, startsDuringDwell, arrived: Boolean(arrival.arrived) }),
-      Boolean(arrival.arrived));
-    const committed = await committedPromise;
     const accepted = await h.waitFor(
       (value) => value.debug?.customers.find((customer) => customer.index === correctCustomer.index)?.asked,
       5000,
       'mocked correct question to be accepted',
     );
     const afterCorrect = await h.page.evaluate(() => window.__mockSpeech.getCounters());
-    check('a scripted correct question is accepted after the dwell',
-      Boolean(committed) && Boolean(accepted) && afterCorrect.starts === startsBeforeCorrect + 1
-        && afterCorrect.lastStartAt - arrival.arrivedAt >= 700,
+    check('one Enter press starts one session and the scripted question is accepted',
+      Boolean(committed) && Boolean(accepted) && afterCorrect.starts === startsBeforeCorrect + 1,
       JSON.stringify({ committed: Boolean(committed), accepted: Boolean(accepted), afterCorrect, arrival }));
 
     await h.waitFor((value) => !value.bubble && !value.debug?.focusActive && value.fallback.length === 0,
@@ -430,11 +439,12 @@ if (sectionEnabled('mic')) {
       await h.page.evaluate(() => window.__mockSpeech.queueSilence());
       const startsBeforeSilence = await h.page.evaluate(() => window.__mockSpeech.starts);
       await clickAndWaitForArrival(h, silenceCustomer.index);
+      await h.page.click('.lesson-hud__talk');
       const silenceCommitted = await waitForDebug(
         h.page,
         'drinkStand',
         (debug) => debug?.question?.committed && debug.question.customer === silenceCustomer.index,
-        { timeoutMs: 9000, label: 'silence conversation to commit after dwell' },
+        { timeoutMs: 4000, label: 'silence conversation to commit on one Talk press' },
       );
       const tryAgain = await h.waitFor((value) => value.talkState === 'try-again',
         5000, 'speech silence to end in try-again');
@@ -476,9 +486,8 @@ if (sectionEnabled('listening')) {
     state.debug?.progress?.done === 0 && state.debug?.progress?.total === 7
       && ['warmup', 'main'].includes(state.debug?.phase),
     JSON.stringify({ progress: state.debug?.progress, phase: state.debug?.phase }));
-  check('dwell and question state are present from the start',
-    Boolean(state.debug?.dwell) && Boolean(state.debug?.question),
-    JSON.stringify({ dwell: state.debug?.dwell, question: state.debug?.question }));
+  check('question state is present from the start', Boolean(state.debug?.question),
+    JSON.stringify({ question: state.debug?.question }));
   check('debug exposes six shuffled stations without wanted drinks',
     state.debug?.stations.length === 6 && !JSON.stringify(state.debug).match(/want|order|favou?rite/i));
   check('the avatar starts empty-handed', state.debug?.cup.drink == null && state.debug?.cup.level === 0);

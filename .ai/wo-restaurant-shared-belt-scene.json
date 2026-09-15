@@ -1,0 +1,42 @@
+{
+  "task": "Wire the Restaurant scene (src/minigames/restaurant/index.js) to the new order-blind conveyor and the belt-sharing Challenge rival.",
+  "requirements": [
+    "Conveyor: stop passing order demand. Call conveyor.advance(serviceDt) with no view; remove dueConveyorOrders, filler handling and any readiness/prep gating of belt supply (customer.readyFired / prepRemaining must no longer affect what enters the belt). Belt dishes need no filler flag. Temperature still starts at pickup. The dish return still just removes the carried dish.",
+    "Rival model: create it with the scene's conveyor (createRestaurantRival({ ..., conveyor })) and consume the new data-only events from src/minigames/restaurant/rival.js: targetCustomer, abandonTarget, claimCustomer, orderTaken, targetDish { customer, dishId, food, position, from, delay, duration, speed }, abandonDish { customer, dishId, reason }, pickUpDish { customer, dishId, food, position }, deliverToCustomer, servedCustomer, abandonTask { customer, reason, discardedDish }. Remove every use of the removed events and objects: walkToPass, dishReady, pass pickups, the rival hatch anchor/opening/dish mesh, RIVAL_HATCH_POSITION and hatch debug fields.",
+    "Physical race: a targetDish walk animates the rival character to the belt-front intercept position over the event's delay + duration, facing its path (existing steering). On pickUpDish, remove that dish's scene mesh from the belt and show it in the rival's hands (reuse the carry-anchor approach used for the player). On abandonDish the rival stops and re-plans (the next event drives it). On abandonTask with discardedDish, hide the carried mesh. A dish the rival carries is never pickable or deliverable by the player.",
+    "First contact wins: in each controller update resolve the player's pickup (keyboard action, click-to-walk arrival) BEFORE calling rival.advance, so a same-frame race goes to the player; conveyor.take is atomic, so the loser's take returns null. When the player takes a dish the rival had targeted, the rival model notices on its next advance (it abandons with reason 'taken') — do not special-case it in the scene.",
+    "Remove the Challenge 'extra hand above the player limit while the rival is free' logic only if it references the removed pass/dish state; otherwise keep it unchanged.",
+    "Talk: keep the press-to-talk flow already in index.js. Small fix: commit the Restaurant reservation BEFORE the microphone starts. src/systems/speech.js currently calls target.onCommit from onStarted (after recognition.start). Change it so onCommit runs inside onPress before starting, and if onCommit returns false (reservation refused) no session starts; keep mic-free behaviour (onCommit then onFallback). Update the speech test that covers onCommit ordering.",
+    "Debug surface window.__eslDebug.restaurant: rival { state, targetCustomer, targetDishId, carriedDish, position }, conveyor snapshot as today, and remove hatch fields. Keep carried.dishId.",
+    "Keep everything else as is: whole-room camera, score pill きみ N ・ ウェイター N, speech focus freezing rival and belt, claims budget, dish return position and priority, wrong delivery rules, turnaround host.",
+    "Update DESIGN_DECISIONS.md 2026-09-15 entry only with implementation choices not already recorded (e.g. how the rival carries a dish)."
+  ],
+  "constraints": [
+    "Files: src/minigames/restaurant/index.js, src/systems/speech.js and src/systems/speech.test.mjs (the onCommit ordering fix only). Do not change conveyor.js, rival.js, claims.js semantics; if their API is insufficient, stop and report.",
+    "Do not edit scripts/playthrough*.mjs (a later order).",
+    "Read SPEC.md §4 Conveyor and Challenge rival waiter, and DESIGN_DECISIONS.md 2026-09-15, first.",
+    "Visual work is judged by the controller from rendered screenshots; report what you could not observe instead of claiming it looks right.",
+    "Edit files with structured edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/conveyor.js",
+    "src/systems/speech.js",
+    "src/systems/speech.test.mjs"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "feature",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Pure modules are done and tested (224/224): conveyor.js is order-blind; rival.js competes for belt dishes via conveyor.take with a 0.6 s notice delay and speed 4.25; claims commit on question acceptance. The press-to-talk flow in index.js is done. The Restaurant playthrough still drives old dwell/hold/filler behaviour and is updated by a later order, so the controller does not expect it to pass after this order alone."
+}

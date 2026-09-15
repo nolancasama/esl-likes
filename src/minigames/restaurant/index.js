@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor, formatUi } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createSpeechFocus } from '../../systems/speechFocus.js';
-import { createTalkDwell } from '../../systems/talkDwell.js';
-import { AUTO_TALK_ENABLED } from '../../config/interaction.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import {
   FOOD_PREP_SECONDS,
@@ -41,7 +39,8 @@ const CUSTOMER_WALK_SPEED = 10;
 // Click-to-walk steers past any table lying across its straight line.
 const STEER_RADIUS = 1.45;
 const STEER_CLEARANCE = 1.75;
-const RIVAL_HATCH_POSITION = Object.freeze({ x: -5.95, z: 1.45 });
+// The rival starts beside the left wall; it has no hatch and shares the belt.
+const RIVAL_START_POSITION = Object.freeze({ x: -5.95, z: 1.45 });
 const RIVAL_MIN_SPEED = RIVAL_SPEED * 0.7;
 const RIVAL_MAX_SPEED = RIVAL_SPEED * 1.3;
 
@@ -88,8 +87,7 @@ export function createRestaurant(ctx) {
   let host = null;
   let rivalCharacter = null;
   let rivalCarryAnchor = null;
-  let rivalHatchAnchor = null;
-  let rivalHatchDish = null;
+  let rivalCarriedDish = null;
   let conveyor = null;
   let conveyorSurface = null;
   let dishReturnAnchor = null;
@@ -140,10 +138,8 @@ export function createRestaurant(ctx) {
   let combo = 0;
   let comboRemaining = 0;
   let phasePillRemaining = 0;
-  let movementActive = false;
-  let clickTalkTargetId = null;
+  let clickQuestionCustomer = null;
   let questionCommitted = false;
-  let lastSpeechState = 'ready';
   let debugRootCreated = false;
 
   const customers = [];
@@ -161,13 +157,8 @@ export function createRestaurant(ctx) {
   const steerAim = new THREE.Vector2();
   const rivalSteerAim = new THREE.Vector2();
   const focus = createSpeechFocus();
-  const dwell = createTalkDwell();
   const directorTableView = TABLES.map(() => ({ occupied: false, customer: null }));
   const directorCustomerView = [];
-  const dwellCandidates = [];
-  const dwellCandidatePool = [];
-  const dwellPlayer = { x: 0, z: 0, forwardX: 0, forwardZ: 1 };
-  const dwellInput = { candidates: dwellCandidates, player: dwellPlayer, moving: false, lockedTargetId: null };
   const directorView = {
     tables: directorTableView,
     customers: directorCustomerView,
@@ -181,8 +172,8 @@ export function createRestaurant(ctx) {
     active: false,
     delayRemaining: 0,
     durationRemaining: 0,
-    targetX: RIVAL_HATCH_POSITION.x,
-    targetZ: RIVAL_HATCH_POSITION.z,
+    targetX: RIVAL_START_POSITION.x,
+    targetZ: RIVAL_START_POSITION.z,
   };
   let sharedDish = null;
   let customerVisuals = null;
@@ -531,7 +522,7 @@ export function createRestaurant(ctx) {
 
     if (difficulty === 3) {
       rivalCharacter = characters.create({ model: 'r', tint: 0x4b78c5 });
-      rivalCharacter.position.set(RIVAL_HATCH_POSITION.x, 0, RIVAL_HATCH_POSITION.z);
+      rivalCharacter.position.set(RIVAL_START_POSITION.x, 0, RIVAL_START_POSITION.z);
       rivalCharacter.rotation.y = Math.PI;
       rivalCharacter.scale.setScalar(0.78);
       // A bright apron is readable even when the textured character ignores
@@ -542,19 +533,6 @@ export function createRestaurant(ctx) {
       rivalCarryAnchor.position.set(0, 1.42, 0.58);
       rivalCharacter.add(rivalCarryAnchor);
       world.add(rivalCharacter);
-
-      const hatchX = -6.67;
-      addPart(world, box, recessMaterial, hatchX, 1.55, RIVAL_HATCH_POSITION.z, 0.08, 1.75, 2.05);
-      addPart(world, box, metalMaterial, hatchX + 0.04, 2.48, RIVAL_HATCH_POSITION.z, 0.16, 0.12, 2.28);
-      addPart(world, box, metalMaterial, hatchX + 0.04, 0.64, RIVAL_HATCH_POSITION.z, 0.16, 0.12, 2.28);
-      addPart(world, box, metalMaterial, hatchX + 0.04, 1.56, RIVAL_HATCH_POSITION.z - 1.07, 0.16, 1.72, 0.12);
-      addPart(world, box, metalMaterial, hatchX + 0.04, 1.56, RIVAL_HATCH_POSITION.z + 1.07, 0.16, 1.72, 0.12);
-      addPart(world, box, kitchenLightMaterial, hatchX + 0.08, 2.12, RIVAL_HATCH_POSITION.z, 0.04, 0.1, 1.35);
-      addPart(world, box, metalMaterial, -6.34, 1.32, RIVAL_HATCH_POSITION.z, 0.58, 0.1, 1.72);
-
-      rivalHatchAnchor = new THREE.Group();
-      rivalHatchAnchor.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
-      world.add(rivalHatchAnchor);
     }
 
     const meterGeometry = ownGeometry(new THREE.BoxGeometry(1.25, 0.14, 0.05));
@@ -650,49 +628,6 @@ export function createRestaurant(ctx) {
     audio.setFocusDuck(false);
   }
 
-  function createDwellRing() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const context = canvas.getContext('2d');
-    const texture = ownTexture(new THREE.CanvasTexture(canvas));
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const material = ownMaterial(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-    const sprite = new THREE.Sprite(material);
-    // Large enough to read at 1366x768: the ring is the only sign that standing
-    // still is about to start the conversation.
-    sprite.scale.set(1.15, 1.15, 1.15);
-    sprite.visible = false;
-    world.add(sprite);
-    return { canvas, context, texture, sprite, progress: -1 };
-  }
-
-  function drawDwellRing(customer, progress) {
-    const ring = customer.dwellRing;
-    const rounded = Math.round(Math.max(0, Math.min(1, progress)) * 48) / 48;
-    if (ring.progress === rounded) return;
-    ring.progress = rounded;
-    const { context } = ring;
-    context.clearRect(0, 0, 128, 128);
-    context.lineCap = 'round';
-    // White halo, dark track, bright progress: readable over any floor or table.
-    context.lineWidth = 22;
-    context.strokeStyle = 'rgba(255, 255, 255, .92)';
-    context.beginPath();
-    context.arc(64, 64, 46, 0, Math.PI * 2);
-    context.stroke();
-    context.lineWidth = 13;
-    context.strokeStyle = 'rgba(39, 56, 88, .7)';
-    context.beginPath();
-    context.arc(64, 64, 46, 0, Math.PI * 2);
-    context.stroke();
-    context.strokeStyle = '#ffd43b';
-    context.beginPath();
-    context.arc(64, 64, 46, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rounded);
-    context.stroke();
-    ring.texture.needsUpdate = true;
-  }
-
   function appearanceFor(index) {
     return {
       model: CUSTOMER_MODELS[index % CUSTOMER_MODELS.length],
@@ -765,7 +700,6 @@ export function createRestaurant(ctx) {
       fillMaterial,
       orderCue,
       ownerBadge,
-      dwellRing: createDwellRing(),
       refusalRemaining: 0,
       eatingRemaining: 0,
       walkStage: 0,
@@ -823,19 +757,24 @@ export function createRestaurant(ctx) {
     return true;
   }
 
-  function clearQuestion(keepHud = false, outcome = 'cancelled') {
+  function clearQuestion(keepHud = false) {
     if (!questionCustomer) return;
     const endedCustomer = questionCustomer;
     questionCustomer = null;
-    if (!questionCommitted) releasePlayerReservation(endedCustomer);
-    if (questionCommitted) {
-      dwell.notifyEnded(endedCustomer.id, outcome);
-      endFocus();
-    }
+    if (clickQuestionCustomer === endedCustomer) clickQuestionCustomer = null;
+    releasePlayerReservation(endedCustomer);
+    if (questionCommitted) endFocus();
     questionCommitted = false;
     speech.cancel();
     speech.clearTarget();
     if (!keepHud) hud.hide();
+  }
+
+  function cancelQuestion(customer) {
+    if (!customer || questionCustomer !== customer || !questionCommitted) return;
+    questionCommitted = false;
+    releasePlayerReservation(customer);
+    endFocus();
   }
 
   function showCustomerAnswer(customer) {
@@ -847,9 +786,14 @@ export function createRestaurant(ctx) {
 
   function acceptQuestion(customer) {
     if (!active || phase !== 'service' || customer.state !== 'orderCue'
-      || (claimRegistry && customer.owner !== RESTAURANT_OWNERS.PLAYER)) return;
-    dwell.notifyAccepted(customer.id);
-    clearQuestion(true, 'accepted');
+      || questionCustomer !== customer || !questionCommitted) return;
+    if (claimRegistry && !claimRegistry.commitPlayer(customer.id)) {
+      clearQuestion();
+      return;
+    }
+    customer.owner = RESTAURANT_OWNERS.PLAYER;
+    customer.reservation = null;
+    clearQuestion(true);
     hud.setTalkState('accepted');
     speechCooldown = 0.6;
     customer.state = 'awaiting';
@@ -864,54 +808,34 @@ export function createRestaurant(ctx) {
 
   function targetQuestion(customer) {
     if (questionCustomer === customer || speechCooldown > 0 || phase !== 'service'
-      || customer.owner === RESTAURANT_OWNERS.RIVAL) return;
-    // A click-to-walk passing another raised hand must not open that customer's
-    // prompt: a tap on it is cancelled once the walk leaves their radius.
+      || questionCommitted || customer.owner === RESTAURANT_OWNERS.RIVAL) return;
+    // A click-to-walk passing another raised hand must not let that neighbour
+    // replace the customer the child deliberately selected.
     if (autoTarget && autoTarget.value !== customer) return;
-    if (!reservePlayerCustomer(customer)) return;
     clearQuestion();
     questionCustomer = customer;
-    promptQuestion(ctx, LESSON, { isActive: () => active, onAccepted: () => acceptQuestion(customer) });
-    lastSpeechState = speech.state;
-    if (AUTO_TALK_ENABLED && settings.get('micFree')) {
-      // The fallback belongs to the committed conversation, not mere proximity.
-      hud.setMicFree(false);
-      speech.setEnabled(false);
-    }
-    if (!AUTO_TALK_ENABLED) {
-      questionCommitted = true;
-      beginFocus('restaurant-order');
-    }
+    promptQuestion(ctx, LESSON, {
+      isActive: () => active,
+      onCommit: () => commitQuestion(customer),
+      onCancel: () => cancelQuestion(customer),
+      onAccepted: () => acceptQuestion(customer),
+    });
     setInstruction(STRINGS.instruction);
   }
 
-  function commitQuestion(customer, manual = false) {
-    if (!customer || questionCustomer !== customer || questionCommitted) return;
-    if (!reservePlayerCustomer(customer)) return;
-    const dwellCommitted = dwell.commit();
-    if (!dwellCommitted && AUTO_TALK_ENABLED && !manual) return;
-    if (claimRegistry && !claimRegistry.commitPlayer(customer.id)) {
+  // Returns false when the press must not open the microphone: the reservation
+  // is made before recognition starts, so a refused customer never hears a mic.
+  function commitQuestion(customer) {
+    if (!customer || questionCustomer !== customer) return false;
+    if (questionCommitted) return true;
+    if (!reservePlayerCustomer(customer)) {
       clearQuestion();
-      return;
+      return false;
     }
-    customer.owner = RESTAURANT_OWNERS.PLAYER;
-    customer.reservation = null;
     questionCommitted = true;
     beginFocus('restaurant-order');
     audio.playSfx('restaurant-talk-ready', { frequency: 660, endFrequency: 880, duration: 0.14, gain: 0.09 });
-    if (settings.get('micFree')) {
-      hud.setMicFree(true);
-      hud.show();
-      return;
-    }
-    speech.setEnabled(true);
-    if (speech.autoListenAllowed()) speech.listenOnce();
-  }
-
-  function manualTalkStart(event) {
-    if (!AUTO_TALK_ENABLED || !questionCustomer || questionCommitted || hud.talkButton.hidden) return;
-    if (event.type === 'keydown' && (event.code !== 'Space' || event.repeat)) return;
-    commitQuestion(questionCustomer, true);
+    return true;
   }
 
   function createBeltDish(snapshotDish) {
@@ -920,7 +844,6 @@ export function createRestaurant(ctx) {
       id: snapshotDish.id,
       customerId: null,
       food: snapshotDish.food,
-      filler: snapshotDish.filler,
       state: 'belt',
       carrySeconds: 0,
       firstTry: true,
@@ -945,12 +868,6 @@ export function createRestaurant(ctx) {
     return dishes.find((dish) => dish.id === id && dish.state === 'belt') ?? null;
   }
 
-  function dueConveyorOrders() {
-    return customers.filter((customer) => customer.state === 'awaiting'
-      && customer.readyFired
-      && (!claimRegistry || customer.owner === RESTAURANT_OWNERS.PLAYER));
-  }
-
   function updateBeltSlats(snapshot) {
     const span = 15.6;
     for (let index = 0; index < beltSlats.length; index += 1) {
@@ -962,10 +879,8 @@ export function createRestaurant(ctx) {
 
   function updateConveyor(serviceDt) {
     if (!conveyor) return;
-    const events = conveyor.advance(serviceDt, {
-      dueOrders: dueConveyorOrders(),
-      carriedFood: carried?.food ?? null,
-    });
+    // The belt is order-blind (SPEC §4): nothing about orders reaches it.
+    const events = conveyor.advance(serviceDt);
     for (const event of events) {
       if (event.type === 'enter') createBeltDish(event.dish);
       else if (event.type === 'exit') removePhysicalDish(beltDishFor(event.dish.id), 'exited');
@@ -1369,25 +1284,47 @@ export function createRestaurant(ctx) {
       const customer = customers[index];
       let view = rivalCustomerView[index];
       if (!view) {
-        view = { id: customer.id, food: customer.food, position: { x: 0, z: 0 }, prepDuration: 0 };
+        view = { id: customer.id, food: customer.food, position: { x: 0, z: 0 } };
         rivalCustomerView[index] = view;
       }
       view.id = customer.id;
       view.food = customer.food;
       view.position.x = customer.rivalApproach.x;
       view.position.z = customer.rivalApproach.z;
-      view.prepDuration = customer.prepDuration;
     }
     rivalView.focusReleasedAgo = focusReleasedAgo;
   }
 
   function discardRivalDish() {
-    if (!rivalHatchDish) return;
-    rivalCarryAnchor?.remove(rivalHatchDish.mesh);
-    world.remove(rivalHatchDish.mesh);
-    rivalHatchDish.mesh.visible = false;
-    rivalHatchDish.state = 'discarded';
-    rivalHatchDish = null;
+    if (!rivalCarriedDish) return;
+    rivalCarryAnchor?.remove(rivalCarriedDish.mesh);
+    world.remove(rivalCarriedDish.mesh);
+    rivalCarriedDish.mesh.visible = false;
+    rivalCarriedDish.state = 'discarded';
+    rivalCarriedDish = null;
+  }
+
+  // The pure model has already taken the dish off the belt (conveyor.take); the
+  // scene moves that same dish mesh from the belt into the rival's hands, where
+  // the player can no longer click or collect it.
+  function giveBeltDishToRival(event) {
+    discardRivalDish();
+    let dish = beltDishFor(event.dishId);
+    if (dish) {
+      const index = dishes.indexOf(dish);
+      if (index >= 0) dishes.splice(index, 1);
+      world.remove(dish.mesh);
+      dish.mesh.userData.restaurantTarget = null;
+    } else {
+      dish = { id: event.dishId, food: event.food, mesh: createDish(event.food, sharedDish) };
+    }
+    dish.customerId = event.customer;
+    dish.state = 'carried';
+    dish.mesh.visible = true;
+    rivalCarryAnchor.add(dish.mesh);
+    dish.mesh.position.set(0, 0, 0);
+    dish.mesh.scale.setScalar(0.88);
+    rivalCarriedDish = dish;
   }
 
   function applyRivalEvents(serviceDt) {
@@ -1397,10 +1334,10 @@ export function createRestaurant(ctx) {
     for (const event of events) {
       const customer = customers[event.customer];
       if (event.type === 'targetCustomer'
-        || event.type === 'walkToPass'
+        || event.type === 'targetDish'
         || event.type === 'deliverToCustomer') {
         beginRivalWalk(event);
-      } else if (event.type === 'abandonTarget') {
+      } else if (event.type === 'abandonTarget' || event.type === 'abandonDish') {
         rivalWalk.active = false;
       } else if (event.type === 'claimCustomer' && customer) {
         customer.owner = RESTAURANT_OWNERS.RIVAL;
@@ -1409,46 +1346,27 @@ export function createRestaurant(ctx) {
         customer.orderCue.visible = false;
         customer.ownerBadge.visible = true;
         if (autoTarget?.type === 'customer' && autoTarget.value === customer) autoTarget = null;
+        if (clickQuestionCustomer === customer) clickQuestionCustomer = null;
         if (questionCustomer === customer) clearQuestion();
         const faceX = customer.character.position.x - rivalCharacter.position.x;
         const faceZ = customer.character.position.z - rivalCharacter.position.z;
         rivalCharacter.rotation.y = Math.atan2(faceX, faceZ);
-      } else if (event.type === 'orderTaken') {
-        discardRivalDish();
-        const mesh = createDish(event.food, sharedDish);
-        mesh.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
-        rivalHatchDish = {
-          customerId: event.customer,
-          food: event.food,
-          state: 'preparing',
-          mesh,
-        };
-      } else if (event.type === 'dishReady') {
-        if (rivalHatchDish?.customerId !== event.customer) continue;
-        rivalHatchDish.state = 'ready';
-        rivalHatchDish.mesh.visible = true;
-        rivalHatchDish.mesh.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
       } else if (event.type === 'pickUpDish') {
-        if (rivalHatchDish?.customerId !== event.customer) continue;
-        rivalHatchDish.state = 'carried';
-        world.remove(rivalHatchDish.mesh);
-        rivalCarryAnchor.add(rivalHatchDish.mesh);
-        rivalHatchDish.mesh.position.set(0, 0, 0);
-        rivalHatchDish.mesh.scale.setScalar(0.88);
-      } else if (event.type === 'servedCustomer' && customer && rivalHatchDish) {
-        rivalCarryAnchor.remove(rivalHatchDish.mesh);
-        world.add(rivalHatchDish.mesh);
-        rivalHatchDish.mesh.position.set(customer.table.x, 1.13, customer.table.z);
-        rivalHatchDish.mesh.scale.setScalar(0.78);
-        rivalHatchDish.state = 'delivered';
-        customer.servedDish = rivalHatchDish;
+        giveBeltDishToRival(event);
+      } else if (event.type === 'servedCustomer' && customer && rivalCarriedDish) {
+        rivalCarryAnchor.remove(rivalCarriedDish.mesh);
+        world.add(rivalCarriedDish.mesh);
+        rivalCarriedDish.mesh.position.set(customer.table.x, 1.13, customer.table.z);
+        rivalCarriedDish.mesh.scale.setScalar(0.78);
+        rivalCarriedDish.state = 'delivered';
+        customer.servedDish = rivalCarriedDish;
         customer.state = 'eating';
         customer.outcome = 'delivered';
         customer.eatingRemaining = EATING_SECONDS;
         customer.meter.visible = false;
         customer.ownerBadge.visible = false;
         customer.character.playAnimation?.('emote-yes');
-        rivalHatchDish = null;
+        rivalCarriedDish = null;
         updateProgress();
         updateChallengeScore();
       } else if (event.type === 'abandonTask') {
@@ -1471,8 +1389,7 @@ export function createRestaurant(ctx) {
     input.getMovement(move);
     if (move.lengthSq() > 0) {
       autoTarget = null;
-      clickTalkTargetId = null;
-      movementActive = true;
+      clickQuestionCustomer = null;
       const nextX = player.position.x + move.x * MOVE_SPEED * dt;
       const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
       if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
@@ -1484,12 +1401,9 @@ export function createRestaurant(ctx) {
       return;
     }
     if (!autoTarget) {
-      movementActive = false;
       player.playAnimation?.('idle');
       return;
     }
-
-    movementActive = true;
 
     const destination = autoTarget.position;
     const dx = destination.x - player.position.x;
@@ -1499,7 +1413,6 @@ export function createRestaurant(ctx) {
     if (distance <= arrivalRadius) {
       const arrived = autoTarget;
       autoTarget = null;
-      movementActive = false;
       player.playAnimation?.('idle');
       if (arrived.type === 'dish') collectDish(arrived.value, true);
       else if (arrived.type === 'customer') {
@@ -1507,8 +1420,7 @@ export function createRestaurant(ctx) {
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
         player.rotation.y = Math.atan2(faceX, faceZ);
-        if (arrived.value.state === 'orderCue') clickTalkTargetId = arrived.value.id;
-        else if (carried) deliver(arrived.value);
+        if (arrived.value.state !== 'orderCue' && carried) deliver(arrived.value);
       }
       return;
     }
@@ -1565,7 +1477,6 @@ export function createRestaurant(ctx) {
       customer.character.visible = false;
       customer.orderCue.visible = false;
       customer.meter.visible = false;
-      customer.dwellRing.sprite.visible = false;
     }
   }
 
@@ -1623,12 +1534,6 @@ export function createRestaurant(ctx) {
         customer.orderCue.scale.setScalar(cuePulse);
       }
       if (customer.ownerBadge.visible) customer.ownerBadge.quaternion.copy(camera.quaternion);
-      if (customer.dwellRing.sprite.visible) {
-        customer.character.getWorldPosition(meterPosition);
-        customer.dwellRing.sprite.position.copy(meterPosition);
-        customer.dwellRing.sprite.position.y += 2.05;
-        customer.dwellRing.sprite.quaternion.copy(camera.quaternion);
-      }
     }
 
     for (const customer of customers) {
@@ -1638,11 +1543,7 @@ export function createRestaurant(ctx) {
     }
   }
 
-  // Keep an open order prompt on its customer while the waiter is still in
-  // their radius: a nearer neighbour must not steal it mid-answer, because
-  // re-targeting hides the HUD and cancels a read-along tap in progress.
-  function questionCustomerStillNear() {
-    const customer = questionCustomer;
+  function customerStillNear(customer) {
     if (!customer || customer.state !== 'orderCue'
       || customer.owner === RESTAURANT_OWNERS.RIVAL) return null;
     const dx = player.position.x - customer.character.position.x;
@@ -1666,6 +1567,22 @@ export function createRestaurant(ctx) {
     return nearest;
   }
 
+  function nearestOrderCustomer() {
+    let nearest = null;
+    let best = CUSTOMER_RADIUS_SQ;
+    for (const customer of customers) {
+      if (customer.state !== 'orderCue' || customer.owner === RESTAURANT_OWNERS.RIVAL) continue;
+      const dx = player.position.x - customer.character.position.x;
+      const dz = player.position.z - customer.character.position.z;
+      const distance = dx * dx + dz * dz;
+      if (distance < best) {
+        best = distance;
+        nearest = customer;
+      }
+    }
+    return nearest;
+  }
+
   function nearestBeltDish() {
     if (!conveyor || Math.abs(player.position.z - BELT_FRONT_Z) > BELT_FRONT_BAND) return null;
     return conveyor.nearestPickable(player.position.x, BELT_PICKUP_WINDOW);
@@ -1677,62 +1594,6 @@ export function createRestaurant(ctx) {
     return dx * dx + dz * dz <= DISH_RETURN_RADIUS_SQ;
   }
 
-  function updateTalkDwell(dt) {
-    if (!AUTO_TALK_ENABLED) return;
-    dwellCandidates.length = 0;
-    for (const customer of customers) {
-      if (customer.state !== 'orderCue' || customer.owner === RESTAURANT_OWNERS.RIVAL) continue;
-      const poolIndex = dwellCandidates.length;
-      let candidate = dwellCandidatePool[poolIndex];
-      if (!candidate) {
-        candidate = {};
-        dwellCandidatePool[poolIndex] = candidate;
-      }
-      candidate.id = customer.id;
-      candidate.x = customer.character.position.x;
-      candidate.z = customer.character.position.z;
-      candidate.radiusSq = CUSTOMER_RADIUS_SQ;
-      dwellCandidates.push(candidate);
-    }
-    dwellPlayer.x = player.position.x;
-    dwellPlayer.z = player.position.z;
-    dwellPlayer.forwardX = Math.sin(player.rotation.y);
-    dwellPlayer.forwardZ = Math.cos(player.rotation.y);
-    dwellInput.moving = movementActive;
-    dwellInput.lockedTargetId = autoTarget?.type === 'customer' ? autoTarget.value.id : clickTalkTargetId;
-    dwell.update(dt, dwellInput);
-
-    const target = dwell.targetId == null ? null : customers[dwell.targetId];
-    for (const customer of customers) {
-      const showing = !questionCommitted && customer === target
-        && (dwell.phase === 'dwelling' || dwell.phase === 'ready');
-      customer.dwellRing.sprite.visible = showing;
-      if (showing) {
-        drawDwellRing(customer, dwell.progress);
-        const wanted = Math.atan2(
-          player.position.x - customer.character.position.x,
-          player.position.z - customer.character.position.z,
-        );
-        customer.character.rotation.y = THREE.MathUtils.clamp(wanted, -0.65, 0.65);
-      } else if (!['walkingIn', 'leaving'].includes(customer.state)) {
-        customer.character.rotation.y = 0;
-      }
-    }
-
-    if (target && !questionCommitted && !questionCustomer) {
-      if (reservePlayerCustomer(target)) targetQuestion(target);
-    }
-    if (questionCustomer && !questionCommitted && target !== questionCustomer) clearQuestion();
-
-    const speechState = speech.state;
-    if (questionCustomer && !questionCommitted && speechState === 'listening') commitQuestion(questionCustomer, true);
-    if (!questionCommitted && target && dwell.phase === 'ready') commitQuestion(target);
-    if (questionCommitted && speechState === 'try-again' && lastSpeechState !== 'try-again') {
-      dwell.notifyEnded(questionCustomer?.id, 'failed');
-    }
-    lastSpeechState = speechState;
-  }
-
   function updateContext() {
     if (speechCooldown > 0) {
       hideAction();
@@ -1740,9 +1601,25 @@ export function createRestaurant(ctx) {
       return;
     }
 
-    const lockedQuestion = questionCustomerStillNear();
-    if (questionCustomer && !lockedQuestion) clearQuestion();
-    const nearbyCustomer = lockedQuestion ?? nearestSeatedCustomer();
+    // Once Talk is pressed, keep this customer locked through recognition and
+    // retries. Mere proximity remains free to retarget before that commitment.
+    const lockedQuestion = questionCommitted ? customerStillNear(questionCustomer) : null;
+    if (questionCommitted && !lockedQuestion) clearQuestion();
+
+    if (clickQuestionCustomer
+      && (clickQuestionCustomer.state !== 'orderCue'
+        || clickQuestionCustomer.owner === RESTAURANT_OWNERS.RIVAL)) {
+      clickQuestionCustomer = null;
+    }
+    const clickedCustomer = customerStillNear(clickQuestionCustomer);
+    const questionCandidate = lockedQuestion
+      ?? (clickQuestionCustomer ? clickedCustomer : nearestOrderCustomer());
+    const nearbyCustomer = questionCandidate ?? nearestSeatedCustomer();
+
+    if (!questionCommitted) {
+      if (questionCandidate) targetQuestion(questionCandidate);
+      else clearQuestion();
+    }
     // The 🔊 control sits beside the main action, never in its place (SPEC 3).
     setListenTarget(nearbyCustomer && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
     if (carried) {
@@ -1751,17 +1628,14 @@ export function createRestaurant(ctx) {
       // It outranks the dish return so the return can never block a conversation.
       if (nearbyCustomer?.state === 'orderCue') {
         hideAction();
-        if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
         return;
       }
       if (playerNearDishReturn()) {
-        clearQuestion();
         setListenTarget(null);
         setInstruction(STRINGS.returnDish);
         showAction(STRINGS.returnDish, 'return');
         return;
       }
-      clearQuestion();
       setListenTarget(null);
       setInstruction(STRINGS.walkToDeliver);
       if (nearbyCustomer && nearbyCustomer.refusalRemaining <= 0) {
@@ -1771,8 +1645,8 @@ export function createRestaurant(ctx) {
       return;
     }
 
-    // An open conversation outranks belt pickup so collecting cannot cancel a
-    // dwell or read-along that is already in progress.
+    // A committed conversation outranks belt pickup so another world action
+    // cannot displace an active recognition attempt or read-along.
     if (lockedQuestion) {
       hideAction();
       return;
@@ -1780,7 +1654,6 @@ export function createRestaurant(ctx) {
 
     const beltDish = nearestBeltDish();
     if (beltDish) {
-      clearQuestion();
       setInstruction(STRINGS.walkToConveyor);
       showAction(STRINGS.collectDish, 'collect', beltDish);
       return;
@@ -1788,11 +1661,9 @@ export function createRestaurant(ctx) {
 
     if (nearbyCustomer?.state === 'orderCue') {
       hideAction();
-      if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
       return;
     }
 
-    clearQuestion();
     hideAction();
 
     if (hasCustomerInState('orderCue')) setInstruction(STRINGS.wantsToOrder);
@@ -1851,7 +1722,7 @@ export function createRestaurant(ctx) {
         const predictedX = conveyor.predictX(snapshotDish.id, estimatedWalkSeconds);
         if (!Number.isFinite(predictedX)) continue;
         const { visibleHalfWidth } = conveyor.snapshot();
-        clickTalkTargetId = null;
+        if (!questionCommitted) clickQuestionCustomer = null;
         autoTarget = {
           type: 'dish',
           value: snapshotDish.id,
@@ -1863,7 +1734,7 @@ export function createRestaurant(ctx) {
         };
       } else if (target.type === 'belt' && conveyor) {
         const { visibleHalfWidth } = conveyor.snapshot();
-        clickTalkTargetId = null;
+        if (!questionCommitted) clickQuestionCustomer = null;
         autoTarget = {
           type: 'belt',
           value: null,
@@ -1876,7 +1747,9 @@ export function createRestaurant(ctx) {
       } else if (target.type === 'customer') {
         if (!isSeated(target.value.state)
           || target.value.owner === RESTAURANT_OWNERS.RIVAL) continue;
-        clickTalkTargetId = target.value.state === 'orderCue' ? target.value.id : null;
+        if (!questionCommitted) {
+          clickQuestionCustomer = target.value.state === 'orderCue' ? target.value : null;
+        }
         autoTarget = {
           type: 'customer',
           value: target.value,
@@ -1884,8 +1757,6 @@ export function createRestaurant(ctx) {
         };
       }
       if (target) {
-        clearQuestion();
-        setListenTarget(null);
         audio.playSfx('interact');
         break;
       }
@@ -1921,9 +1792,7 @@ export function createRestaurant(ctx) {
       playerServed: records.filter((record) => record.delivered).length,
       rivalServed: 0,
     };
-    const carryingFood = rival && ['carrying', 'delivering'].includes(rival.state)
-      ? rival.dish?.food ?? null
-      : null;
+    const carryingFood = rival?.carriedDish?.food ?? null;
     return {
       phase: phase === 'service' ? directorPhase : phase,
       lifecycle: phase,
@@ -1958,7 +1827,6 @@ export function createRestaurant(ctx) {
             id: snapshotDish.id,
             food: snapshotDish.food,
             x: snapshotDish.x,
-            filler: snapshotDish.filler,
             screen: dish ? projectObject(dish.mesh, 0.25) : null,
           };
         }),
@@ -1988,26 +1856,18 @@ export function createRestaurant(ctx) {
       rival: rival ? {
         state: rival.state,
         targetCustomer: rival.targetCustomer,
+        targetDishId: rival.targetDishId,
+        carriedDish: rival.carriedDish,
         position: rivalCharacter
           ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
           : rival.position,
         carryingFood,
-      } : null,
-      rivalHatch: rivalHatchAnchor ? {
-        position: { x: RIVAL_HATCH_POSITION.x, z: RIVAL_HATCH_POSITION.z },
-        screen: projectObject(rivalHatchAnchor),
-        contents: rivalHatchDish?.state === 'ready' ? {
-          customer: rivalHatchDish.customerId,
-          food: rivalHatchDish.food,
-          state: rivalHatchDish.state,
-        } : null,
       } : null,
       playerServed: counts.playerServed,
       rivalServed: counts.rivalServed,
       scoreText: scoreText?.hidden ? null : scoreText?.textContent ?? null,
       combo,
       focusActive: focus.active,
-      dwell: { phase: dwell.phase, targetId: dwell.targetId, progress: dwell.progress },
       question: { customer: questionCustomer?.id ?? null, committed: questionCommitted },
       records: records.map((record) => ({ ...record })),
       scoring,
@@ -2114,19 +1974,21 @@ export function createRestaurant(ctx) {
     activeOrderLimit = configured.activeOrderLimit;
     shiftTotal = configured.total;
     claimRegistry = difficulty === 3 ? createCustomerClaimRegistry() : null;
-    rival = claimRegistry ? createRestaurantRival({
-      level: difficulty,
-      registry: claimRegistry,
-      initialPosition: RIVAL_HATCH_POSITION,
-      passPosition: RIVAL_HATCH_POSITION,
-      prepScale: configured.prepScale,
-      rng: Math.random,
-    }) : null;
     conveyor = createConveyor({
       difficulty,
       foods: LESSON.vocabulary.map((food) => food.id),
       rng: Math.random,
     });
+    // The rival races the player for the same physical dishes on this belt.
+    rival = claimRegistry ? createRestaurantRival({
+      level: difficulty,
+      registry: claimRegistry,
+      conveyor,
+      initialPosition: RIVAL_START_POSITION,
+      beltFrontZ: BELT_FRONT_Z,
+      pickupWindow: BELT_PICKUP_WINDOW,
+      rng: Math.random,
+    }) : null;
     serviceDirector = createRestaurantDirector({
       level: difficulty,
       tables: configured.count,
@@ -2153,13 +2015,10 @@ export function createRestaurant(ctx) {
     combo = 0;
     comboRemaining = 0;
     phasePillRemaining = 0;
-    movementActive = false;
-    clickTalkTargetId = null;
+    clickQuestionCustomer = null;
     questionCommitted = false;
-    lastSpeechState = 'ready';
     autoTarget = null;
     cancelFocus();
-    dwell.reset();
     records.length = 0;
     customers.length = 0;
     dishes.length = 0;
@@ -2168,7 +2027,7 @@ export function createRestaurant(ctx) {
     rivalWalk.active = false;
     rivalWalk.delayRemaining = 0;
     rivalWalk.durationRemaining = 0;
-    rivalHatchDish = null;
+    rivalCarriedDish = null;
     rivalAnimation = '';
     createOverlay();
     buildWorld();
@@ -2180,13 +2039,10 @@ export function createRestaurant(ctx) {
     }
     canvas = document.querySelector('#game-canvas');
     canvas?.addEventListener('pointerdown', onCanvasPointer);
-    hud.talkButton.addEventListener('pointerdown', manualTalkStart);
-    window.addEventListener('keydown', manualTalkStart, true);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
-      hud.setMicFree(AUTO_TALK_ENABLED && questionCustomer && !questionCommitted ? false : next.micFree);
+      hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });
   }
@@ -2230,16 +2086,17 @@ export function createRestaurant(ctx) {
       updateCustomers(serviceDt, safeDt);
       applyDirectorEvents(serviceDt);
       updateConveyor(serviceDt);
-      updateTalkDwell(safeDt);
+      updateCarried(serviceDt);
+      updateContext();
+      // First contact wins, and within one update the player's pickup resolves
+      // before the rival's (SPEC §4): the player acts, then the rival advances.
+      if (actionType && input.consumeInteract()) performAction();
       applyRivalEvents(serviceDt);
       if (rivalCharacter) {
         if (focus.active) setRivalAnimation('idle', true);
         else if (rivalWalk.active && rivalWalk.delayRemaining <= 0) setRivalAnimation('walk');
         else setRivalAnimation('idle');
       }
-      updateCarried(serviceDt);
-      updateContext();
-      if (actionType && input.consumeInteract()) performAction();
       updateRoundEnd();
     } else if (phase === 'round-end') {
       player.playAnimation?.('idle');
@@ -2265,7 +2122,6 @@ export function createRestaurant(ctx) {
   function exit() {
     active = false;
     cancelFocus();
-    dwell.reset();
     unsubscribeSettings?.();
     unsubscribeSettings = null;
     speech.clearTarget();
@@ -2275,8 +2131,6 @@ export function createRestaurant(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
-    hud.talkButton.removeEventListener('pointerdown', manualTalkStart);
-    window.removeEventListener('keydown', manualTalkStart, true);
     removeDebugHook();
     actionButton?.removeEventListener('click', performAction);
     listenAgain?.dispose();
@@ -2316,8 +2170,7 @@ export function createRestaurant(ctx) {
     rival = null;
     rivalCharacter = null;
     rivalCarryAnchor = null;
-    rivalHatchAnchor = null;
-    rivalHatchDish = null;
+    rivalCarriedDish = null;
     conveyor = null;
     conveyorSurface = null;
     dishReturnAnchor = null;

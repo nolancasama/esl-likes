@@ -1,0 +1,45 @@
+{
+  "task": "Replace hold-to-talk and dwell-to-talk with a single press-to-talk interaction in the shared speech system and every minigame (Restaurant, Drink Stand, Zoo, Sports, Coloring, placeholder).",
+  "requirements": [
+    "src/systems/speech.js: replace the HoldToTalk adapter with a press adapter. A press = a `click` on the talk button, or a non-repeat Enter keydown captured globally while the button is visible and enabled (preventDefault so a focused button does not also synthesize a click; Space is no longer a talk key). Press while idle starts one session: continuous = false, interimResults = true, maxAlternatives 5. Press while listening cancels: abort, no onResult, no failure recorded, state back to ready. pointerup / keyup / pointerleave / lostpointercapture have NO effect; remove pointer-capture and hold code. Natural recognizer end finishes the attempt and judges it (interim success still accepted instantly). Safety cap 8000 ms. Window blur / document hidden cancels as today.",
+    "createSpeechSystem: remove listenOnce and autoListenAllowed. Target options gain onCommit() — called synchronously when a press starts a session, or opens the read-along fallback in mic-free mode — and onCancel() — called when a second press cancels. A press only acts when a target is set and enabled. The press is the user gesture, so start recognition even if permission was never granted (the browser may prompt then).",
+    "src/systems/speechPrompt.js: pass onCommit / onCancel through. In mic-free mode the 🎤 Talk button is shown (not the fallback); pressing it opens the read-along fallback for that target and calls onCommit. The existing two-failure fallback ladder is unchanged; a cancel never counts as a failure.",
+    "src/ui/hud.js: listening state is unmistakable — red button, pulsing ring (CSS keyframes; a static ring under prefers-reduced-motion) and a ● dot before the label — and returns to ready immediately when the session ends or is cancelled. Update the Japanese talk-state strings wherever they live (src/config/lesson.js UI strings): ready 'おして はなそう', listening '● きいてるよ…'; keep the other labels. Show a small 'Enter' key hint on the ready button.",
+    "Delete src/systems/talkDwell.js, src/systems/talkDwell.test.mjs and the AUTO_TALK_* exports in src/config/interaction.js (delete the file if empty) and every import/use: dwell rings, customer turn-toward during dwell, dwell candidates, click-to-walk auto-commit, AUTO_TALK_ENABLED branches.",
+    "Restaurant (src/minigames/restaurant/index.js) and Drink Stand (src/minigames/drinkStand/index.js): proximity (and the click-to-walk target) still selects the eligible customer and shows the Talk button, but approach, standing still and click-to-walk arrival never begin speech focus, listening or the fallback. On press (onCommit): lock that customer, begin speech focus, and in Restaurant call reservePlayerCustomer (claim registry reservePlayer). Ownership (claimRegistry.commitPlayer + customer.owner = player) moves to question acceptance. On cancel press (onCancel): end focus, release the reservation, keep the customer selectable. A failed attempt keeps lock, focus and reservation while the player stays in range; leaving range (or the prompt closing without acceptance) ends focus and releases the reservation. While a conversation is committed, no neighbouring customer may take the prompt.",
+    "Zoo, Sports, Coloring and the placeholder minigame: they already show prompts by proximity; ensure nothing listens without a press, Enter works, and a committed/listening prompt is never retargeted to a different NPC while speech is active (keep the current target until it resolves or the player leaves range).",
+    "Tests: rewrite src/systems/speech.test.mjs hold tests for press semantics — one press starts; pointerup/keyup/pointerleave do nothing; second press cancels without onFailure; natural end judges; 8 s cap; Enter starts, Space does not; repeat keydown ignored; mic-free press opens fallback and calls onCommit (through promptSpeech with a fake hud/speech if simpler). Keep matcher tests. Update scripts/speech-states.mjs only if it references hold APIs.",
+    "Record in DESIGN_DECISIONS.md only implementation-level choices not already covered by the 2026-09-15 entry (append to that entry, briefly)."
+  ],
+  "constraints": [
+    "Do NOT edit src/minigames/restaurant/conveyor.js, rival.js, claims.js or their tests (parallel orders), and do not change Restaurant conveyor or rival integration code in index.js (a later order) — only its talk/dwell/reservation/focus code.",
+    "Do NOT edit scripts/playthrough*.mjs (a later order updates them).",
+    "Read SPEC.md §3 'Press to talk' and 'Protected speech focus', §4 'Challenge rival waiter' reservation paragraph, and DESIGN_DECISIONS.md 2026-09-15 first; they are current.",
+    "Preserve every existing speech behaviour not named here: matcher, interim success, fallback ladder, Listen Again, turnaround prompts, speech focus scope per minigame.",
+    "Edit files with structured edits. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant."
+  ],
+  "startingPoints": [
+    "src/systems/speech.js",
+    "src/systems/speech.test.mjs",
+    "src/systems/speechPrompt.js",
+    "src/ui/hud.js",
+    "src/config/interaction.js",
+    "src/config/lesson.js",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/drinkStand/index.js",
+    "src/minigames/zoo/index.js",
+    "src/minigames/sports/index.js",
+    "src/minigames/coloring/index.js",
+    "src/minigames/placeholder/index.js",
+    "src/main.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "category": "feature",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "notes": "Atomic: one shared speech API change with every caller migrated together keeps the build green. Behavioural playthroughs are updated and run by a later order (their speech mock drives hold/dwell today), so they are expected to break after this change; do not try to run them. Design facts: Restaurant talk radius 2.7 around the seated customer; the belt front (z -4.4) lies inside the back tables' talk radius, which is why Space stays the world action key and Enter is the talk key."
+}

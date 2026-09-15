@@ -1046,3 +1046,54 @@ MATSUBARA RESTAURANT sign. The child notices food by seeing it move; no
   left wall, so ownership stays strictly safe without labelling food.
 - No looping motor audio is added; the bell sounds are removed and pickup keeps
   a soft plate sound.
+
+## 2026-09-15 — Random belt, shared dishes, and press-to-talk everywhere
+
+Owner's plan, reviewed and adapted (SPEC §3 "Press to talk", §4 Conveyor and
+Challenge rival).
+
+- **Accepted — the belt is order-blind.** A shuffled bag of the five foods
+  (reshuffled, no repeat across a bag seam) enters at a steady per-difficulty
+  interval whatever the orders are. The old demand-driven supply leaked the
+  answer twice over: food appeared because someone asked, and "filler" was by
+  definition a food nobody wanted. Prep time no longer gates anything the
+  player sees. No hidden drought bias: the bag already bounds absence to eight
+  dishes (~36 s Easy worst case, ~20 s average).
+- **Accepted — dishes are shared, customers are not.** This reverses the
+  2026-09-14 "rival never uses the belt" rule, which existed only to keep plate
+  ownership safe; with owner-free dishes and customer-owned orders the safety
+  comes from the claim registry instead. First pickup wins; the player's pickup
+  resolves before the rival's within one update; carried food is untouchable.
+  The rival hatch and rival cooking are removed.
+- **Modified — rival speed 3.75 → 4.25 (85%)** plus a 0.6 s "must have seen the
+  dish" delay. At 75% the rival could almost never win a belt race; the plan
+  asked for "about player speed or slightly slower" and "no instant knowledge".
+  The share cap (3) and 4 s hand age stay.
+- **Accepted — reservation on Talk press, ownership on acceptance.** Previously
+  ownership committed at the dwell/hold commit, before speaking. Now a press
+  reserves, an accepted question converts, a cancel or leaving range releases,
+  and a failed attempt keeps the reservation while the child stays nearby.
+- **Accepted — press-to-talk replaces hold and dwell in every minigame.** The
+  2026-09-13 dwell (authorised then as a relaxation of hold-to-talk) is
+  removed with `talkDwell.js` and `AUTO_TALK_*`; the microphone opens only on a
+  deliberate press, which also removes the classroom risk noted then (a
+  neighbour's voice accepted during an automatic session).
+- **Modified — Enter, not Space, is the talk key.** Space is collect / deliver /
+  return at the Restaurant and fill at the Drink Stand, and the belt front lies
+  within the back tables' talk radius, so a shared key would open a microphone
+  mid-race. The on-screen 🎤 button works identically.
+- **Modified — the listening label is Japanese** (● きいてるよ…) with a pulsing ring:
+  UI chrome stays Japanese (SPEC §1); the red state plus motion carries it.
+- **Added — cancel is not a failure; a failed attempt keeps focus.** A second
+  press while listening drops the attempt without advancing the fallback
+  ladder. A recognizer that ends without a match keeps target, focus and
+  reservation while the child stays in range, so retries stay protected.
+- **Added — 8 s safety cap** on a press session (recognizers occasionally never
+  fire `onend`).
+- **Rejected — the plan's full test matrix and manual play of every minigame.**
+  Unit tests cover the pure modules (bag, rival belt competition, claims,
+  press-to-talk adapter); playthroughs are updated only enough to use the new
+  control and run once; the owner judges targeted screenshots, not free play.
+- **Unchanged / deferred:** wrong delivery, dish return, temperature, score
+  pill. The Restaurant harness trust work and the tub-over-delivery priority
+  stay on the backburner at the owner's request.

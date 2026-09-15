@@ -136,7 +136,6 @@ export function createPlaceholder(ctx) {
 
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
       hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });

@@ -17,6 +17,8 @@ export function promptSpeech(ctx, {
   choices = null,
   fallbackAnswer = null,
   isActive = () => true,
+  onCommit,
+  onCancel,
   onAccepted,
 }) {
   const { hud, speech, settings } = ctx;
@@ -30,18 +32,27 @@ export function promptSpeech(ctx, {
     },
   });
   hud.show();
-  speech.setEnabled(!micFree);
+  speech.setEnabled(true);
   speech.setTarget({
     mode,
     category,
+    micFree: () => Boolean(settings.get('micFree')),
+    onCommit: () => {
+      if (isActive()) onCommit?.();
+    },
+    onCancel: () => {
+      if (isActive()) onCancel?.();
+    },
+    onFallback: () => {
+      if (isActive()) hud.showFallback();
+    },
     onState: (state) => hud.setTalkState(state),
     onAccepted: (result) => {
       if (isActive()) onAccepted(result.answer || fallbackAnswer);
     },
     onFailure: () => hud.recordFailure(),
     onUnavailable: () => {
-      speech.setEnabled(false);
-      hud.setMicFree(true);
+      hud.showFallback();
     },
   });
 }

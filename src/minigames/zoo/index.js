@@ -96,6 +96,7 @@ export function createZoo(ctx) {
   let roundEndRemaining = 0;
   let finishRemaining = 0;
   let questionVisitor = null;
+  let questionCommitted = false;
   let dialogueVisitor = null;
   let currentReplayVisitor = null;
   let acceptedAnswer = null;
@@ -387,6 +388,7 @@ export function createZoo(ctx) {
 
   function clearQuestion(keepHud = false) {
     questionVisitor = null;
+    questionCommitted = false;
     speech.clearTarget();
     if (!keepHud) hud.hide();
   }
@@ -411,13 +413,27 @@ export function createZoo(ctx) {
 
   function targetQuestion(visitor) {
     if (questionVisitor === visitor) return;
+    if (questionCommitted) return;
     clearQuestion();
     questionVisitor = visitor;
     promptQuestion(ctx, LESSON, {
-      isActive: () => active && phase === 'playing' && visitor.state === 'waiting' && !visitor.asked,
+      isActive: () => active && phase === 'playing' && visitor.state === 'waiting'
+        && !visitor.asked && visitorInTalkRange(visitor),
+      onCommit: () => {
+        if (questionVisitor === visitor && visitorInTalkRange(visitor)) questionCommitted = true;
+      },
+      onCancel: () => {
+        if (questionVisitor === visitor) questionCommitted = false;
+      },
       onAccepted: () => acceptQuestion(visitor),
     });
     setInstruction(STRINGS.askVisitor);
+  }
+
+  function visitorInTalkRange(visitor) {
+    const dx = player.position.x - visitor.character.position.x;
+    const dz = player.position.z - visitor.character.position.z;
+    return dx * dx + dz * dz < TALK_RADIUS_SQ;
   }
 
   function nearestVisitor(predicate) {
@@ -438,6 +454,18 @@ export function createZoo(ctx) {
   }
 
   function updateContext() {
+    if (questionCommitted) {
+      const lockedVisitorIsEligible = questionVisitor?.state === 'waiting'
+        && !questionVisitor.asked && visitorInTalkRange(questionVisitor);
+      if (lockedVisitorIsEligible) {
+        actionVisitor = null;
+        setInstruction(STRINGS.askVisitor);
+        if (openRequests().length) listenAgain?.show();
+        else listenAgain?.hide();
+        return;
+      }
+      clearQuestion();
+    }
     actionVisitor = carriedPhoto
       ? nearestVisitor((visitor) => visitor.state === 'waiting' && visitor.asked)
       : null;
@@ -861,6 +889,7 @@ export function createZoo(ctx) {
     roundEndRemaining = 0;
     finishRemaining = 0;
     questionVisitor = null;
+    questionCommitted = false;
     dialogueVisitor = null;
     currentReplayVisitor = null;
     acceptedAnswer = null;
@@ -877,7 +906,6 @@ export function createZoo(ctx) {
     window.addEventListener('keydown', onKeyDown);
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
       hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });

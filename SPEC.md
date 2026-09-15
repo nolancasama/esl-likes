@@ -75,10 +75,9 @@ child's L2 is not the skill being taught here.
 ### Controls (identical in every 3D minigame)
 
 - WASD / arrow keys to move. Nothing else is required to play.
-- One interact key (Space) and one talk control (hold). In the two service
-  minigames (Restaurant, Drink Stand) the primary way to talk is to stop and
-  face an eligible customer: after a short dwell the conversation starts by
-  itself (see §3 "Dwell to talk"); hold-to-talk remains the manual fallback.
+- One interact key (Space) and one talk control: the on-screen 🎤 button or
+  Enter, pressed once (see §3 "Press to talk", revised 2026-09-15). Walking up
+  to someone never starts a conversation by itself.
 - Camera follows gently from a raised three-quarter angle. NO mandatory mouse
   look, NO manual rotation, NO precision movement, NO platforming.
 - Interaction zones are large and forgiving — a generous radius, not a
@@ -91,7 +90,7 @@ child's L2 is not the skill being taught here.
 
 | System | Responsibility |
 |---|---|
-| `speech` | Hold-to-talk Web Speech plus the forgiving matcher |
+| `speech` | Press-to-talk Web Speech plus the forgiving matcher |
 | `audio` | SFX, NPC voice playback, ducking; optional and nonblocking |
 | `characters` | Kenney blocky cast loader, clips, tinting |
 | `cameraRig` | Follow camera with per-minigame framing presets |
@@ -119,50 +118,50 @@ realism.
 
 ## 3. Speech system
 
-### Interaction
+### Press to talk (revised 2026-09-15 — replaces hold-to-talk and dwell-to-talk)
 
-Press-and-HOLD to talk. Never a continuously open microphone. Pointer capture,
-keyboard parity (hold Space), a five-second cap, and the mic closed at every
-seam. Port the hold mechanics from `esl-time/src/speech.js` and the matcher
-approach from `town-builder/src/systems/speech.js`.
+One interaction in every minigame:
+
+> **press Talk once → the microphone listens → the child speaks → recognition ends by itself**
+
+- **Who can be talked to** is still chosen by proximity (plus facing, or the
+  click-to-walk target, as each minigame already does). When a valid target is
+  in range the 🎤 Talk control is shown. Being near someone, standing still
+  beside them, or arriving by click-to-walk **never** opens the microphone or
+  the fallback.
+- **Press once** (the button, a tap, or **Enter**) to commit: the target is
+  locked, protected speech focus begins, and one recognition session starts
+  (`continuous = false`, interim results on). The press is a user gesture, so it
+  is also where a first-time browser permission prompt may appear — never on
+  approach.
+- **Nothing is held.** Releasing the button, the key or the touch has no effect.
+  The session ends when the recognizer ends naturally, on acceptance, or at an
+  8-second safety cap.
+- **Press again while listening to cancel.** The attempt is dropped without
+  counting as a failure; focus and any Restaurant reservation are released; the
+  button returns to ready; nothing restarts by itself.
+- **A failed attempt** (the recognizer ended without a match) keeps the target
+  locked and focus on while the child stays in range; the next press retries.
+  Walking out of range ends it. Two failures open the read-along fallback.
+- **Target lock.** From the press until the conversation resolves, is cancelled
+  or the child leaves range, no neighbouring NPC can take the prompt.
+- **Mic-free mode.** The same press opens the read-and-tap fallback for the
+  locked target instead of the microphone.
+- **Enter, not Space.** Space already means collect / deliver / return at the
+  Restaurant — whose belt front lies inside the back tables' talk radius — and
+  fill at the Drink Stand. One key, one meaning, in every minigame.
 
 Interim hypotheses are judged live, for SUCCESS ONLY — a correct sentence is
-accepted the instant the recognizer reports it, without waiting for release. A
-non-match during the hold keeps listening.
+accepted the instant the recognizer reports it. A non-match keeps listening
+until the recognizer ends.
 
-### Dwell to talk (ADDED 2026-09-13 — Restaurant and Drink Stand only)
+Listening is unmistakable: the button turns red with a pulsing ring and a ● dot
+and a Japanese label (● きいてるよ…), and returns to ready the moment the session
+ends.
 
-Rush-hour play is "run → stop at a customer → speak → run again". In the two
-service minigames a conversation starts when the child deliberately stops:
-
-- the player is inside the customer's normal talk radius, the customer is
-  eligible (a raised hand / an unasked window customer), the player is not
-  moving, and is facing the customer within about ±55°, continuously for
-  `AUTO_TALK_DWELL_MS` (1200 ms). Passing by never starts anything.
-- The dwell locks its customer; a nearer neighbour cannot steal it. After a
-  click-to-walk the avatar turns to face the clicked customer and the dwell
-  starts with no extra click.
-- A simple progress ring fills on that customer and they turn slightly toward
-  the player. Moving or turning away cancels it at once, with no penalty.
-- When the dwell completes the conversation **commits**: speech focus begins,
-  effects duck, a soft ready chime plays and the microphone opens by itself for
-  one bounded session (it ends on silence or the usual cap). In mic-free mode
-  the read-and-tap fallback opens instead.
-- The microphone is opened automatically only when permission is already
-  granted or a hold has worked in this session, so no browser permission popup
-  appears mid-game; otherwise the commit leaves the normal hold control waiting.
-- Holding the talk control during the dwell commits immediately (manual
-  fallback). Listen Again stays an explicit button, never a dwell.
-- An asked customer never auto-triggers again. After a failed or cancelled
-  attempt the dwell stays disarmed until the child moves or leaves the radius,
-  then a one-second neutral pause — the microphone can never keep reopening
-  while a child stands still. Manual hold stays available throughout.
-- The camera does not move: the Restaurant's whole-room frame and the Drink
-  Stand's fixed view are what keep every demand and station visible.
-- `AUTO_TALK_ENABLED` switches the behaviour off, restoring proximity prompts.
-
-The microphone is still never continuously open: each automatic session is one
-bounded attempt that the child chose by stopping.
+Removed: hold-to-talk and its pointer-capture mechanics, dwell-to-talk
+(`talkDwell.js`, `AUTO_TALK_*`), and every automatic listen after a dwell or a
+click-to-walk. The microphone opens only on a press.
 
 ### Visible states (all five must be unmistakable)
 
@@ -200,7 +199,7 @@ correct English was wrong, which is far more damaging than a false acceptance.
 
 ### Fallback ladder (the game never gets stuck)
 
-1. Attempts 1 and 2: normal hold-to-talk.
+1. Attempts 1 and 2: normal press-to-talk.
 2. After two consecutive failures: the target sentence appears, word by word,
    large. The child may TAP it to continue. Tapping plays the sentence audio
    and highlights each word as it is spoken.
@@ -238,9 +237,8 @@ The matcher for this direction requires `like` plus any one category word.
 > **While the child is speaking, the game stops pressing them.**
 
 Speaking English must never cost a child anything in a game about speaking
-English. Speech focus begins when a conversation commits (a dwell completes, a hold
-starts, or the fallback opens), never merely because the child walked into a
-talk radius or is still dwelling. Whenever a required speech interaction is open — the talk prompt
+English. Speech focus begins when the child presses Talk on a valid target (or
+the fallback opens), never merely because the child walked into a talk radius. Whenever a required speech interaction is open — the talk prompt
 showing, the button held, recognition running, a retry after a failed
 recognition, or the read-and-tap fallback — every source of service pressure
 pauses or nearly pauses:
@@ -297,14 +295,13 @@ a pass (revised 2026-09-14).
 1. Three to five customers are visibly seated. A customer ready to order raises
    a hand. That cue says *somebody wants to order*; it never says what they
    want, and it clears the moment the order is taken.
-2. Player walks over and holds to talk: "What food do you like?"
+2. Player walks over and presses Talk once: "What food do you like?"
 3. NPC answers "I like curry." — spoken, plus a speech bubble, which then
    clears. Speech focus holds all service pressure while this happens.
-4. The kitchen prepares it automatically. Preparation time belongs to the dish,
-   so dishes finish out of the order they were asked for.
-5. The finished dish rides out of the kitchen on the conveyor. No sound or
-   marker announces it; the child sees it moving.
-6. Player recognises the food, grabs it from the moving belt, remembers who
+4. The kitchen never cooks to order (revised 2026-09-15): a continuous random
+   stream of every menu food rides the conveyor at all times. No sound or
+   marker announces anything; the child watches for a curry.
+5. Player recognises the food, grabs it from the moving belt, remembers who
    asked for it, and carries it to that customer.
 
 ### Conveyor (added 2026-09-14)
@@ -319,26 +316,25 @@ The belt surface moves from service time whenever service is active, including
 when it carries nothing. Speech focus, pause, or another global freeze stops it;
 when that ends it resumes with every dish where it was.
 
-**Supply.** A player order's food becomes due once its preparation completes.
-For each food, due supply is the number of player-owned unresolved orders of
-that food with completed preparation, minus the dishes of that food on the belt
-or in the player's hands. Each unmet unit enters the belt within a bounded delay
-(per difficulty), in shuffled order rather than asking order, with minimum
-spacing between dishes. Any dish of a food satisfies any customer who wants that
-food, so repeats need no binding. A dish that leaves through the far wall while
-still due re-enters after a short delay; one that is no longer due is simply
-gone. Missing a dish costs time, never the order.
-
-**Filler.** Occasional dishes of a food nobody currently needs: none on Easy,
-occasional on Normal, modest on Challenge. Filler never delays a due entry and
-respects the visible-dish cap: Easy 2, Normal 3, Challenge 4. Belt speed is
-moderate on every level; pressure comes from load, not speed.
+**Supply (revised 2026-09-15).** The belt is kitchen output, not an order queue.
+Food enters from a shuffled bag holding each of the five foods once; when the
+bag empties it is reshuffled, and a new bag never starts with the food that
+ended the last one. Dishes enter at a steady per-difficulty interval of service
+time (Easy 4.0 s, Normal 3.2 s, Challenge 2.6 s) from the start of service —
+with no orders open, with every order served, and between waves. Nothing about
+orders, either waiter or a carried dish affects which food comes next, so a
+pizza never appears *because* someone asked for pizza. The bag bounds any
+food's absence to eight dishes; no hidden demand bias is added. A dish that
+reaches the far wall is simply gone. Dishes carry no owner: a pizza is a pizza,
+for whoever takes it, and any dish of a food satisfies any customer who wants
+that food. Missing a dish costs time, never the order. Belt speed stays moderate
+on every level.
 
 **Picking up.** Keyboard interaction, click or tap on a dish, and click-to-walk
 all work, with a forgiving pickup window along the belt front; a click leads the
 moving dish rather than demanding precision. A player carries one dish at a
 time. A wrongly picked dish goes into the **dish return** beside the entry end:
-it is removed, due supply is recomputed, and nothing else changes. Wrong pickup
+it is removed and nothing else changes; the stream is unaffected. Wrong pickup
 and wrong delivery are separate mistakes.
 
 **Never added:** a food icon over a customer, a line or glow linking dish and
@@ -412,9 +408,9 @@ rule fails at the easiest level, where it matters most.
   total, very generous patience. The answer must still be remembered, because
   three people could have asked for it.
 - **L2** — rush: 4 tables, up to 3 live orders, 7 customers in total,
-  overlapping preparation, readiness out of asking order, two ready dishes common.
+  several unresolved orders at once, matching dishes arriving in no set order.
 - **L3** — rush hour: 5 tables, up to 4 live orders, 11 customers in total;
-  hands go up while the player carries food, several ready dishes are normal,
+  hands go up while the player carries food, a rival waiter shares the belt,
   moderate but still forgiving patience.
 
 The live-order limit counts a raised hand as well as a taken order (revised
@@ -428,13 +424,14 @@ rival. Challenge resolves 11 customers rather than 8, so the rival does not
 reduce the child's number of English askings.
 
 Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
-A newly seated replacement and a newly raised hand are unclaimed. The player
-may reserve exactly one customer while a locked talk dwell is in progress; the
-reservation begins when that dwell begins, or when manual hold-to-talk or the
-fallback opens for that customer. Moving, turning away, or otherwise cancelling
-before commit releases it. Click-to-walk alone never reserves anyone. The
-player claims when the conversation commits: the dwell completes, the hold
-starts, or the fallback opens.
+A newly seated replacement and a newly raised hand are unclaimed. Pressing Talk
+on an unclaimed raised hand reserves that customer at once (revised
+2026-09-15); the rival can never claim a reserved customer, so recognition time
+can never cost the child an order. A cancel press, or leaving the talk radius
+before the question is accepted, releases the reservation; a failed attempt
+keeps it while the child stays in range. An accepted question (spoken or
+read-along) converts it to player ownership. Click-to-walk alone never reserves
+anyone.
 
 The rival announces a target before walking and claims only when it physically
 arrives, if the customer is still unclaimed and unreserved. If the player has
@@ -442,26 +439,37 @@ reserved or claimed that customer on the way, the rival abandons the target and
 waits a random 0.6–1.2 seconds before choosing again. Ownership never
 transfers. Served and departed customers are removed from the registry.
 
-The rival is a pure, one-customer-at-a-time state machine:
+The rival is a pure, one-customer-at-a-time state machine (revised 2026-09-15):
 
-    idle → choosing → walkingToCustomer → takingOrder → walkingToPass
-         → waitingAtPass → carrying → delivering → idle
+    idle → choosing → walkingToCustomer → takingOrder → watchingBelt
+         → walkingToDish → carrying → delivering → idle
 
-When idle it first handles its own ready dish at the rival pass. Otherwise it
-chooses the longest-waiting unclaimed, unreserved raised hand, but only after
+It chooses the longest-waiting unclaimed, unreserved raised hand, but only after
 that hand has been raised for `RIVAL_MIN_HAND_AGE` (4 seconds of service time).
-Taking an order lasts about 1.2 seconds. Walking time is distance divided by
-`RIVAL_SPEED`: 3.75, or 75% of the player's speed of 5. Small random 0.3–0.9
-second hesitations between steps make it competent but not perfect. Walk
-targets are exposed as positions so the controller can animate them.
+Taking an order lasts about 1.2 seconds. It then watches the same belt as the
+player for its customer's food. A dish becomes an option only after it has been
+visible for 0.6 seconds (no instant knowledge) and only if the rival can reach
+the belt front before it leaves. The rival walks to where that dish will be,
+facing its path, and takes it only if the dish is still on the belt within the
+pickup window when it arrives; otherwise it drops that target and looks again.
+Walking time is distance divided by `RIVAL_SPEED` 4.25 — 85% of the player's
+keyboard speed of 5 — with small random 0.3–0.9 second hesitations, so an
+attentive child can usually beat it to a dish and sometimes will not. Walk
+targets are exposed as positions so the controller can animate them; its path
+and facing are how a child reads "the waiter is going for that pizza". No
+floating marker is added.
 
-A rival order uses the same food-owned preparation time as the player's order,
-but becomes ready only at the rival's own kitchen hatch in the left side wall,
-never on the conveyor (revised 2026-09-14). The rival never touches a player
-dish, the conveyor, or a player-owned customer. Foods remain
-independent across both waiters, repeats are allowed, and identical foods keep
-independent dish state. Customer patience still applies after a rival claim; if
-that customer leaves, the rival abandons the task.
+**Dishes are shared; customers are not (revised 2026-09-15).** Both waiters take
+food from the one belt, and either may take the dish the other wanted. The first
+pickup wins: the dish leaves the belt in that same update and the other waiter
+re-evaluates. Within one controller update the player's pickup is resolved
+before the rival's. A dish in anyone's hands can never be taken by the other
+waiter. The rival never delivers to, completes or claims a player-owned or
+player-reserved customer, and the player can never deliver to a rival-owned
+one. There is no rival hatch and no rival cooking. Foods remain independent
+across both waiters and repeats are allowed. Customer patience still applies
+after a rival claim; if that customer leaves, the rival discards any dish it
+carries and abandons the task.
 
 The rival may claim at most `RIVAL_SHARE_CAP` (3) customers per shift. After
 that it only finishes its current task. The shift ends when all customers have
@@ -473,7 +481,8 @@ customers. Pure comparison data separately tracks `playerServed` and
 `rivalServed`; the player's stars and scoring never depend on `rivalServed`.
 
 The registry and rival read only service delta. Zero service delta freezes hand
-age, walking, claiming, hesitation, order-taking, preparation, and every other
+age, walking, claiming, hesitation, order-taking, dish targeting, pickup,
+delivery and every other
 rival timer, including through recognition retries. New rival claims also
 honour the existing 0.8-second post-focus hold. Events and ownership are plain
 data; the Restaurant controller continues to own every scene object.
@@ -609,7 +618,8 @@ Each drink looks different at a glance: water (clear, pale blue), milk
   latches the dispenser and fills to full on its own, while a real hold behaves
   as a hold. Every route ends in a valid cup.
 - Space at an asked customer while holding a cup serves it.
-- At an unasked customer, the talk prompt appears (hold to ask).
+- At an unasked customer, the 🎤 Talk control appears; press it (or Enter) once
+  to ask.
 - Click / tap a station or a customer: the avatar walks there by itself and
   does the same action on arrival, so a trackpad alone is enough.
 

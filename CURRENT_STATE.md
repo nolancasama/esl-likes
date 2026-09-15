@@ -98,7 +98,39 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
-1. Restaurant conveyor acceptance. Diagnosis DONE 2026-09-15
+0. IN PROGRESS 2026-09-15: random belt + shared-dish rival + press-to-talk in
+   every minigame (DESIGN_DECISIONS 2026-09-15, SPEC §3/§4 revised). Keep tests
+   proportionate (owner feedback). PUSHED LIVE 2026-09-15 at the owner's request,
+   before the Sports/Zoo/Drink Stand playthrough runs finished (Coloring 27/27 had
+   passed); the Restaurant playthrough is stale (see below).
+   - DONE (Codex, stopped PARTIAL at usage limit; Claude reviewed, fixed the
+     rival notice-timing off-by-one-frame): `.ai/wo-belt-random-stream.json`
+     (conveyor.js shuffled bag), `.ai/wo-rival-shared-belt.json` (rival.js belt
+     racing, speed 4.25, claims commit on acceptance), `.ai/wo-press-to-talk.json`
+     (PressToTalk in speech.js, Enter key, onCommit/onCancel, HUD pulse ring and
+     labels, talkDwell.js and interaction.js deleted, all minigames migrated).
+     `npm test` 224/224, build OK.
+   - DONE (Claude directly, owner's request): `.ai/wo-restaurant-shared-belt-scene.json`
+     — index.js advances the belt order-blind, hatch removed (rival starts at
+     RIVAL_START_POSITION), rival targetDish/pickUpDish/abandonDish wired (belt dish
+     mesh moves into the rival's hands), player pickup resolves before rival.advance
+     each update, debug rival.targetDishId/carriedDish, speech onCommit now runs
+     before the mic starts (refused commit opens nothing). `npm test` 225/225, build OK.
+   - Visual check DONE (`.tmp/visual-check-rival.mjs`, screenshots
+     `.tmp/visual-rival-*.png`): belt carries food with no orders, first five
+     entries were all five foods, hatch gone, rival walked to the belt and carried
+     noodles, no page errors.
+   - Playthroughs (Claude): shared `scripts/lib/pressTalk.mjs` (press Talk before
+     the mic-free fallback); Coloring/Sports/Zoo/Drink Stand updated to press-to-talk
+     (Drink Stand mic probe: arrival + standing opens no mic, one Enter press = one
+     session); `speech-states.mjs` updated. **Restaurant playthrough left stale on
+     purpose** (dwell/filler/hatch-based; rewrite belongs to the backburnered harness
+     trust work) — Restaurant is covered by unit tests + the visual check for now.
+   - NEXT: one run each of Coloring/Sports/Zoo/Drink Stand, then owner screenshots.
+   - Router note: Claude removed a stale Codex usage window from
+     ~/.claude/workers/provider-availability.json on the owner's report (backup
+     in the session scratchpad); Codex then genuinely hit a new limit.
+1. BACKBURNER (owner, 2026-09-15) — Restaurant conveyor harness trust. Diagnosis DONE 2026-09-15
    (`.ai/codex-diagnosis-conveyor-pickup.md`, Claude verified against source/log):
    key route walks into the table at (-4.2,-1.0); pickupCount made every pickup
    after the first a key pickup; wall-clock deadline ends Anti-shortcut early;
@@ -116,8 +148,17 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
    accepts two same-food customers served sequentially, table-2 delivery spot
    x 3.9 clear of the return radius, `stageRivalFreezePrompt` waits outside the
    talk radius for a long rival walk). Runs: 133/136 → 134/136 → 131/136
-   (`.tmp/playthrough-good6.log`). Still failing and now looping — needs
-   diagnose-review (Codex back 2026-09-19), not more patches:
+   (`.tmp/playthrough-good6.log`). Diagnosis DONE 2026-09-15
+   (`.ai/codex-diagnosis-restaurant-harness-intermittent.md`): all harness-side,
+   no product bug. Rival freeze: staged too late (rival hits its 3-claim cap and
+   idles) and walk estimate wrong (rival walks to aisle-side approach points);
+   fix = stage early, additive read-only debug `focusScale` + `rivalWalk`
+   remaining, baseline after focus ramp. Probe 5/6: late non-atomic arrivedAt +
+   fixed 600 ms sleep / 700 ms threshold; fix = speech mock snapshots dwell and
+   question state at recognition start. 40/41: askShowingCues consumes the
+   table-2 cue; fix = explicit staging phase. Owner said stop testing
+   2026-09-15; regression Drink Stand 56/56, Coloring 25/25, Sports 21/21 on the
+   live tree, Zoo run stopped. Not yet dispatched. Earlier symptoms:
    - Challenge rival speech freeze: never sampled; three 12 s waits beside a
      raised hand saw no rival walk with > 1.9 s left (rival walk = distance /
      3.75). Unverified whether rivalWalkSecondsLeft reads the right destination.

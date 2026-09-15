@@ -10,6 +10,7 @@
 // first, every time. That must NOT reach three stars.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
+import { openFallback } from './lib/pressTalk.mjs';
 import { writeFile } from 'node:fs/promises';
 import { clickIfPresent, clickUntil, holdUntil, waitForDebug } from './lib/driver.mjs';
 
@@ -313,6 +314,7 @@ async function openPage(label) {
         .map((b) => ({ text: b.getAttribute('aria-label') || b.textContent, value: b.dataset.value ?? null })),
       greeting: q('.greeting')?.textContent.trim() ?? null,
       prompt: visible(q('.interaction-prompt')),
+      talk: visible(q('.lesson-hud__talk')),
       body: document.body.innerText,
     };
   }, SEL);
@@ -620,7 +622,8 @@ async function askNext(h) {
   const index = waitingVisitor(s);
   const v = s.debug?.visitors?.[index];
   if (!v) return null;
-  const asked = await h.walkTo(v.x, v.z, 1.1, (u) => u.fallback.length > 0);
+  const reached = await h.walkTo(v.x, v.z, 1.1, (u) => u.talk || u.fallback.length > 0);
+  const asked = reached ? await openFallback(h) : null;
   if (!asked?.fallback.length) return null;
   if (!await clickIfPresent(h.page, '.lesson-hud__fallback')) return null;
   const a = await h.waitFor((u) => u.bubble && /^I like .+\.$/.test(u.bubble), 7000, 'answer');
@@ -861,7 +864,8 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   }
   check('all three requests completed', served === 3, `${served}/3`, deliveryPreconditionsMet);
 
-  s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
+  s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
+  s = s ? await openFallback(h, 3) : s;
   const values = s?.fallback.map((f) => f.value) ?? [];
   check('turnaround offers every animal sentence', values.length === 13 && values.includes('tiger'),
     s?.fallback.map((f) => f.text).join(' | '), Boolean(s));
@@ -984,7 +988,8 @@ await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShort
     JSON.stringify(refusal), Boolean(refusal));
   check('a refused photo is no longer carried', refusal?.carriedPhoto === null,
     JSON.stringify(refusal), Boolean(refusal));
-  const s = await h.waitFor((u) => u.fallback.length >= 3, 15000, 'turnaround');
+  const reachedTurnaround = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
+  const s = reachedTurnaround ? await openFallback(h, 3) : null;
   const clicked = s ? await clickIfPresent(page, '.lesson-hud__fallback') : false;
   check('anti-shortcut turnaround answer can be selected', clicked, '', Boolean(s));
   const hub = await h.waitFor((u) => !u.debug, 15000, 'hub');

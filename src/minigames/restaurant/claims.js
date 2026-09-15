@@ -40,10 +40,13 @@ function publicCustomer(customer, serviceTime) {
  * - `registerCustomer({ id, food, position? })` is called for every `seat`
  *   event. A newly registered (including replacement) customer is unclaimed.
  * - `raiseHand(id)` marks the service-clock instant at which the cue appears.
- * - `reservePlayer(id)` is called when a locked dwell begins, or when manual
- *   hold-to-talk / the reading fallback opens. At most one reservation exists.
- * - `releasePlayerReservation(id?)` is called when that attempt cancels before
- *   commit. `commitPlayer(id)` is called at the existing speech-focus commit.
+ * - `reservePlayer(id)` is called on Talk press for the locked target. At most
+ *   one reservation exists.
+ * - `releasePlayerReservation(id?)` is called on a cancel press or when the
+ *   player leaves talk range before acceptance. A failed attempt keeps the
+ *   reservation while the player remains in range.
+ * - `commitPlayer(id)` is called when the question is accepted, whether spoken
+ *   or through read-along.
  * - `claimRival(id)` is intentionally strict: it succeeds only for an
  *   unowned, unreserved raised hand at least `RIVAL_MIN_HAND_AGE` old.
  * - `resolveCustomer(id, { outcome })` removes the customer. `outcome` is

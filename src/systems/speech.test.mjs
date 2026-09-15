@@ -1,14 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { HoldToTalk, SPEECH_STATE, createSpeechSystem } from './speech.js';
+import { PressToTalk, SPEECH_STATE, createSpeechSystem } from './speech.js';
 
 class FakeTarget {
   constructor() {
     this.listeners = new Map();
     this.disabled = false;
     this.hidden = false;
-    this.capturedPointer = null;
   }
 
   addEventListener(type, listener) {
@@ -24,28 +23,24 @@ class FakeTarget {
   dispatch(type, properties = {}) {
     const event = {
       type,
-      preventDefault() {},
+      defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
       stopImmediatePropagation() {},
       ...properties,
     };
     for (const listener of [...(this.listeners.get(type) || [])]) listener(event);
-  }
-
-  setPointerCapture(pointerId) { this.capturedPointer = pointerId; }
-  hasPointerCapture(pointerId) { return this.capturedPointer === pointerId; }
-  releasePointerCapture(pointerId) {
-    if (this.capturedPointer === pointerId) this.capturedPointer = null;
+    return event;
   }
 }
 
-function installBrowser({ permission = 'prompt' } = {}) {
+function installBrowser() {
   const originals = new Map();
   const install = (name, value) => {
     originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
   };
 
-  const counters = { starts: 0, stops: 0, aborts: 0, permissionQueries: 0 };
+  const counters = { starts: 0, stops: 0, aborts: 0 };
   const instances = [];
 
   class FakeRecognition {
@@ -67,26 +62,14 @@ function installBrowser({ permission = 'prompt' } = {}) {
     }
 
     end() { this.onend?.(); }
-    error(reason) { this.onerror?.({ error: reason }); }
   }
 
   const fakeWindow = new FakeTarget();
   fakeWindow.SpeechRecognition = FakeRecognition;
   const fakeDocument = new FakeTarget();
   fakeDocument.hidden = false;
-  const fakeNavigator = {
-    permissions: {
-      query: async ({ name }) => {
-        assert.equal(name, 'microphone');
-        counters.permissionQueries += 1;
-        return { state: permission };
-      },
-    },
-  };
-
   install('window', fakeWindow);
   install('document', fakeDocument);
-  install('navigator', fakeNavigator);
 
   return {
     button: new FakeTarget(),
@@ -102,11 +85,6 @@ function installBrowser({ permission = 'prompt' } = {}) {
   };
 }
 
-const settlePermission = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
-
 function questionTarget(overrides = {}) {
   return {
     mode: 'question',
@@ -115,38 +93,119 @@ function questionTarget(overrides = {}) {
   };
 }
 
-test('listenOnce refuses to start without a target', async () => {
-  const browser = installBrowser({ permission: 'granted' });
+test('one click starts one configured recognition session and commits synchronously', () => {
+  const browser = installBrowser();
+  let commits = 0;
   const speech = createSpeechSystem();
   speech.bind(browser.button);
-  await settlePermission();
+  speech.setTarget(questionTarget({ onCommit: () => { commits += 1; } }));
 
-  assert.equal(speech.autoListenAllowed(), true);
-  assert.equal(speech.listenOnce(), false);
+  browser.button.dispatch('click', { button: 0 });
+
+  assert.equal(commits, 1);
+  assert.equal(browser.counters.starts, 1);
+  assert.equal(speech.active, true);
+  assert.equal(browser.instances[0].continuous, false);
+  assert.equal(browser.instances[0].interimResults, true);
+  assert.equal(browser.instances[0].maxAlternatives, 5);
+
+  speech.dispose();
+  browser.restore();
+});
+
+test('a press does nothing without an enabled target', () => {
+  const browser = installBrowser();
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+
+  browser.button.dispatch('click', { button: 0 });
+  assert.equal(browser.counters.starts, 0);
+
+  speech.setTarget(questionTarget());
+  speech.setEnabled(false);
+  browser.button.dispatch('click', { button: 0 });
   assert.equal(browser.counters.starts, 0);
 
   speech.dispose();
   browser.restore();
 });
 
-test('listenOnce starts with a target and accepts a live correct result', async () => {
-  const browser = installBrowser({ permission: 'granted' });
+test('pointer and key release events have no effect on a listening session', () => {
+  const browser = installBrowser();
+  const press = new PressToTalk(browser.button);
+
+  browser.button.dispatch('click', { button: 0 });
+  for (const type of ['pointerup', 'keyup', 'pointerleave', 'lostpointercapture']) {
+    browser.button.dispatch(type, { pointerId: 7, key: 'Enter' });
+  }
+
+  assert.equal(press.active, true);
+  assert.equal(browser.counters.stops, 0);
+  assert.equal(browser.counters.aborts, 0);
+
+  press.dispose();
+  browser.restore();
+});
+
+test('a second press cancels without a result or failure', () => {
+  const browser = installBrowser();
+  let failures = 0;
+  let cancels = 0;
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget(questionTarget({
+    onFailure: () => { failures += 1; },
+    onCancel: () => { cancels += 1; },
+  }));
+
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result('banana', { isFinal: false });
+  browser.button.dispatch('click', { button: 0 });
+
+  assert.equal(browser.counters.aborts, 1);
+  assert.equal(browser.counters.stops, 0);
+  assert.equal(failures, 0);
+  assert.equal(cancels, 1);
+  assert.equal(speech.active, false);
+  assert.equal(speech.state, SPEECH_STATE.READY);
+
+  speech.dispose();
+  browser.restore();
+});
+
+test('natural recognizer end judges the attempt and does not restart', () => {
+  const browser = installBrowser();
+  let failures = 0;
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget(questionTarget({ onFailure: () => { failures += 1; } }));
+
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result('banana');
+  browser.instances[0].end();
+
+  assert.equal(failures, 1);
+  assert.equal(speech.active, false);
+  assert.equal(speech.state, SPEECH_STATE.TRY_AGAIN);
+  assert.equal(browser.counters.starts, 1);
+
+  speech.dispose();
+  browser.restore();
+});
+
+test('an interim match is accepted immediately', () => {
+  const browser = installBrowser();
   const accepted = [];
   const speech = createSpeechSystem();
   speech.bind(browser.button);
-  speech.setTarget(questionTarget({ onAccepted: (result) => accepted.push(result) }));
-  await settlePermission();
+  speech.setTarget(questionTarget({ onAccepted: (result, meta) => accepted.push({ result, meta }) }));
 
-  assert.equal(speech.listenOnce(), true);
-  assert.equal(speech.active, true);
-  assert.equal(browser.counters.starts, 1);
-  assert.equal(speech.listenOnce(), false);
-
-  browser.instances[0].result('What drink do you like?');
-  browser.instances[0].end();
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result('What drink do you like?', { isFinal: false });
 
   assert.equal(accepted.length, 1);
-  assert.equal(accepted[0].ok, true);
+  assert.equal(accepted[0].result.ok, true);
+  assert.equal(accepted[0].meta.interim, true);
   assert.equal(speech.state, SPEECH_STATE.ACCEPTED);
   assert.equal(speech.active, false);
 
@@ -154,32 +213,7 @@ test('listenOnce starts with a target and accepts a live correct result', async 
   browser.restore();
 });
 
-test('an automatic session ends on engine silence, reports try-again, and does not restart', async () => {
-  const browser = installBrowser({ permission: 'granted' });
-  let failures = 0;
-  const states = [];
-  const speech = createSpeechSystem();
-  speech.bind(browser.button);
-  speech.setTarget(questionTarget({
-    onFailure: () => { failures += 1; },
-    onState: (state) => states.push(state),
-  }));
-  await settlePermission();
-
-  assert.equal(speech.listenOnce(), true);
-  browser.instances[0].end();
-
-  assert.equal(failures, 1);
-  assert.equal(speech.active, false);
-  assert.equal(speech.state, SPEECH_STATE.TRY_AGAIN);
-  assert.equal(browser.counters.starts, 1);
-  assert.equal(states.at(-1), SPEECH_STATE.TRY_AGAIN);
-
-  speech.dispose();
-  browser.restore();
-});
-
-test('listen is bounded by the existing hold cap', async () => {
+test('the safety cap finishes and judges after eight seconds', async () => {
   const browser = installBrowser();
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -194,73 +228,79 @@ test('listen is bounded by the existing hold cap', async () => {
   };
 
   const results = [];
-  const hold = new HoldToTalk(browser.button, { onResult: (...args) => results.push(args) });
-  assert.equal(hold.listen(), true);
-  const cap = timers.find((timer) => timer.delay === 5000);
-  assert.ok(cap, 'the unchanged five-second cap is scheduled');
+  const press = new PressToTalk(browser.button, { onResult: (...args) => results.push(args) });
+  browser.button.dispatch('click', { button: 0 });
+  const cap = timers.find((timer) => timer.delay === 8000);
+  assert.ok(cap, 'the eight-second cap is scheduled');
 
   cap.callback();
   await Promise.resolve();
 
   assert.equal(browser.counters.stops, 1);
-  assert.equal(hold.active, false);
+  assert.equal(press.active, false);
   assert.equal(results.length, 1);
 
-  hold.dispose();
+  press.dispose();
   globalThis.setTimeout = originalSetTimeout;
   globalThis.clearTimeout = originalClearTimeout;
   browser.restore();
 });
 
-test('autoListenAllowed follows permission, a successful hold, and denial', async () => {
-  const grantedBrowser = installBrowser({ permission: 'granted' });
-  const grantedSpeech = createSpeechSystem();
-  grantedSpeech.bind(grantedBrowser.button);
-  await settlePermission();
-  assert.equal(grantedSpeech.autoListenAllowed(), true);
-  assert.equal(grantedBrowser.counters.permissionQueries, 1);
-  grantedSpeech.dispose();
-  grantedBrowser.restore();
+test('Enter starts globally, repeat is ignored, Space and keyup do nothing', () => {
+  const browser = installBrowser();
+  const press = new PressToTalk(browser.button);
 
-  const promptBrowser = installBrowser({ permission: 'prompt' });
-  const promptSpeech = createSpeechSystem();
-  promptSpeech.bind(promptBrowser.button);
-  promptSpeech.setTarget(questionTarget());
-  await settlePermission();
-  assert.equal(promptSpeech.autoListenAllowed(), false);
+  browser.window.dispatch('keydown', { key: ' ', repeat: false });
+  browser.window.dispatch('keydown', { key: 'Enter', repeat: true });
+  browser.window.dispatch('keyup', { key: 'Enter' });
+  assert.equal(browser.counters.starts, 0);
 
-  promptBrowser.button.dispatch('pointerdown', { button: 0, pointerId: 3 });
-  assert.equal(promptSpeech.autoListenAllowed(), true);
-  promptBrowser.instances[0].error('not-allowed');
-  assert.equal(promptSpeech.autoListenAllowed(), false);
+  const enter = browser.window.dispatch('keydown', { key: 'Enter', repeat: false });
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(browser.counters.starts, 1);
+  assert.equal(press.active, true);
 
-  promptSpeech.dispose();
-  promptBrowser.restore();
+  browser.window.dispatch('keyup', { key: 'Enter' });
+  assert.equal(press.active, true);
+
+  press.dispose();
+  browser.restore();
 });
 
-test('a plain pointer hold still starts on down and stops on release', async () => {
+test('a refused commit opens no recognition session', () => {
   const browser = installBrowser();
-  const results = [];
-  const states = [];
-  const hold = new HoldToTalk(browser.button, {
-    onResult: (alternatives) => results.push(alternatives),
-    onState: (state) => states.push(state),
-  });
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget(questionTarget({ onCommit: () => false }));
 
-  browser.button.dispatch('pointerdown', { button: 0, pointerId: 7 });
-  assert.equal(browser.counters.starts, 1);
-  assert.equal(hold.active, true);
-  browser.instances[0].result('not a match', { isFinal: false });
+  browser.button.dispatch('click', { button: 0 });
 
-  browser.button.dispatch('pointerup', { button: 0, pointerId: 7 });
-  await Promise.resolve();
+  assert.equal(browser.counters.starts, 0);
+  assert.equal(speech.active, false);
 
-  assert.equal(browser.counters.stops, 1);
-  assert.equal(browser.counters.aborts, 0);
-  assert.equal(hold.active, false);
-  assert.deepEqual(results, [['not a match']]);
-  assert.deepEqual(states, ['listening', 'idle', 'idle']);
+  speech.dispose();
+  browser.restore();
+});
 
-  hold.dispose();
+test('mic-free press commits and opens fallback without recognition', () => {
+  const browser = installBrowser();
+  let commits = 0;
+  let fallbacks = 0;
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget(questionTarget({
+    micFree: true,
+    onCommit: () => { commits += 1; },
+    onFallback: () => { fallbacks += 1; },
+  }));
+
+  browser.button.dispatch('click', { button: 0 });
+
+  assert.equal(commits, 1);
+  assert.equal(fallbacks, 1);
+  assert.equal(browser.counters.starts, 0);
+  assert.equal(speech.active, false);
+
+  speech.dispose();
   browser.restore();
 });

@@ -1,7 +1,7 @@
 import { matchAnswer, matchBest, matchQuestion } from './speechMatch.js';
 
 const MAX_ALTERNATIVES = 5;
-const MAX_HOLD_MS = 5000;
+const MAX_SESSION_MS = 8000;
 const FINISH_GRACE_MS = 400;
 
 export const MIC = Object.freeze({
@@ -26,19 +26,21 @@ export function speechSupported() {
 }
 
 /**
- * One recognition session per physical hold. This is deliberately a small DOM
+ * One recognition session per press. This is deliberately a small DOM
  * adapter: matching and attempt/fallback policy live above it.
  */
-export class HoldToTalk {
+export class PressToTalk {
   constructor(button, {
     onResult,
     onLiveResult,
     onState,
     onUnavailable,
     onStarted,
+    onPress,
+    onCancelled,
   } = {}) {
     if (!button?.addEventListener) {
-      throw new TypeError('HoldToTalk requires a button-like EventTarget.');
+      throw new TypeError('PressToTalk requires a button-like EventTarget.');
     }
 
     this.button = button;
@@ -47,67 +49,36 @@ export class HoldToTalk {
     this.onState = onState || (() => {});
     this.onUnavailable = onUnavailable || (() => {});
     this.onStarted = onStarted || (() => {});
+    this.onPress = onPress || (() => true);
+    this.onCancelled = onCancelled || (() => {});
     this.enabled = true;
     this.active = false;
-    this.pointerId = null;
     this.recognition = null;
     this.startedAt = null;
     this.alternatives = [];
     this.timeout = null;
     this.finishTimer = null;
     this.finished = false;
-    this.automatic = false;
 
-    this._pointerDown = (event) => {
+    this._click = (event) => {
       if (event.button !== undefined && event.button !== 0) return;
-      if (!this.enabled || this.active || this.pointerId !== null) return;
-      event.preventDefault();
-      this.pointerId = event.pointerId;
-      try { button.setPointerCapture(event.pointerId); } catch { /* best effort */ }
-      this._start();
-    };
-    this._pointerEnd = (event) => {
-      if (this.pointerId !== null && event.pointerId !== this.pointerId) return;
-      event.preventDefault();
-      this._releaseCapture();
-      this._stop();
-    };
-    this._pointerLeave = (event) => {
-      if (this.active) this._pointerEnd(event);
+      this._press();
     };
     this._keyDown = (event) => {
       if (!this.enabled || this.button.disabled || this.button.hidden
-        || event.key !== ' ' || event.repeat) return;
+        || event.key !== 'Enter' || event.repeat) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      this._start();
-    };
-    this._keyUp = (event) => {
-      if (event.key !== ' ') return;
-      if (!this.active && (!this.enabled || this.button.disabled || this.button.hidden)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      this._stop();
+      this._press();
     };
     this._windowBlur = () => this.cancel();
     this._visibilityChange = () => {
       if (document.hidden) this.cancel();
     };
-    this._blockTouch = (event) => event.preventDefault();
-
-    button.addEventListener('pointerdown', this._pointerDown);
-    button.addEventListener('pointerup', this._pointerEnd);
-    button.addEventListener('pointercancel', this._pointerEnd);
-    button.addEventListener('lostpointercapture', this._pointerEnd);
-    button.addEventListener('pointerleave', this._pointerLeave);
-    button.addEventListener('touchstart', this._blockTouch, { passive: false });
-    button.addEventListener('touchmove', this._blockTouch, { passive: false });
-    button.addEventListener('contextmenu', this._blockTouch);
-    // Capture globally while this prompt is enabled. This gives keyboard users
-    // true hold parity without requiring them to focus the on-screen button,
-    // and prevents Space from also becoming a world interaction in that hold.
+    button.addEventListener('click', this._click);
+    // Capture globally while this prompt is enabled so Enter works without
+    // button focus. preventDefault avoids a focused button synthesising click.
     window.addEventListener('keydown', this._keyDown, true);
-    window.addEventListener('keyup', this._keyUp, true);
     window.addEventListener('blur', this._windowBlur);
     document.addEventListener('visibilitychange', this._visibilityChange);
   }
@@ -116,17 +87,6 @@ export class HoldToTalk {
     this.enabled = Boolean(enabled);
     this.button.disabled = !this.enabled;
     if (!this.enabled) this.cancel();
-  }
-
-  _releaseCapture() {
-    if (this.pointerId === null) return;
-    const pointerId = this.pointerId;
-    this.pointerId = null;
-    try {
-      if (this.button.hasPointerCapture(pointerId)) {
-        this.button.releasePointerCapture(pointerId);
-      }
-    } catch { /* a cancelled pointer may already have lost capture */ }
   }
 
   _createRecognition() {
@@ -152,7 +112,7 @@ export class HoldToTalk {
 
       this.alternatives = alternatives;
       // Interim results may succeed immediately. A non-match does not stop the
-      // recognizer; it remains open until release, cancellation, or the cap.
+      // recognizer; it remains open until natural completion or the safety cap.
       if (this.active) {
         this.onLiveResult([...alternatives], { isFinal: Boolean(result.isFinal) });
       }
@@ -166,12 +126,22 @@ export class HoldToTalk {
       }
     };
     recognition.onend = () => {
-      if (!this.active || this.automatic) this._finish();
+      this._finish();
     };
     return recognition;
   }
 
-  _start(automatic = false) {
+  _press() {
+    if (!this.enabled || this.button.disabled || this.button.hidden) return false;
+    if (this.active) {
+      this.cancel({ notify: true });
+      return false;
+    }
+    if (this.onPress() === false) return false;
+    return this._start();
+  }
+
+  _start() {
     if (!this.enabled || this.active) return false;
     if (!speechSupported()) {
       this._giveUp(MIC.UNSUPPORTED);
@@ -185,29 +155,22 @@ export class HoldToTalk {
     }
 
     this.active = true;
-    this.automatic = Boolean(automatic);
     this.finished = false;
     this.alternatives = [];
     this.startedAt = performance.now();
     this.onState(MIC.LISTENING);
     this.timeout = setTimeout(() => {
-      this._releaseCapture();
       this._stop();
-    }, MAX_HOLD_MS);
+    }, MAX_SESSION_MS);
 
     try {
       this.recognition.start();
-      this.onStarted({ automatic: this.automatic });
+      this.onStarted();
       return true;
     } catch {
       this._giveUp(MIC.ERROR);
       return false;
     }
-  }
-
-  /** Start one bounded recognition session without requiring a physical hold. */
-  listen() {
-    return this._start(true);
   }
 
   _stop() {
@@ -225,7 +188,6 @@ export class HoldToTalk {
     if (this.finished || this.startedAt === null) return;
     this.finished = true;
     this.active = false;
-    this.automatic = false;
     clearTimeout(this.timeout);
     clearTimeout(this.finishTimer);
     this.timeout = null;
@@ -238,13 +200,11 @@ export class HoldToTalk {
   }
 
   _giveUp(state) {
-    this._releaseCapture();
     if (this.recognition) {
       this.recognition.onend = null;
       try { this.recognition.abort(); } catch { /* already closed */ }
     }
     this.active = false;
-    this.automatic = false;
     this.finished = true;
     this.startedAt = null;
     clearTimeout(this.timeout);
@@ -256,14 +216,13 @@ export class HoldToTalk {
     this.onUnavailable(state);
   }
 
-  cancel() {
-    this._releaseCapture();
+  cancel({ notify = false } = {}) {
+    const wasActive = this.active;
     if (this.recognition) {
       this.recognition.onend = null;
       try { this.recognition.abort(); } catch { /* already closed */ }
     }
     this.active = false;
-    this.automatic = false;
     this.finished = true;
     this.startedAt = null;
     clearTimeout(this.timeout);
@@ -272,21 +231,14 @@ export class HoldToTalk {
     this.finishTimer = null;
     this.recognition = null;
     this.onState(MIC.IDLE);
+    if (notify && wasActive) this.onCancelled();
   }
 
   dispose() {
     this.cancel();
     const button = this.button;
-    button.removeEventListener('pointerdown', this._pointerDown);
-    button.removeEventListener('pointerup', this._pointerEnd);
-    button.removeEventListener('pointercancel', this._pointerEnd);
-    button.removeEventListener('lostpointercapture', this._pointerEnd);
-    button.removeEventListener('pointerleave', this._pointerLeave);
-    button.removeEventListener('touchstart', this._blockTouch);
-    button.removeEventListener('touchmove', this._blockTouch);
-    button.removeEventListener('contextmenu', this._blockTouch);
+    button.removeEventListener('click', this._click);
     window.removeEventListener('keydown', this._keyDown, true);
-    window.removeEventListener('keyup', this._keyUp, true);
     window.removeEventListener('blur', this._windowBlur);
     document.removeEventListener('visibilitychange', this._visibilityChange);
   }
@@ -297,28 +249,10 @@ export class HoldToTalk {
  * matchers; callers receive accepted/failure events and own all game policy.
  */
 export function createSpeechSystem() {
-  let hold = null;
+  let press = null;
   let target = null;
   let enabled = true;
   let state = SPEECH_STATE.READY;
-  let permissionGranted = false;
-  let permissionDenied = false;
-  let recognitionStarted = false;
-
-  // This is a read-only permission check: it never prompts. Keep the cached
-  // result synchronous for callers and update it when the one query settles.
-  try {
-    const permissions = typeof navigator !== 'undefined' ? navigator.permissions : null;
-    if (permissions?.query) {
-      Promise.resolve(permissions.query({ name: 'microphone' }))
-        .then((status) => {
-          permissionGranted = status?.state === 'granted';
-        })
-        .catch(() => {});
-    }
-  } catch {
-    // Missing/unsupported Permissions API is deliberately treated as prompt.
-  }
 
   const emitState = (next, detail) => {
     state = next;
@@ -336,14 +270,26 @@ export function createSpeechSystem() {
   const accept = (result, meta) => {
     if (!target || target.accepted) return;
     target.accepted = true;
-    hold?.cancel();
+    press?.cancel();
     emitState(SPEECH_STATE.ACCEPTED, result);
     target.onAccepted?.(result, meta);
   };
 
   const bind = (button) => {
-    hold?.dispose();
-    hold = new HoldToTalk(button, {
+    press?.dispose();
+    press = new PressToTalk(button, {
+      onPress: () => {
+        if (!target || target.accepted || !enabled) return false;
+        // Commit before any microphone opens: a game may refuse the press (for
+        // example a Restaurant customer that can no longer be reserved).
+        if (target.onCommit?.() === false || !target) return false;
+        const micFree = typeof target.micFree === 'function'
+          ? target.micFree()
+          : Boolean(target.micFree);
+        if (!micFree) return true;
+        target.onFallback?.();
+        return false;
+      },
       onState: (micState) => {
         if (micState === MIC.LISTENING) emitState(SPEECH_STATE.LISTENING);
         else if (micState === MIC.IDLE && state === SPEECH_STATE.LISTENING) {
@@ -367,25 +313,22 @@ export function createSpeechSystem() {
         emitState(SPEECH_STATE.TRY_AGAIN, result);
         target.onFailure?.(result, meta);
       },
-      onStarted: () => {
-        recognitionStarted = true;
-        permissionDenied = false;
+      onStarted: () => {},
+      onCancelled: () => {
+        const cancelledTarget = target;
+        cancelledTarget?.onCancel?.();
+        if (target === cancelledTarget) emitState(SPEECH_STATE.READY);
       },
       onUnavailable: (reason) => {
-        if (reason === MIC.DENIED) {
-          recognitionStarted = false;
-          permissionGranted = false;
-          permissionDenied = true;
-        }
         emitState(SPEECH_STATE.TRY_AGAIN, reason);
         target?.onUnavailable?.(reason);
       },
     });
-    hold.setEnabled(enabled && Boolean(target));
-    const boundHold = hold;
+    press.setEnabled(enabled && Boolean(target));
+    const boundPress = press;
     return () => {
-      boundHold.dispose();
-      if (hold === boundHold) hold = null;
+      boundPress.dispose();
+      if (press === boundPress) press = null;
     };
   };
 
@@ -393,38 +336,29 @@ export function createSpeechSystem() {
     bind,
     setTarget(options) {
       target = options ? { mode: 'question', ...options, accepted: false } : null;
-      hold?.setEnabled(enabled && Boolean(target));
+      press?.setEnabled(enabled && Boolean(target));
       emitState(SPEECH_STATE.READY);
     },
     clearTarget() {
       target = null;
-      hold?.setEnabled(false);
+      press?.setEnabled(false);
       state = SPEECH_STATE.READY;
     },
     setEnabled(nextEnabled) {
       enabled = Boolean(nextEnabled);
-      hold?.setEnabled(enabled && Boolean(target));
+      press?.setEnabled(enabled && Boolean(target));
       if (enabled && target) emitState(SPEECH_STATE.READY);
     },
     cancel() {
-      hold?.cancel();
+      press?.cancel();
       if (target) emitState(SPEECH_STATE.READY);
-    },
-    listenOnce() {
-      if (!target || target.accepted || !enabled || !hold || hold.active
-        || !speechSupported() || permissionDenied
-        || (!permissionGranted && !recognitionStarted)) return false;
-      return hold.listen();
-    },
-    autoListenAllowed() {
-      return !permissionDenied && (permissionGranted || recognitionStarted);
     },
     isSupported: speechSupported,
     get state() { return state; },
-    get active() { return Boolean(hold?.active); },
+    get active() { return Boolean(press?.active); },
     dispose() {
-      hold?.dispose();
-      hold = null;
+      press?.dispose();
+      press = null;
       target = null;
     },
   };

@@ -2,8 +2,6 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor, formatUi } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createSpeechFocus } from '../../systems/speechFocus.js';
-import { createTalkDwell } from '../../systems/talkDwell.js';
-import { AUTO_TALK_ENABLED } from '../../config/interaction.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import { advanceFill, emptyFill, isServable, selectDrink } from './fill.js';
 import { pickDrink, scoreSession, shuffleStations } from './scoring.js';
@@ -132,9 +130,7 @@ export function createDrinkStand(ctx) {
   let rushShown = false;
   let rushStart = null;
   let movementActive = false;
-  let clickTalkTargetId = null;
   let questionCommitted = false;
-  let lastSpeechState = 'ready';
   let debugRootCreated = false;
 
   const stations = [];
@@ -150,11 +146,6 @@ export function createDrinkStand(ctx) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const focus = createSpeechFocus();
-  const dwell = createTalkDwell();
-  const dwellCandidates = [];
-  const dwellCandidatePool = [];
-  const dwellPlayer = { x: 0, z: 0, forwardX: 0, forwardZ: 1 };
-  const dwellInput = { candidates: dwellCandidates, player: dwellPlayer, moving: false, lockedTargetId: null };
   const directorView = {
     windowsInUse: 0,
     queuedCount: 0,
@@ -510,50 +501,6 @@ export function createDrinkStand(ctx) {
     audio.setFocusDuck(false);
   }
 
-  function createDwellRing() {
-    const ringCanvas = document.createElement('canvas');
-    ringCanvas.width = 128;
-    ringCanvas.height = 128;
-    canvases.add(ringCanvas);
-    const context = ringCanvas.getContext('2d');
-    const texture = new THREE.CanvasTexture(ringCanvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    textures.add(texture);
-    const material = ownMaterial(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-    const sprite = new THREE.Sprite(material);
-    // Thick white/yellow strokes keep the dwell visible over every customer
-    // without competing with the English station signs below.
-    sprite.scale.set(1.4, 1.4, 1.4);
-    sprite.visible = false;
-    world.add(sprite);
-    return { context, texture, sprite, progress: -1 };
-  }
-
-  function drawDwellRing(customer, progress) {
-    const ring = customer.dwellRing;
-    const rounded = Math.round(Math.max(0, Math.min(1, progress)) * 48) / 48;
-    if (ring.progress === rounded) return;
-    ring.progress = rounded;
-    const { context } = ring;
-    context.clearRect(0, 0, 128, 128);
-    context.lineCap = 'round';
-    context.lineWidth = 24;
-    context.strokeStyle = 'rgba(255, 255, 255, .96)';
-    context.beginPath();
-    context.arc(64, 64, 45, 0, Math.PI * 2);
-    context.stroke();
-    context.lineWidth = 14;
-    context.strokeStyle = 'rgba(39, 56, 88, .78)';
-    context.beginPath();
-    context.arc(64, 64, 45, 0, Math.PI * 2);
-    context.stroke();
-    context.strokeStyle = '#ffe033';
-    context.beginPath();
-    context.arc(64, 64, 45, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * rounded);
-    context.stroke();
-    ring.texture.needsUpdate = true;
-  }
-
   function buildWorld() {
     world = new THREE.Group();
     world.name = 'drink-stand-minigame';
@@ -638,9 +585,7 @@ export function createDrinkStand(ctx) {
         leaveDelay: 0,
         meter: null,
         meterFill: null,
-        dwellRing: null,
       };
-      customer.dwellRing = createDwellRing();
       createPatienceMeter(customer);
       markClickable(character, { type: 'customer', value: customer });
       customers.push(customer);
@@ -801,12 +746,10 @@ export function createDrinkStand(ctx) {
     }
   }
 
-  function clearQuestion(keepHud = false, outcome = 'cancelled') {
+  function clearQuestion(keepHud = false) {
     if (!questionCustomer) return;
-    const endedCustomer = questionCustomer;
     questionCustomer = null;
     if (questionCommitted) {
-      dwell.notifyEnded(endedCustomer.index, outcome);
       endFocus();
     }
     questionCommitted = false;
@@ -817,9 +760,7 @@ export function createDrinkStand(ctx) {
 
   function acceptQuestion(customer) {
     if (!active || phase !== 'service' || customer.state !== 'atWindow' || customer.asked) return;
-    dwell.notifyAccepted(customer.index);
-    clearQuestion(true, 'accepted');
-    if (clickTalkTargetId === customer.index) clickTalkTargetId = null;
+    clearQuestion(true);
     customer.asked = true;
     hud.setTalkState('accepted');
     speechCooldown = 0.65;
@@ -841,44 +782,30 @@ export function createDrinkStand(ctx) {
     clearQuestion();
     questionCustomer = customer;
     promptQuestion(ctx, LESSON, {
-      isActive: () => active && phase === 'service' && customer.state === 'atWindow',
+      isActive: () => active && phase === 'service' && questionCustomer === customer
+        && customer.state === 'atWindow',
+      onCommit: () => commitQuestion(customer),
+      onCancel: () => cancelQuestion(customer),
       onAccepted: () => acceptQuestion(customer),
     });
-    lastSpeechState = speech.state;
-    if (AUTO_TALK_ENABLED && settings.get('micFree')) {
-      // The fallback opens at commit, not while the child is merely dwelling.
-      hud.setMicFree(false);
-      speech.setEnabled(false);
-    }
-    if (!AUTO_TALK_ENABLED) {
-      questionCommitted = true;
-      beginFocus('drink-stand-question');
-    }
     setInstruction(STRINGS.askCustomer);
   }
 
-  function commitQuestion(customer, manual = false) {
-    if (!customer || questionCustomer !== customer || questionCommitted) return;
-    const dwellCommitted = dwell.commit();
-    if (!dwellCommitted && AUTO_TALK_ENABLED && !manual) return;
-    questionCommitted = true;
-    beginFocus('drink-stand-question');
-    audio.playSfx('drink-talk-ready', {
-      frequency: 660, endFrequency: 880, duration: 0.14, type: 'sine', gain: 0.09,
-    });
-    if (settings.get('micFree')) {
-      hud.setMicFree(true);
-      hud.show();
-      return;
+  function commitQuestion(customer) {
+    if (!customer || questionCustomer !== customer) return;
+    if (!questionCommitted) {
+      questionCommitted = true;
+      beginFocus('drink-stand-question');
+      audio.playSfx('drink-talk-ready', {
+        frequency: 660, endFrequency: 880, duration: 0.14, type: 'sine', gain: 0.09,
+      });
     }
-    speech.setEnabled(true);
-    if (speech.autoListenAllowed()) speech.listenOnce();
   }
 
-  function manualTalkStart(event) {
-    if (!AUTO_TALK_ENABLED || !questionCustomer || questionCommitted || hud.talkButton.hidden) return;
-    if (event.type === 'keydown' && (event.code !== 'Space' || event.repeat)) return;
-    commitQuestion(questionCustomer, true);
+  function cancelQuestion(customer) {
+    if (!customer || questionCustomer !== customer || !questionCommitted) return;
+    questionCommitted = false;
+    endFocus();
   }
 
   function replayAnswer() {
@@ -917,7 +844,6 @@ export function createDrinkStand(ctx) {
 
   function beginLeaving(customer, outcome) {
     if (questionCustomer === customer) clearQuestion();
-    if (clickTalkTargetId === customer.index) clickTalkTargetId = null;
     if (listenCustomer === customer) setListenTarget(null);
     customer.meter.hidden = true;
     customer.state = 'reacting';
@@ -999,72 +925,12 @@ export function createDrinkStand(ctx) {
     return nearest;
   }
 
-  function updateTalkDwell(dt) {
-    if (!AUTO_TALK_ENABLED) return;
-    dwellCandidates.length = 0;
-    for (const customer of customers) {
-      if (customer.state !== 'atWindow' || customer.asked) continue;
-      const poolIndex = dwellCandidates.length;
-      let candidate = dwellCandidatePool[poolIndex];
-      if (!candidate) {
-        candidate = {};
-        dwellCandidatePool[poolIndex] = candidate;
-      }
-      const windowInfo = WINDOWS[customer.window];
-      candidate.id = customer.index;
-      candidate.x = windowInfo.approachX;
-      candidate.z = windowInfo.approachZ;
-      candidate.radiusSq = CUSTOMER_RADIUS_SQ;
-      candidate.lookX = windowInfo.x;
-      candidate.lookZ = windowInfo.z;
-      dwellCandidates.push(candidate);
-    }
-    dwellPlayer.x = player.position.x;
-    dwellPlayer.z = player.position.z;
-    dwellPlayer.forwardX = Math.sin(player.rotation.y);
-    dwellPlayer.forwardZ = Math.cos(player.rotation.y);
-    dwellInput.moving = movementActive || Boolean(autoTarget) || Boolean(fillMode);
-    dwellInput.lockedTargetId = autoTarget?.type === 'customer'
-      ? autoTarget.value.index
-      : clickTalkTargetId;
-    dwell.update(dt, dwellInput);
-
-    const target = dwell.targetId == null ? null : customers[dwell.targetId];
-    for (const customer of customers) {
-      const showing = !questionCommitted && customer === target
-        && (dwell.phase === 'dwelling' || dwell.phase === 'ready');
-      customer.dwellRing.sprite.visible = showing;
-      if (showing) {
-        drawDwellRing(customer, dwell.progress);
-        const wanted = Math.atan2(
-          player.position.x - customer.character.position.x,
-          player.position.z - customer.character.position.z,
-        );
-        customer.character.rotation.y = THREE.MathUtils.clamp(wanted, -0.68, 0.68);
-      } else if (customer.state !== 'queueing' && customer.state !== 'arriving' && customer.state !== 'leaving') {
-        customer.character.rotation.y = 0;
-      }
-    }
-
-    if (target && !questionCommitted && !questionCustomer) targetQuestion(target);
-    if (questionCustomer && !questionCommitted && target !== questionCustomer) clearQuestion();
-
-    const speechState = speech.state;
-    if (questionCustomer && !questionCommitted && speechState === 'listening') {
-      commitQuestion(questionCustomer, true);
-    }
-    if (!questionCommitted && target && dwell.phase === 'ready') commitQuestion(target);
-    if (questionCommitted && speechState === 'try-again' && lastSpeechState !== 'try-again') {
-      dwell.notifyEnded(questionCustomer?.index, 'failed');
-    }
-    lastSpeechState = speechState;
-  }
-
   function updateContext() {
     const lockedQuestion = questionCustomerStillNear();
     if (questionCustomer && !lockedQuestion) clearQuestion();
-    // A dwelling or committed conversation outranks every station, pour and
-    // serve branch. Nothing may cancel the child's open speech interaction.
+    // An open prompt outranks every station, pour and serve branch. A committed
+    // conversation stays locked to this customer until it resolves or the
+    // child leaves the window.
     if (lockedQuestion) {
       hideAction();
       setListenTarget(null);
@@ -1087,7 +953,7 @@ export function createDrinkStand(ctx) {
     if (nearbyCustomer) {
       if (!nearbyCustomer.asked) {
         hideAction();
-        if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
+        targetQuestion(nearbyCustomer);
       } else {
         if (heldDrink && isServable(fillState)) {
           setInstruction(STRINGS.serveHint);
@@ -1169,7 +1035,6 @@ export function createDrinkStand(ctx) {
     input.getMovement(move);
     if (move.lengthSq() > 0) {
       autoTarget = null;
-      clickTalkTargetId = null;
       movementActive = true;
       const nextX = player.position.x + move.x * MOVE_SPEED * dt;
       const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
@@ -1202,8 +1067,7 @@ export function createDrinkStand(ctx) {
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
         player.rotation.y = Math.atan2(faceX, faceZ);
-        if (!arrived.value.asked) clickTalkTargetId = arrived.value.index;
-        else if (heldDrink) serve(arrived.value);
+        if (arrived.value.asked && heldDrink) serve(arrived.value);
       }
       return;
     }
@@ -1326,10 +1190,7 @@ export function createDrinkStand(ctx) {
   function updatePatienceMeter(customer) {
     const visible = customer.state === 'atWindow';
     customer.meter.hidden = !visible;
-    if (!visible) {
-      customer.dwellRing.sprite.visible = false;
-      return;
-    }
+    if (!visible) return;
     const ratio = Math.max(0, customer.patience / customer.patienceMax);
     customer.meterFill.style.transform = `scaleX(${ratio})`;
     customer.meterFill.style.background = ratio < 0.28 ? '#ef5350' : ratio < 0.56 ? '#ffc847' : '#5bd16f';
@@ -1341,12 +1202,6 @@ export function createDrinkStand(ctx) {
     const height = root?.clientHeight || window.innerHeight;
     customer.meter.style.left = `${(worldPoint.x * 0.5 + 0.5) * width}px`;
     customer.meter.style.top = `${(-worldPoint.y * 0.5 + 0.5) * height}px`;
-    if (customer.dwellRing.sprite.visible) {
-      customer.character.getWorldPosition(worldPoint);
-      customer.dwellRing.sprite.position.copy(worldPoint);
-      customer.dwellRing.sprite.position.y += 2.25;
-      customer.dwellRing.sprite.quaternion.copy(camera.quaternion);
-    }
   }
 
   function updateCustomers(serviceDt, cosmeticDt) {
@@ -1407,11 +1262,9 @@ export function createDrinkStand(ctx) {
       if (!target) continue;
       if (target.type === 'customer' && target.value.state !== 'atWindow') continue;
       if (target.type === 'station') {
-        clickTalkTargetId = null;
         autoTarget = { type: 'station', value: target.value, position: target.value.interaction };
       } else if (target.type === 'customer' && target.value.state === 'atWindow') {
         const windowInfo = WINDOWS[target.value.window];
-        clickTalkTargetId = target.value.asked ? null : target.value.index;
         autoTarget = {
           type: 'customer',
           value: target.value,
@@ -1419,7 +1272,9 @@ export function createDrinkStand(ctx) {
         };
       }
       if (target) {
-        clearQuestion();
+        // A destination may lead the child away, but it must not retarget an
+        // active conversation before they actually leave its talk radius.
+        if (!questionCommitted) clearQuestion();
         setListenTarget(null);
         audio.playSfx('interact');
         break;
@@ -1455,7 +1310,6 @@ export function createDrinkStand(ctx) {
       maxWindows: configured.maxWindows,
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
       questionIndex: questionCustomer?.index ?? null,
-      dwell: { phase: dwell.phase, targetId: dwell.targetId, progress: dwell.progress },
       question: { customer: questionCustomer?.index ?? null, committed: questionCommitted },
       autoTarget: autoTarget ? { type: autoTarget.type, target: autoTarget.value?.index ?? autoTarget.value?.id ?? null } : null,
       cup: {
@@ -1597,22 +1451,16 @@ export function createDrinkStand(ctx) {
     rushShown = false;
     rushStart = null;
     movementActive = false;
-    clickTalkTargetId = null;
     questionCommitted = false;
-    lastSpeechState = 'ready';
     cancelFocus();
-    dwell.reset();
     createOverlay();
     buildWorld();
     canvas = document.querySelector('#game-canvas');
     canvas?.addEventListener('pointerdown', onCanvasPointer);
-    hud.talkButton.addEventListener('pointerdown', manualTalkStart);
-    window.addEventListener('keydown', manualTalkStart, true);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
-      hud.setMicFree(AUTO_TALK_ENABLED && questionCustomer && !questionCommitted ? false : next.micFree);
+      hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });
   }
@@ -1660,7 +1508,6 @@ export function createDrinkStand(ctx) {
       }
       updateCustomers(serviceDt, safeDt);
       applyDirectorEvents(serviceDt);
-      updateTalkDwell(safeDt);
       updateContext();
       if (actionType && input.consumeInteract()) performAction();
       updateRoundEnd();
@@ -1685,7 +1532,6 @@ export function createDrinkStand(ctx) {
     active = false;
     phase = 'inactive';
     cancelFocus();
-    dwell.reset();
     setStationEffects(pouringStation, false);
     fillMode = null;
     fillPointerId = null;
@@ -1699,8 +1545,6 @@ export function createDrinkStand(ctx) {
     dialogue.element?.classList.remove('drink-stand-dialogue');
     cameraRig.setTarget(null);
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
-    hud.talkButton.removeEventListener('pointerdown', manualTalkStart);
-    window.removeEventListener('keydown', manualTalkStart, true);
     actionButton?.removeEventListener('click', onActionClick);
     actionButton?.removeEventListener('pointerdown', onActionPointerDown);
     actionButton?.removeEventListener('pointerup', onActionPointerUp);
@@ -1755,7 +1599,6 @@ export function createDrinkStand(ctx) {
     autoTarget = null;
     serviceDirector = null;
     movementActive = false;
-    clickTalkTargetId = null;
     questionCommitted = false;
     canvas = null;
     heldDrink = null;

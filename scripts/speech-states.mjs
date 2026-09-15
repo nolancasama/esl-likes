@@ -5,7 +5,7 @@
 // A real microphone cannot run headless. This drives the REAL HUD and speech
 // state machine with a fake SpeechRecognition that replays scripted transcripts,
 // to check the four behaviours the Chromebook pass must also see:
-//   1. holding the talk button starts listening
+//   1. one press of the talk button starts listening
 //   2. a valid "What food do you like?" is accepted
 //   3. failed or partial speech reaches Try Again
 //   4. after two failures the fallback appears, and it works
@@ -36,10 +36,13 @@ await context.addInitScript((key) => {
     start() {
       const plan = window.__speechPlan.shift() ?? [];
       this.timer = setTimeout(() => {
-        if (!plan.length) return;
-        const result = plan.map((transcript) => ({ transcript, confidence: 0.9 }));
-        result.isFinal = true;
-        this.onresult?.({ results: [result] });
+        if (plan.length) {
+          const result = plan.map((transcript) => ({ transcript, confidence: 0.9 }));
+          result.isFinal = true;
+          this.onresult?.({ results: [result] });
+        }
+        // Press-to-talk: a real recogniser ends by itself after the utterance.
+        this.endTimer = setTimeout(() => this.onend?.(), 60);
       }, 250);
     }
     stop() { setTimeout(() => this.onend?.(), 30); }
@@ -88,16 +91,13 @@ async function openAtCustomer(label) {
   return { page, sleep, state };
 }
 
-async function holdTalk(page, sleep, transcripts, ms = 700) {
+// One press; nothing is held or released (SPEC §3).
+async function holdTalk(page, sleep, transcripts) {
   await page.evaluate((plan) => window.__speechPlan.push(plan), transcripts);
-  const box = await page.locator('.lesson-hud__talk').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
+  await page.click('.lesson-hud__talk');
   await sleep(120);
   const during = await page.evaluate(() => document.querySelector('.lesson-hud__talk')?.dataset.state);
-  await sleep(ms - 120);
-  await page.mouse.up();
-  await sleep(450);
+  await sleep(900);
   return during;
 }
 
@@ -107,7 +107,7 @@ async function holdTalk(page, sleep, transcripts, ms = 700) {
   let s = await state();
   check('talk control is ready beside the customer', s.talk === 'ready', s.talk);
   const during = await holdTalk(page, sleep, ['what food do you like']);
-  check('1. holding the talk button starts listening', during === 'listening', during);
+  check('1. one press of the talk button starts listening', during === 'listening', during);
   s = await state();
   check('2. "What food do you like?" is accepted', s.bubble && /^I like /.test(s.bubble), s.bubble);
   await page.screenshot({ path: `${OUT}-1-accepted.png` });

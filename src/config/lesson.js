@@ -89,8 +89,8 @@ export const UI = Object.freeze({
     settings: 'せってい',
   },
   speech: {
-    micReady: 'おしているあいだ はなす',
-    listening: 'きいているよ…',
+    micReady: 'おして はなそう',
+    listening: '● きいてるよ…',
     detected: 'こえが きこえたよ',
     accepted: 'できた！',
     tryAgain: 'もういちど やってみよう',
@@ -125,14 +125,14 @@ export const UI = Object.freeze({
   },
   placeholder: {
     roomName: 'Restaurant',
-    instruction: 'ボタンを おしているあいだ、しつもんしよう',
+    instruction: 'ボタンを おして、しつもんしよう',
     turnaround: 'こんどは きみの ばん！',
     complete: 'スタンプを ゲット！',
   },
   coloring: {
     roomName: 'アトリエ',
     walkToArtist: 'おともだちの ところへ いこう',
-    askArtist: 'ボタンを おしているあいだ、しつもんしよう',
+    askArtist: 'ボタンを おして、しつもんしよう',
     paintTitle: 'ロボットに いろを ぬろう',
     chooseColor: 'まず いろを えらぼう',
     paintHint: '★の ところは おともだちの すきないろで ぬろう',
@@ -156,7 +156,7 @@ export const UI = Object.freeze({
   drinkStand: {
     roomName: 'ドリンクスタンド',
     walkToCustomer: 'おきゃくさんの ところへ いこう',
-    askCustomer: 'ボタンを おしているあいだ、しつもんしよう',
+    askCustomer: 'ボタンを おして、しつもんしよう',
     walkToStation: 'ドリンクを いれに いこう',
     walkToServe: 'おきゃくさんに とどけよう',
     // Hold to fill: the hint names the hold, because releasing is how you stop.
@@ -186,7 +186,7 @@ export const UI = Object.freeze({
     roomName: 'スポーツひろば',
     walkToFriend: 'ひろばの おともだちに ちかづこう',
     newFriends: 'あたらしい おともだちが きたよ！',
-    askFriend: 'ボタンを おしているあいだ、しつもんしよう',
+    askFriend: 'ボタンを おして、しつもんしよう',
     listenAndLead: 'こたえを きいて、いっしょに いこう',
     leadToZone: 'すきな スポーツの ばしょへ つれていこう',
     joined: 'ここが すき！ いっしょに あそぼう！',
@@ -202,7 +202,7 @@ export const UI = Object.freeze({
   zoo: {
     roomName: 'どうぶつえん',
     walkToVisitor: 'いりぐちの おきゃくさんに ちかづこう',
-    askVisitor: 'ボタンを おしているあいだ、しつもんしよう',
+    askVisitor: 'ボタンを おして、しつもんしよう',
     explore: 'こたえを おぼえて、どうぶつを さがそう',
     cameraOpen: 'カメラを ひらく',
     cameraButton: 'カメラを ひらく　(C)',
@@ -241,7 +241,7 @@ export const UI = Object.freeze({
   },
   restaurant: {
     roomName: 'レストラン',
-    instruction: 'ボタンを おしているあいだ、しつもんしよう',
+    instruction: 'ボタンを おして、しつもんしよう',
     walkToCustomer: 'おきゃくさんに ちかづこう',
     walkToConveyor: 'コンベアに ちかづこう',
     watchConveyor: 'コンベアを よくみよう',

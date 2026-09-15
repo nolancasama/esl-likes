@@ -22,19 +22,22 @@ test('ownership never transfers between player and rival', () => {
   assert.equal(claims.getCustomer(2).owner, 'rival');
 });
 
-test('cancelling a player talk releases its one reservation for a later rival claim', () => {
+test('a player reservation blocks rival claims until it is released', () => {
   const claims = createCustomerClaimRegistry();
   claims.registerCustomer({ id: 4, food: 'sushi' });
   claims.raiseHand(4);
-  claims.advance(4);
-
   assert.equal(claims.reservePlayer(4), true);
-  assert.equal(claims.claimRival(4), false);
+
+  for (let second = 0; second < 30; second += 1) {
+    claims.advance(1);
+    assert.equal(claims.claimRival(4), false);
+  }
+
   assert.equal(claims.releasePlayerReservation(4), true);
   assert.equal(claims.claimRival(4), true);
 });
 
-test('starting a new locked dwell moves the single player reservation', () => {
+test('reserving a new Talk target moves the single player reservation', () => {
   const claims = createCustomerClaimRegistry();
   for (const id of [5, 6]) {
     claims.registerCustomer({ id, food: 'sushi' });

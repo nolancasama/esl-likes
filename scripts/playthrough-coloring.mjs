@@ -10,6 +10,7 @@
 // a colour the NPC did not name. That must NOT reach three stars.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
+import { openFallback } from './lib/pressTalk.mjs';
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/col';
@@ -67,6 +68,7 @@ async function openPage(label) {
         .map((b) => ({ text: b.getAttribute('aria-label') || b.textContent, value: b.dataset.value ?? null })),
       greeting: q('.greeting')?.textContent.trim() ?? null,
       prompt: visible(q('.interaction-prompt')),
+      talk: visible(q('.lesson-hud__talk')),
       body: document.body.innerText,
     };
   });
@@ -111,7 +113,15 @@ async function enterColoring(h) {
 
 async function askArtist(h) {
   await h.sleep(1200);
-  const s = await h.pulseUntil(['KeyW'], (u) => u.fallback.length > 0, 30, 'artist');
+  const reached = await h.pulseUntil(['KeyW'], (u) => u.talk || u.fallback.length > 0, 30, 'artist');
+  if (!reached) return { s: null, favourite: null };
+  // Standing beside the artist must open nothing until Talk is pressed.
+  await h.sleep(2000);
+  const standing = await h.ui();
+  check('standing at the artist opens no read-along until Talk is pressed',
+    standing.talk && standing.fallback.length === 0,
+    JSON.stringify({ talk: standing.talk, fallback: standing.fallback.length }));
+  const s = await openFallback(h);
   if (!s) return { s: null, favourite: null };
   const asked = s;
   await h.page.click('.lesson-hud__fallback');
@@ -225,7 +235,8 @@ const starCount = (text) => (text ? (text.match(/★/g) || []).length || Number(
   await h.sleep(900);
   await page.screenshot({ path: `${OUT}-07-given.png` });
 
-  s = await h.waitFor((u) => u.fallback.length >= 3, 8000, 'turnaround');
+  s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 8000, 'turnaround');
+  s = s ? await openFallback(h, 3) : s;
   const values = s?.fallback.map((f) => f.value) ?? [];
   check('turnaround offers every colour sentence', values.includes('green') && values.length === 7, s?.fallback.map((f) => f.text).join(' | '));
   await h.sleep(1500);

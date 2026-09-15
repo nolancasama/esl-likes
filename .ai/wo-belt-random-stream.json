@@ -1,0 +1,29 @@
+{
+  "task": "Replace the Restaurant conveyor's order-driven supply with an order-blind shuffled-bag food stream (src/minigames/restaurant/conveyor.js).",
+  "requirements": [
+    "Keep the public API: createConveyor({ difficulty, foods, rng, ...overrides }) returning { advance(serviceDt, view?), take(dishId), nearestPickable(x, window), predictX(dishId, seconds), snapshot() }. `view` is still accepted and must be ignored: identical rng + dt sequence must produce an identical stream whatever view is passed.",
+    "Stream: a bag holding each entry of `foods` once, shuffled with the injected rng (Fisher-Yates). When empty, refill and reshuffle; if the new bag's first food equals the last food emitted and the bag has more than one food, swap it with another position so no food repeats across a bag seam.",
+    "Entry cadence in service time per difficulty: 1 → 4.0 s, 2 → 3.2 s, 3 → 2.6 s (overridable option `entryInterval`). The first dish enters 0.5 s after service starts, then one per interval, forever, regardless of orders. Dishes enter at entryX and move at the existing per-difficulty speed (0.9 / 1.05 / 1.2) and direction; a dish reaching exitX is removed with an `exit` event. No re-entry, no demand reconciliation, no filler logic, no visible cap.",
+    "Events stay { type: 'enter' | 'exit', dish }. For compatibility until the scene order lands, dish copies keep `filler: false` and snapshot keeps `pending: []`; everything else in snapshot stays (speed, direction, entryX, exitX, visibleHalfWidth, beltTravel, dishes, serviceTime).",
+    "Large dt must equal the same total of small dts (entries placed at their exact entry times, so a dish entering mid-step is positioned by its own elapsed travel). Zero, negative or non-finite dt changes nothing and samples no rng.",
+    "take(dishId) stays atomic: it removes the dish and returns a copy once; a second take of the same id returns null. Dishes outside visibleHalfWidth cannot be taken.",
+    "Tests in conveyor.test.mjs (replace the demand/filler tests): every 5 consecutive entries from a fresh bag contain all five foods; stream continues across 200+ entries; no same-food repeat across bag seams; maximum gap between two dishes of one food is at most 8 other dishes; view independence; entries continue with no orders; cadence per difficulty; large-dt equivalence; freeze on zero dt keeps every position; exit events; double take returns null."
+  ],
+  "constraints": [
+    "Only src/minigames/restaurant/conveyor.js and src/minigames/restaurant/conveyor.test.mjs. Other orders are editing rival.js, claims.js, speech and minigame files in parallel — do not touch them.",
+    "Read SPEC.md §4 'Conveyor' and DESIGN_DECISIONS.md 2026-09-15 first; they are current.",
+    "Edit files with structured edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/conveyor.js",
+    "src/minigames/restaurant/conveyor.test.mjs",
+    "SPEC.md"
+  ],
+  "validation": ["npm test"],
+  "category": "game-logic",
+  "complexity": "easy",
+  "bounded": true,
+  "exploration": "none",
+  "risk": "low",
+  "expectedCost": "small"
+}

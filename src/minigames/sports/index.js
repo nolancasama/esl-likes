@@ -81,6 +81,7 @@ export function createSports(ctx) {
   let celebrationRemaining = 0;
   let finishRemaining = 0;
   let questionNpc = null;
+  let questionCommitted = false;
   let dialogueNpc = null;
   let currentReplayNpc = null;
   let acceptedAnswer = null;
@@ -414,6 +415,7 @@ export function createSports(ctx) {
 
   function clearQuestion(keepHud = false) {
     questionNpc = null;
+    questionCommitted = false;
     speech.clearTarget();
     if (!keepHud) hud.hide();
   }
@@ -439,13 +441,27 @@ export function createSports(ctx) {
 
   function targetQuestion(npc) {
     if (questionNpc === npc || phase !== 'playing') return;
+    if (questionCommitted) return;
     clearQuestion();
     questionNpc = npc;
     promptQuestion(ctx, LESSON, {
-      isActive: () => active && phase === 'playing' && npc.state === 'waiting',
+      isActive: () => active && phase === 'playing' && npc.state === 'waiting'
+        && npcInTalkRange(npc),
+      onCommit: () => {
+        if (questionNpc === npc && npcInTalkRange(npc)) questionCommitted = true;
+      },
+      onCancel: () => {
+        if (questionNpc === npc) questionCommitted = false;
+      },
       onAccepted: () => acceptQuestion(npc),
     });
     setInstruction(STRINGS.askFriend);
+  }
+
+  function npcInTalkRange(npc) {
+    const dx = player.position.x - npc.character.position.x;
+    const dz = player.position.z - npc.character.position.z;
+    return dx * dx + dz * dz < TALK_RADIUS_SQ;
   }
 
   function nearestWaitingNpc() {
@@ -740,6 +756,14 @@ export function createSports(ctx) {
     const followers = followingNpcs();
     if (followers.length) listenAgain?.show();
     else listenAgain?.hide();
+    if (questionCommitted) {
+      const lockedNpcIsEligible = questionNpc?.state === 'waiting' && npcInTalkRange(questionNpc);
+      if (lockedNpcIsEligible) {
+        setInstruction(STRINGS.askFriend);
+        return;
+      }
+      clearQuestion();
+    }
     const nearby = nearestWaitingNpc();
     if (nearby) targetQuestion(nearby);
     else {
@@ -874,6 +898,7 @@ export function createSports(ctx) {
     finishRemaining = 0;
     acceptedAnswer = null;
     questionNpc = null;
+    questionCommitted = false;
     dialogueNpc = null;
     currentReplayNpc = null;
     activeWave = 0;
@@ -887,7 +912,6 @@ export function createSports(ctx) {
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
-      speech.setEnabled(!next.micFree);
       hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
     });

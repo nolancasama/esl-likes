@@ -1,0 +1,46 @@
+{
+  "task": "Update the five minigame playthrough scripts to the press-to-talk interaction and the order-blind Restaurant belt, so each can run once as behavioural acceptance.",
+  "requirements": [
+    "All playthroughs (scripts/playthrough.mjs, playthrough-drink.mjs, playthrough-coloring.mjs, playthrough-sports.mjs, playthrough-zoo.mjs, and scripts/playthrough-run.mjs if it wires the speech mock): replace every hold/dwell interaction with one Talk press — a click on .lesson-hud__talk or an Enter keydown — then wait for state, never time. Remove dwell expectations (dwell rings, 1.2 s auto-listen, click-to-walk auto-commit, hold release).",
+    "Add, once per minigame that has an NPC conversation, three small checks with fixed names: (1) standing in a valid talk position for 2 s of real play opens no microphone session and no fallback (speech mock start count unchanged, debug focusActive false where exposed); (2) one press starts exactly one session and releasing (keyup / pointerup) does not end it; (3) a second press while listening cancels (mock abort observed, no failure counted, state back to ready). In mic-free sessions a press opens the fallback. Keep these cheap; do not duplicate them per NPC.",
+    "Restaurant (scripts/playthrough.mjs): remove filler, due-supply and rival-hatch assumptions (checks named for filler, due entry after preparation, re-entry of a missed due dish, legacy hatch probes). Replace them with: belt keeps entering dishes while the player has no open order; the first five entries of the shift contain all five foods; Challenge: the rival targets and picks up a belt dish (debug rival.targetDishId then rival.carriedDish) at least once. Keep the fixed check registry pattern (every run reports the same list). Keep existing passing checks that are still valid (pickup probes, speech-focus belt freeze, rival freeze if reachable, wrong delivery, turnaround, review screenshots A–E).",
+    "Do not chase flaky timing: any check that depends on a race or rare overlap is a precondition with a clear detail, not a PRODUCT_FAILURE.",
+    "Report the final fixed check list and total per minigame."
+  ],
+  "constraints": [
+    "Only scripts/playthrough*.mjs and scripts/speech-states.mjs if needed. No game source changes; if the debug surface lacks something required, stop and report it.",
+    "Your sandbox cannot start the preview server; do not fake results. The controller runs each playthrough once.",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state not time, classify preconditions, seeded randomness.",
+    "Keep the change proportionate: the owner considers repeated or excessive testing a cost. No new harness features beyond what is listed.",
+    "Edit files with structured edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    "scripts/playthrough-drink.mjs",
+    "scripts/playthrough-coloring.mjs",
+    "scripts/playthrough-sports.mjs",
+    "scripts/playthrough-zoo.mjs",
+    "scripts/playthrough-run.mjs",
+    "src/systems/speech.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": [
+      "npm run playthrough:restaurant",
+      "npm run playthrough:drink-stand",
+      "npm run playthrough:coloring",
+      "npm run playthrough:sports",
+      "npm run playthrough:zoo"
+    ],
+    "artifacts": ".tmp/playthrough"
+  },
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Runs after .ai/wo-restaurant-shared-belt-scene.json lands. SPEC.md §3 'Press to talk' and §4 are current. Talk key is Enter; Space remains the world action key (Restaurant collect/deliver/return, Drink Stand fill)."
+}
