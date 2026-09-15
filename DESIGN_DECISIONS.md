@@ -1033,6 +1033,12 @@ MATSUBARA RESTAURANT sign. The child notices food by seeing it move; no
   freezes under speech focus and resumes without resetting positions.
 - Wrong pickup is recovered at a dish-return tub beside the entry end; it is a
   separate mistake from wrong delivery, whose behaviour is unchanged.
+- Added in acceptance: **the dish return never blocks a conversation.** First
+  placed at (5.45, -3.55), its radius covered the back-right table's talk spot,
+  and with a dish in hand the return action cleared that customer's prompt every
+  frame — a raised hand could not be answered, against the rule above. The tub
+  moved to (6.0, -3.95) beside the entry opening, and a raised hand now outranks
+  the return action, so a future layout change cannot bring the block back.
 - The turnaround host (previously standing at the counter by the bell) is not in
   the room during service and appears in the dining room only to ask the
   turnaround question. No kitchen attendant replaces them.

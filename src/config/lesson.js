@@ -243,10 +243,9 @@ export const UI = Object.freeze({
     roomName: 'レストラン',
     instruction: 'ボタンを おしているあいだ、しつもんしよう',
     walkToCustomer: 'おきゃくさんに ちかづこう',
-    walkToCounter: 'カウンターに とりに いこう',
+    walkToConveyor: 'コンベアに ちかづこう',
+    watchConveyor: 'コンベアを よくみよう',
     walkToDeliver: 'おきゃくさんに とどけよう',
-    bellReady: 'りょうりが できたよ！',
-    bellReadyAria: '料理ができました',
     delivered: 'ありがとう！',
     wrongDish: 'ちがうみたい…',
     // After a refusal that customer will not reconsider for a few seconds, which
@@ -268,9 +267,9 @@ export const UI = Object.freeze({
     tempCold: 'さめてる…',
     patientLeave: 'またね…',
     roundEnd: 'おつかれさま！',
-    waitForBell: 'ベルが なるまで まとう',
     collectDish: 'スペースで りょうりを もつ',
     deliverDish: 'スペースで とどける',
+    returnDish: 'スペースで おさらを もどす',
   },
   transition: {
     label: 'ばめんを きりかえています',

@@ -1,0 +1,37 @@
+{
+  "task": "Correct three defects in the new Restaurant conveyor playthrough (scripts/playthrough.mjs) found on its first known-good run.",
+  "requirements": [
+    "Key pickup chases a stale position. collectDish(h, dish, 'key') walks to the dish x captured before walking and presses Space on arrival; the belt moves at direction -1 (1.05 u/s on Normal) and the pickup window is 1.4, so the dish has already left the window. Evidence: 'a moving dish can be collected with the interact key at the belt front' failed for a dish at x 5.34 with forcedMiss false, followed by 'collect ready noodles' PRODUCT_FAILURE and the cascade to turnaround/stamp. Fix: once at the belt front, move toward the dish's live position (re-read each poll, or aim ahead with its speed) and press Space only when debug player x is within the pickup window of that dish's current x.",
+    "Pickup outcome classification. Keep precondition(...) for reaching the setup state (player at the belt front, the target dish visible and within the pickup window at the moment of the click-arrival or Space press). When that setup was established and the dish is still not carried, report check(...) as PRODUCT_FAILURE. A pickup that never reached its setup stays HARNESS_PRECONDITION_FAILED. RESTAURANT_FORCE_MISS_PICKUP=1 must still never pass.",
+    "Check names are unique and the total is fixed. The end-of-session block (entry order, exit, re-entry, dish return, order completes after return) runs once per session and prints identical names twice; prefix each with its session (e.g. 'Normal:' / 'Challenge:') or register it once, so every run reports the same check list.",
+    "Add a check that the player can open a conversation with a raised hand while carrying a dish at every table, or at minimum at the back-right table (index 2), using the existing click-to-walk approach. The game fix for this is being made separately: the dish return moved to x 6.0, z -3.95 and a raised hand now outranks the return action.",
+    "Review screenshots must show the state their precondition claims. Observed on the first run at 1366x768: restaurant-A-back-wall.png is almost entirely a flat yellow transition wipe with only a sliver of the left wall (HUD 'コンベアを よくみよう', 0/11) — captured before the scene transition finished; restaurant-C-dish-entering.png shows no dish near the right opening (dishes only mid-belt and left); restaurant-D-dish-exiting.png shows an empty belt. Fix: evaluate each capture predicate on state read immediately before page.screenshot (no stale state between check and capture), wait for the transition/intro to finish before A, and record the qualifying dish id and x (and transition state) in the manifest/log line for each review screenshot. If a dish at the predicate's x is genuinely not rendered, report that as PRODUCT_FAILURE with the evidence instead of capturing.",
+    "Report the full check list and total in the summary."
+  ],
+  "constraints": [
+    "Only scripts/playthrough.mjs. Do not change game source (src/**); if the debug contract lacks something required, stop and report it instead of adding it.",
+    "Do not touch the other minigame harnesses.",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state not time, classify preconditions, seeded randomness.",
+    "Your sandbox cannot start the preview server; do not fake playthrough results. Claude runs the playthrough.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites."
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/conveyor.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Correction round 1 of .ai/wo-restaurant-conveyor-harness.json; the harness is still UNTRUSTED. Relevant constants in src/minigames/restaurant/index.js: MOVE_SPEED 5, AUTO_SPEED 5.7, BELT_FRONT_Z -4.4, BELT_FRONT_BAND 1.15, BELT_PICKUP_WINDOW 1.4, BELT_ARRIVAL_WINDOW 1.6. Click-to-walk parks the player at (seatX, seatZ - 1.65)."
+}

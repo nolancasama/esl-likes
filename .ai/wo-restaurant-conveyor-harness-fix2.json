@@ -1,0 +1,44 @@
+{
+  "task": "Correction round 2 of the Restaurant conveyor playthrough (scripts/playthrough.mjs): collision-aware key pickup staging, isolated fixed pickup probes, frame-level click setup observation, fixed check registry, and state-based session completion.",
+  "requirements": [
+    "Key navigation must not walk through tables. Cause (diagnosed, confirmed against source): after click-to-walk serves customer 3 the player stands near (-4.2, 1.2); moveAxisTo holds W at fixed x and collides with the table at (-4.2, -1.0) (canOccupy radius 1.12 in src/minigames/restaurant/index.js), so it never reaches z=-4.40 and times out 19 times. Fix: before moving in z toward the belt, move in x to a clear aisle (x = -2.1 or 2.1, whichever is nearer; both are clear of every table at every z given TABLES and radius 1.12), then move in z to the belt front (BELT_FRONT_Z -4.4; the row z <= -3.95 is clear of tables), then track the dish's live x with A/D along the belt front and press Space only when the visible action is 'collect' and |player.x - dish.x| is within BELT_PICKUP_WINDOW 1.4. Detect lack of movement early (position unchanged across several observed game frames while a key is held) and report it as HARNESS_PRECONDITION_FAILED with last position, rather than waiting the full timeout.",
+    "Isolate pickup probes. Exactly one dedicated click-pickup probe and one dedicated key-pickup probe per session that exercises them, each reported once under a fixed name. A failed probe stays failed and is never overwritten, but it must not change how the rest of the shift is fulfilled: after the probes, fulfil orders by one reliable route (click-to-walk pickup is fine) so later checks remain observable. Remove the pickupCount-based method selection that made every pickup after the first a key pickup.",
+    "Click probe setup must be observed at frame level. Click arrival collects synchronously in the same game update (index.js ~line 1498, arrival radius 0.45, BELT_ARRIVAL_WINDOW 1.6), so external polling can miss the setup. Install a page-side requestAnimationFrame latch (via page.evaluate) that records, before the dish leaves the belt, whether the player was within the click window (1.6, not the key window 1.4) of the target dish and the dish was visible. Setup comes only from that latch, never inferred from the outcome, so RESTAURANT_FORCE_MISS_PICKUP=1 can never pass. Setup reached + dish not carried = PRODUCT_FAILURE; setup never reached = HARNESS_PRECONDITION_FAILED.",
+    "Carried dish identity: add one additive read-only field to the debug surface in src/minigames/restaurant/index.js — the carried dish's conveyor id (e.g. carried.dishId) — and use it to confirm the probe carried the targeted dish, not merely some dish of the same food. No other game source change.",
+    "Fixed check registry. Pre-register every logical check with a fixed name at the start of each session (no dish ids or retry counts in check names; put dish ids, attempts, elapsed time and last semantic state in the detail/trace). Every run must report the same check list and the same total, whether checks pass, fail or are never reached (unreached = HARNESS_PRECONDITION_FAILED with the reason).",
+    "Delivery to a customer who is no longer awaiting (left or already served) before the delivery commits is a harness precondition failure, not PRODUCT_FAILURE: re-read state immediately before delivering, retarget to a customer awaiting that food if one exists, else return the dish, and record it in trace. Only a delivery to a customer confirmed awaiting that food at commit time that does not change state is PRODUCT_FAILURE.",
+    "Session completion is state-based. Replace the wall-clock serviceDeadline (e.g. Date.now() + 240000 in Anti-shortcut) with a stagnation watchdog: continue until the shift reaches its semantic end (all customers resolved / turnaround), and fail with HARNESS_PRECONDITION_FAILED including last state only if no semantic progress (done count, customer states, carried, belt dishes) occurs within a bounded number of observed game seconds (debug elapsed), not wall seconds.",
+    "Restaurant manifest: scripts/playthrough-run.mjs currently imports structured classifications/trace only for Zoo; make the Restaurant scenario write the same manifest shape (per-check class, fixed total, trace).",
+    "Keep everything that currently passes: Challenge full shift, speech-focus belt freeze/resume, raised-hand conversation while carrying at table 2, review screenshots A–E with their state predicates, no page errors.",
+    "Report the full fixed check list and total in the summary."
+  ],
+  "constraints": [
+    "Files: scripts/playthrough.mjs, scripts/playthrough-run.mjs, and only the single additive debug field in src/minigames/restaurant/index.js. Do not change conveyor, director, claims, rival or any gameplay semantics; the conveyor API is frozen. If something else in game source seems required, stop and report it.",
+    "Do not touch the other minigame harnesses' behaviour (Zoo, Drink Stand, Coloring, Sports).",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state not time, classify preconditions, seeded randomness (RESTAURANT_SEED default 0x5eed0914).",
+    "Your sandbox likely cannot start the preview server; do not fake playthrough results. The controller runs the playthrough.",
+    "Record a DESIGN_DECISIONS.md entry only if a product-visible decision is made (the debug field is not one).",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites; the first quoting/escaping failure ends shell-based editing."
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    "scripts/playthrough-run.mjs",
+    "src/minigames/restaurant/index.js",
+    ".ai/codex-diagnosis-conveyor-pickup.md",
+    "~/.claude/workers/harness/PROTOCOL.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "test-harness",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Correction round 2 of .ai/wo-restaurant-conveyor-harness.json after diagnose-review (.ai/codex-diagnosis-conveyor-pickup.md, causes 1-4 accepted by Claude; delivery-to-departed-customer classification and carried dish id added by Claude). Harness still UNTRUSTED; after this the controller runs known-good npm run playthrough:restaurant and known-bad RESTAURANT_FORCE_MISS_PICKUP=1. Last known-good log: .tmp/playthrough-good2.log (120/157). Constants in index.js: MOVE_SPEED 5, AUTO_SPEED 5.7, BELT_FRONT_Z -4.4, BELT_FRONT_BAND 1.15, BELT_PICKUP_WINDOW 1.4, BELT_ARRIVAL_WINDOW 1.6; TABLES at (-4.2,-1.0), (0,1.8), (4.2,-1.0), (-4.2,3.9), (4.2,3.9), collision radius 1.12; click-to-walk parks at (seatX, seatZ - 1.65)."
+}

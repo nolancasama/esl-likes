@@ -193,7 +193,7 @@ async function main() {
     const screenshots = await collectScreenshots(runDirectory);
     const command = `node ${script} ${url} ${relativePrefix}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`;
     let harnessReport = null;
-    if (scenario === 'zoo') {
+    if (scenario === 'zoo' || scenario === 'restaurant') {
       try {
         harnessReport = JSON.parse(await fs.readFile(
           path.join(PROJECT_ROOT, `${relativePrefix}-results.json`),
@@ -222,7 +222,11 @@ async function main() {
         },
         sections: harnessReport.sections,
         checks: harnessReport.checks,
-        forcedWalkShort: harnessReport.forcedWalkShort,
+        ...(harnessReport.trace ? { trace: harnessReport.trace } : {}),
+        ...(scenario === 'restaurant' ? {
+          fixedTotal: harnessReport.fixedTotal,
+          forcedMissPickup: harnessReport.forcedMissPickup,
+        } : { forcedWalkShort: harnessReport.forcedWalkShort }),
       } : {}),
       url,
       screenshots,

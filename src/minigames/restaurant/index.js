@@ -12,6 +12,7 @@ import {
   scoreSession,
 } from './scoring.js';
 import { createRestaurantDirector } from './director.js';
+import { createConveyor } from './conveyor.js';
 import { RESTAURANT_OWNERS, createCustomerClaimRegistry } from './claims.js';
 import { RIVAL_SHARE_CAP, RIVAL_SPEED, createRestaurantRival } from './rival.js';
 
@@ -20,7 +21,18 @@ const STRINGS = UI.restaurant;
 const MOVE_SPEED = 5;
 const AUTO_SPEED = 5.7;
 const CUSTOMER_RADIUS_SQ = 2.7 * 2.7;
-const COUNTER_RADIUS_SQ = 1.8 * 1.8;
+const WALL_HALF_WIDTH = 6.85;
+const BELT_CENTER_Z = -6.35;
+const BELT_TOP_Y = 1.1;
+const BELT_FRONT_Z = -4.4;
+const BELT_FRONT_BAND = 1.15;
+const BELT_PICKUP_WINDOW = 1.4;
+const BELT_ARRIVAL_WINDOW = 1.6;
+// Beside the entry opening, clear of the back-right table's talk spot
+// (seatZ - 1.65): the return radius must never cover a customer approach.
+const DISH_RETURN_POSITION = Object.freeze({ x: 6.0, z: -3.95 });
+const DISH_RETURN_RADIUS_SQ = 1.4 * 1.4;
+const HOST_TURNAROUND_POSITION = Object.freeze({ x: 0, z: -3.15 });
 const HOT_SECONDS = 9;
 const WARM_SECONDS = 22;
 const REFUSAL_SECONDS = 5;
@@ -29,7 +41,7 @@ const CUSTOMER_WALK_SPEED = 10;
 // Click-to-walk steers past any table lying across its straight line.
 const STEER_RADIUS = 1.45;
 const STEER_CLEARANCE = 1.75;
-const RIVAL_PASS_POSITION = Object.freeze({ x: -4.3, z: -5.05 });
+const RIVAL_HATCH_POSITION = Object.freeze({ x: -5.95, z: 1.45 });
 const RIVAL_MIN_SPEED = RIVAL_SPEED * 0.7;
 const RIVAL_MAX_SPEED = RIVAL_SPEED * 1.3;
 
@@ -52,7 +64,7 @@ const DIFFICULTY = Object.freeze({
 
 const CUSTOMER_TINTS = Object.freeze([0xff7d63, 0x54b8ff, 0xb36bff, 0x4bd596, 0xffcf45]);
 const CUSTOMER_MODELS = Object.freeze(['e', 'f', 'i', 'm', 'q']);
-const SLOT_X = Object.freeze([-3.15, -1.05, 1.05, 3.15]);
+const RESTAURANT_SIGN_TEXT = 'MATSUBARA RESTAURANT';
 
 /** Restaurant minigame controller for the frozen shell interface. */
 export function createRestaurant(ctx) {
@@ -76,8 +88,12 @@ export function createRestaurant(ctx) {
   let host = null;
   let rivalCharacter = null;
   let rivalCarryAnchor = null;
-  let rivalPassAnchor = null;
-  let rivalPassDish = null;
+  let rivalHatchAnchor = null;
+  let rivalHatchDish = null;
+  let conveyor = null;
+  let conveyorSurface = null;
+  let dishReturnAnchor = null;
+  let signAnchor = null;
   let overlay = null;
   let style = null;
   let instruction = null;
@@ -88,8 +104,6 @@ export function createRestaurant(ctx) {
   let phasePill = null;
   let progressText = null;
   let scoreText = null;
-  let readyCue = null;
-  let bellDome = null;
   let canvas = null;
   let autoTarget = null;
   let active = false;
@@ -134,6 +148,7 @@ export function createRestaurant(ctx) {
 
   const customers = [];
   const dishes = [];
+  const beltSlats = [];
   const records = [];
   const geometries = new Set();
   const materials = new Set();
@@ -166,8 +181,8 @@ export function createRestaurant(ctx) {
     active: false,
     delayRemaining: 0,
     durationRemaining: 0,
-    targetX: RIVAL_PASS_POSITION.x,
-    targetZ: RIVAL_PASS_POSITION.z,
+    targetX: RIVAL_HATCH_POSITION.x,
+    targetZ: RIVAL_HATCH_POSITION.z,
   };
   let sharedDish = null;
   let customerVisuals = null;
@@ -344,6 +359,47 @@ export function createRestaurant(ctx) {
     return dish;
   }
 
+  function buildRestaurantSign() {
+    const signCanvas = document.createElement('canvas');
+    signCanvas.width = 1024;
+    signCanvas.height = 160;
+    const context = signCanvas.getContext('2d');
+    context.clearRect(0, 0, signCanvas.width, signCanvas.height);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    // Fit the text to the canvas: the fallback font is wider than Arial Narrow.
+    let fontSize = 76;
+    context.font = `900 ${fontSize}px Arial Narrow, Arial, sans-serif`;
+    while (fontSize > 32 && context.measureText(RESTAURANT_SIGN_TEXT).width > signCanvas.width - 64) {
+      fontSize -= 2;
+      context.font = `900 ${fontSize}px Arial Narrow, Arial, sans-serif`;
+    }
+    context.lineJoin = 'round';
+    context.strokeStyle = 'rgba(39, 56, 88, .48)';
+    context.lineWidth = 13;
+    context.strokeText(RESTAURANT_SIGN_TEXT, 518, 86);
+    context.strokeStyle = '#fff7dd';
+    context.lineWidth = 5;
+    context.strokeText(RESTAURANT_SIGN_TEXT, 512, 78);
+    context.fillStyle = '#273858';
+    context.fillText(RESTAURANT_SIGN_TEXT, 512, 78);
+
+    const texture = ownTexture(new THREE.CanvasTexture(signCanvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    const material = ownMaterial(new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    }));
+    const letters = new THREE.Mesh(ownGeometry(new THREE.PlaneGeometry(7.15, 1.12)), material);
+    signAnchor = new THREE.Group();
+    signAnchor.name = 'matsubara-restaurant-sign';
+    signAnchor.position.set(0, 3.62, -7.14);
+    signAnchor.add(letters);
+    world.add(signAnchor);
+  }
+
   function buildWorld() {
     world = new THREE.Group();
     world.name = 'restaurant-minigame';
@@ -362,11 +418,13 @@ export function createRestaurant(ctx) {
     const trimMaterial = makeMaterial(0x4db7ba);
     const woodMaterial = makeMaterial(0xd98b43);
     const chairMaterial = makeMaterial(0x55a8cf);
-    const counterMaterial = makeMaterial(0x69c6ad);
-    const counterTopMaterial = makeMaterial(0xfff1c9);
-    const metalMaterial = makeMaterial(0xd8edf0, { metalness: 0.2 });
-    const bellMaterial = makeMaterial(0xffcf33, { emissive: 0x6b3c00 });
-    const cueMaterial = makeMaterial(0xfff05a, { emissive: 0xff7b00, emissiveIntensity: 0.9 });
+    const metalMaterial = makeMaterial(0xc8d5d8, { metalness: 0.55, roughness: 0.42 });
+    const darkMetalMaterial = makeMaterial(0x52636b, { metalness: 0.4, roughness: 0.5 });
+    const beltMaterial = makeMaterial(0x202b33, { roughness: 0.72 });
+    const beltSlatMaterial = makeMaterial(0x65757c, { metalness: 0.35, roughness: 0.5 });
+    const recessMaterial = makeMaterial(0x17232c, { roughness: 0.95 });
+    const kitchenLightMaterial = makeMaterial(0xffe9a8, { emissive: 0xffc85b, emissiveIntensity: 0.8 });
+    const returnMaterial = makeMaterial(0x4d9da5, { metalness: 0.18 });
 
     addPart(world, box, floorMaterial, 0, -0.25, 0, 14, 0.5, 15);
     addPart(world, box, wallMaterial, 0, 2.35, -7.35, 14, 5.2, 0.35);
@@ -374,8 +432,46 @@ export function createRestaurant(ctx) {
     addPart(world, box, wallMaterial, 6.85, 1.25, 0, 0.3, 3, 15);
     addPart(world, box, trimMaterial, 0, 0.25, -7.08, 13.7, 0.35, 0.18);
 
-    addPart(world, box, counterMaterial, 0, 0.65, -5.75, 9.2, 1.3, 1.35);
-    addPart(world, box, counterTopMaterial, 0, 1.34, -5.75, 9.6, 0.16, 1.55);
+    conveyorSurface = addPart(world, box, beltMaterial, 0, 1.03, BELT_CENTER_Z, 15.6, 0.14, 1.2);
+    conveyorSurface.name = 'restaurant-conveyor-surface';
+    conveyorSurface.userData.restaurantTarget = { type: 'belt' };
+    addPart(world, box, darkMetalMaterial, 0, 0.65, BELT_CENTER_Z, 15.7, 0.68, 1.08);
+    addPart(world, box, metalMaterial, 0, 1.22, BELT_CENTER_Z - 0.66, 15.8, 0.2, 0.12);
+    addPart(world, box, metalMaterial, 0, 1.22, BELT_CENTER_Z + 0.66, 15.8, 0.2, 0.12);
+    for (const x of [-5.6, -2.8, 0, 2.8, 5.6]) {
+      addPart(world, box, darkMetalMaterial, x, 0.3, BELT_CENTER_Z, 0.24, 0.72, 0.86);
+    }
+    const slatCount = 25;
+    for (let index = 0; index < slatCount; index += 1) {
+      const slat = addPart(world, box, beltSlatMaterial, 0, BELT_TOP_Y + 0.015, BELT_CENTER_Z, 0.055, 0.025, 0.96);
+      slat.userData.beltIndex = index;
+      slat.userData.beltCount = slatCount;
+      slat.userData.restaurantTarget = { type: 'belt' };
+      beltSlats.push(slat);
+    }
+
+    for (const side of [-1, 1]) {
+      const x = side * 6.67;
+      addPart(world, box, recessMaterial, x, 1.4, BELT_CENTER_Z, 0.08, 2.65, 2.25);
+      addPart(world, box, metalMaterial, x - side * 0.035, 2.78, BELT_CENTER_Z, 0.18, 0.16, 2.5);
+      addPart(world, box, metalMaterial, x - side * 0.035, 0.18, BELT_CENTER_Z, 0.18, 0.16, 2.5);
+      addPart(world, box, metalMaterial, x - side * 0.035, 1.48, BELT_CENTER_Z - 1.18, 0.18, 2.45, 0.16);
+      addPart(world, box, metalMaterial, x - side * 0.035, 1.48, BELT_CENTER_Z + 1.18, 0.18, 2.45, 0.16);
+      addPart(world, box, kitchenLightMaterial, x - side * 0.09, 2.34, BELT_CENTER_Z, 0.05, 0.12, 1.45);
+      addPart(world, box, metalMaterial, x - side * 0.1, 1.84, BELT_CENTER_Z, 0.06, 0.07, 1.42);
+    }
+
+    dishReturnAnchor = new THREE.Group();
+    dishReturnAnchor.name = 'restaurant-dish-return';
+    dishReturnAnchor.position.set(DISH_RETURN_POSITION.x, 0, DISH_RETURN_POSITION.z);
+    addPart(dishReturnAnchor, box, darkMetalMaterial, 0, 0.48, 0, 1.45, 0.18, 1.05);
+    addPart(dishReturnAnchor, box, returnMaterial, 0, 0.66, 0, 1.25, 0.16, 0.85);
+    addPart(dishReturnAnchor, box, returnMaterial, -0.57, 0.91, 0, 0.12, 0.5, 0.86);
+    addPart(dishReturnAnchor, box, returnMaterial, 0.57, 0.91, 0, 0.12, 0.5, 0.86);
+    addPart(dishReturnAnchor, box, returnMaterial, 0, 0.91, -0.37, 1.25, 0.5, 0.12);
+    addPart(dishReturnAnchor, box, returnMaterial, 0, 0.91, 0.37, 1.25, 0.5, 0.12);
+    world.add(dishReturnAnchor);
+    buildRestaurantSign();
 
     const tableTop = ownGeometry(new THREE.CylinderGeometry(1, 1, 0.18, 16));
     for (const table of TABLES) {
@@ -388,21 +484,6 @@ export function createRestaurant(ctx) {
       addPart(world, box, chairMaterial, table.x, 0.47, table.z + 1.25, 0.9, 0.16, 0.82);
       addPart(world, box, chairMaterial, table.x, 1.05, table.z + 1.62, 0.9, 1.05, 0.15);
     }
-
-    const bellBase = ownGeometry(new THREE.CylinderGeometry(0.28, 0.34, 0.12, 16));
-    const bellTop = ownGeometry(new THREE.SphereGeometry(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2));
-    addPart(world, bellBase, metalMaterial, 4, 1.48, -5.1);
-    bellDome = addPart(world, bellTop, bellMaterial, 4, 1.53, -5.1);
-    addPart(world, ownGeometry(new THREE.SphereGeometry(0.08, 8, 6)), bellMaterial, 4, 1.87, -5.1);
-    readyCue = new THREE.Group();
-    const cueGeometry = ownGeometry(new THREE.TorusGeometry(0.48, 0.055, 6, 20));
-    for (let index = 0; index < 3; index += 1) {
-      const ring = addPart(readyCue, cueGeometry, cueMaterial, 0, index * 0.28, 0, 1 + index * 0.28, 1 + index * 0.28, 1);
-      ring.rotation.x = Math.PI / 2;
-    }
-    readyCue.position.set(4, 2.25, -5.1);
-    readyCue.visible = false;
-    world.add(readyCue);
 
     sharedDish = {
       plateGeometry: ownGeometry(new THREE.CylinderGeometry(0.58, 0.58, 0.08, 20)),
@@ -443,18 +524,14 @@ export function createRestaurant(ctx) {
     player.add(carryAnchor);
     world.add(player);
 
-    // The host stands beside the bell at the open end of the counter, never
-    // behind it: from behind the counter only the top of their head showed, so
-    // the turnaround question seemed to come from a sliver of hair.
     host = characters.create({ model: 'j', tint: 0xffc56d });
-    host.position.set(5.5, 0, -5.6);
-    host.rotation.y = -0.85; // turned toward the dining room (Kenney models face +z)
+    host.position.set(HOST_TURNAROUND_POSITION.x, 0, HOST_TURNAROUND_POSITION.z);
+    host.rotation.y = 0;
     host.scale.setScalar(0.82);
-    world.add(host);
 
     if (difficulty === 3) {
       rivalCharacter = characters.create({ model: 'r', tint: 0x4b78c5 });
-      rivalCharacter.position.set(RIVAL_PASS_POSITION.x, 0, RIVAL_PASS_POSITION.z);
+      rivalCharacter.position.set(RIVAL_HATCH_POSITION.x, 0, RIVAL_HATCH_POSITION.z);
       rivalCharacter.rotation.y = Math.PI;
       rivalCharacter.scale.setScalar(0.78);
       // A bright apron is readable even when the textured character ignores
@@ -466,9 +543,18 @@ export function createRestaurant(ctx) {
       rivalCharacter.add(rivalCarryAnchor);
       world.add(rivalCharacter);
 
-      rivalPassAnchor = new THREE.Group();
-      rivalPassAnchor.position.set(RIVAL_PASS_POSITION.x, 1.46, RIVAL_PASS_POSITION.z);
-      world.add(rivalPassAnchor);
+      const hatchX = -6.67;
+      addPart(world, box, recessMaterial, hatchX, 1.55, RIVAL_HATCH_POSITION.z, 0.08, 1.75, 2.05);
+      addPart(world, box, metalMaterial, hatchX + 0.04, 2.48, RIVAL_HATCH_POSITION.z, 0.16, 0.12, 2.28);
+      addPart(world, box, metalMaterial, hatchX + 0.04, 0.64, RIVAL_HATCH_POSITION.z, 0.16, 0.12, 2.28);
+      addPart(world, box, metalMaterial, hatchX + 0.04, 1.56, RIVAL_HATCH_POSITION.z - 1.07, 0.16, 1.72, 0.12);
+      addPart(world, box, metalMaterial, hatchX + 0.04, 1.56, RIVAL_HATCH_POSITION.z + 1.07, 0.16, 1.72, 0.12);
+      addPart(world, box, kitchenLightMaterial, hatchX + 0.08, 2.12, RIVAL_HATCH_POSITION.z, 0.04, 0.1, 1.35);
+      addPart(world, box, metalMaterial, -6.34, 1.32, RIVAL_HATCH_POSITION.z, 0.58, 0.1, 1.72);
+
+      rivalHatchAnchor = new THREE.Group();
+      rivalHatchAnchor.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
+      world.add(rivalHatchAnchor);
     }
 
     const meterGeometry = ownGeometry(new THREE.BoxGeometry(1.25, 0.14, 0.05));
@@ -538,7 +624,7 @@ export function createRestaurant(ctx) {
     scene.add(world);
     // The whole dining room at once, not a camera that follows the waiter. With
     // the follow camera the front tables slid off the bottom edge whenever the
-    // child stood at the counter, so a raised hand could be asking for service
+    // child stood at the back service wall, so a raised hand could be asking for service
     // from off-screen — fatal for a game whose mechanic is choosing who to serve
     // next. The room is small enough to frame entirely, so it is.
     cameraRig
@@ -668,6 +754,8 @@ export function createRestaurant(ctx) {
       outcome: null,
       recorded: false,
       prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
+      prepRemaining: 0,
+      readyFired: false,
       patienceMax: configured.patience,
       patience: configured.patience,
       character,
@@ -685,23 +773,7 @@ export function createRestaurant(ctx) {
     };
     clickTarget.userData.restaurantTarget = { type: 'customer', value: customer };
 
-    const mesh = createDish(food, sharedDish);
-    const dish = {
-      index,
-      customerId: index,
-      food,
-      state: 'dormant',
-      prepDuration: customer.prepDuration,
-      prepRemaining: 0,
-      slot: -1,
-      carrySeconds: 0,
-      firstTry: true,
-      mesh,
-    };
-    mesh.userData.restaurantTarget = { type: 'dish', value: dish };
-    customer.dish = dish;
     customers.push(customer);
-    dishes.push(dish);
     claimRegistry?.registerCustomer({
       id: customer.id,
       food: customer.food,
@@ -782,10 +854,8 @@ export function createRestaurant(ctx) {
     speechCooldown = 0.6;
     customer.state = 'awaiting';
     customer.orderCue.visible = false;
-    const dish = customer.dish;
-    dish.state = 'preparing';
-    dish.prepRemaining = dish.prepDuration;
-    dish.firstTry = true;
+    customer.prepRemaining = customer.prepDuration;
+    customer.readyFired = false;
     customer.character.playAnimation?.('emote-yes');
     audio.playSfx('accept');
     showCustomerAnswer(customer);
@@ -844,41 +914,73 @@ export function createRestaurant(ctx) {
     commitQuestion(questionCustomer, true);
   }
 
-  function updateReadyCue() {
-    if (!readyCue) return;
-    readyCue.visible = dishes.some((dish) => dish.state === 'ready');
+  function createBeltDish(snapshotDish) {
+    const mesh = createDish(snapshotDish.food, sharedDish);
+    const dish = {
+      id: snapshotDish.id,
+      customerId: null,
+      food: snapshotDish.food,
+      filler: snapshotDish.filler,
+      state: 'belt',
+      carrySeconds: 0,
+      firstTry: true,
+      mesh,
+    };
+    mesh.userData.restaurantTarget = { type: 'dish', value: dish };
+    dishes.push(dish);
+    return dish;
   }
 
-  // A ready dish goes to a random free place on the counter. Tying the counter
-  // slot to the customer let a child carry "the left plate to the left table"
-  // without ever knowing which food each customer asked for.
-  function pickCounterSlot() {
-    const free = [];
-    for (let slot = 0; slot < SLOT_X.length; slot += 1) {
-      let taken = false;
-      for (const other of dishes) {
-        if (other.state === 'ready' && other.slot === slot) taken = true;
-      }
-      if (!taken) free.push(slot);
+  function removePhysicalDish(dish, state = 'discarded') {
+    if (!dish) return;
+    carryAnchor?.remove(dish.mesh);
+    world?.remove(dish.mesh);
+    dish.mesh.visible = false;
+    dish.state = state;
+    const index = dishes.indexOf(dish);
+    if (index >= 0) dishes.splice(index, 1);
+  }
+
+  function beltDishFor(id) {
+    return dishes.find((dish) => dish.id === id && dish.state === 'belt') ?? null;
+  }
+
+  function dueConveyorOrders() {
+    return customers.filter((customer) => customer.state === 'awaiting'
+      && customer.readyFired
+      && (!claimRegistry || customer.owner === RESTAURANT_OWNERS.PLAYER));
+  }
+
+  function updateBeltSlats(snapshot) {
+    const span = 15.6;
+    for (let index = 0; index < beltSlats.length; index += 1) {
+      const phase = ((index * span / beltSlats.length)
+        + snapshot.direction * snapshot.beltTravel) % span;
+      beltSlats[index].position.x = -span / 2 + ((phase + span) % span);
     }
-    return free.length ? free[Math.floor(Math.random() * free.length)] : 0;
   }
 
-  function makeReady(dish) {
-    if (dish.state !== 'preparing') return;
-    dish.state = 'ready';
-    dish.mesh.visible = true;
-    dish.slot = pickCounterSlot();
-    dish.mesh.position.set(SLOT_X[dish.slot], 1.46, -5.05);
-    dish.mesh.rotation.set(0, 0, 0);
-    audio.playSfx('restaurant-bell-low', {
-      frequency: 920, endFrequency: 1220, duration: 0.18, type: 'sine', gain: 0.2,
+  function updateConveyor(serviceDt) {
+    if (!conveyor) return;
+    const events = conveyor.advance(serviceDt, {
+      dueOrders: dueConveyorOrders(),
+      carriedFood: carried?.food ?? null,
     });
-    audio.playSfx('restaurant-bell-high', {
-      frequency: 1320, endFrequency: 1640, duration: 0.24, type: 'sine', gain: 0.2,
-    });
-    setNotice(STRINGS.bellReady, 2.2);
-    updateReadyCue();
+    for (const event of events) {
+      if (event.type === 'enter') createBeltDish(event.dish);
+      else if (event.type === 'exit') removePhysicalDish(beltDishFor(event.dish.id), 'exited');
+    }
+
+    const snapshot = conveyor.snapshot();
+    updateBeltSlats(snapshot);
+    for (const snapshotDish of snapshot.dishes) {
+      const dish = beltDishFor(snapshotDish.id);
+      if (!dish) continue;
+      dish.mesh.position.set(snapshotDish.x, BELT_TOP_Y + 0.13, BELT_CENTER_Z);
+      dish.mesh.rotation.set(0, 0, 0);
+      dish.mesh.scale.setScalar(0.82);
+      dish.mesh.visible = Math.abs(snapshotDish.x) < WALL_HALF_WIDTH;
+    }
   }
 
   function temperatureScoreFor(seconds) {
@@ -893,8 +995,20 @@ export function createRestaurant(ctx) {
     return STRINGS.tempCold;
   }
 
-  function collectDish(dish) {
-    if (carried || dish.state !== 'ready') return;
+  function collectDish(dishOrId, fallbackToNearest = false) {
+    if (carried || !conveyor) return;
+    const requestedId = typeof dishOrId === 'object' ? dishOrId?.id : dishOrId;
+    const requested = conveyor.snapshot().dishes.find((dish) => dish.id === requestedId);
+    let picked = requested && Math.abs(requested.x - player.position.x) <= BELT_ARRIVAL_WINDOW
+      ? conveyor.take(requestedId)
+      : null;
+    if (!picked && fallbackToNearest) {
+      const nearest = conveyor.nearestPickable(player.position.x, BELT_ARRIVAL_WINDOW);
+      if (nearest) picked = conveyor.take(nearest.id);
+    }
+    if (!picked) return;
+    const dish = beltDishFor(picked.id);
+    if (!dish) return;
     dish.state = 'carried';
     dish.carrySeconds = 0;
     carried = dish;
@@ -906,8 +1020,18 @@ export function createRestaurant(ctx) {
     for (const puff of dish.mesh.userData.steam) puff.visible = true;
     audio.playSfx('interact');
     hideAction();
-    updateReadyCue();
     setInstruction(STRINGS.walkToDeliver);
+  }
+
+  function returnCarriedDish() {
+    if (!carried) return;
+    const returned = carried;
+    carried = null;
+    removePhysicalDish(returned, 'returned');
+    temperature.hidden = true;
+    temperatureText = '';
+    hideAction();
+    audio.playSfx('interact');
   }
 
   // Hearing the order again is listening support, not failure: it forfeits only
@@ -978,7 +1102,6 @@ export function createRestaurant(ctx) {
     carried.mesh.scale.setScalar(0.78);
     for (const puff of carried.mesh.userData.steam) puff.visible = false;
     carried.state = 'delivered';
-    carried.slot = -1;
     customer.servedDish = carried;
     carried = null;
     temperature.hidden = true;
@@ -998,25 +1121,8 @@ export function createRestaurant(ctx) {
       }
     }
     hideAction();
-    updateReadyCue();
     updateProgress();
     updateChallengeScore();
-  }
-
-  function discardDish(dish) {
-    if (!dish || dish.state === 'delivered' || dish.state === 'discarded' || dish.state === 'dormant') return;
-    if (carried === dish) {
-      carryAnchor.remove(dish.mesh);
-      carried = null;
-      temperature.hidden = true;
-      temperatureText = '';
-    } else {
-      world.remove(dish.mesh);
-    }
-    dish.mesh.visible = false;
-    dish.state = 'discarded';
-    dish.slot = -1;
-    updateReadyCue();
   }
 
   function leaveCustomer(customer) {
@@ -1024,14 +1130,6 @@ export function createRestaurant(ctx) {
     const rivalOwned = customer.owner === RESTAURANT_OWNERS.RIVAL;
     if (questionCustomer === customer) clearQuestion();
     if (listenCustomer === customer) setListenTarget(null);
-    if (customer.state === 'awaiting' && !rivalOwned) {
-      const ownDish = customer.dish;
-      const dish = ownDish && ['preparing', 'ready', 'carried'].includes(ownDish.state)
-        ? ownDish
-        : dishes.find((candidate) => candidate.food === customer.food
-          && ['preparing', 'ready', 'carried'].includes(candidate.state));
-      discardDish(dish);
-    }
     claimRegistry?.resolveCustomer(customer.id, { outcome: 'left' });
     if (!rivalOwned) {
       records.push({
@@ -1055,15 +1153,18 @@ export function createRestaurant(ctx) {
     dialogueRemaining = 1.8;
     dialogue.show({ text: STRINGS.patientLeave, anchor: customer.character, offsetY: 1.65, speak: false });
     audio.playSfx('retry');
-    updateReadyCue();
     updateProgress();
     updateChallengeScore();
   }
 
   function performAction() {
     if (!active || phase !== 'service') return;
-    if (actionType === 'collect' && actionDish) collectDish(actionDish);
+    if (actionType === 'collect') {
+      const nearest = conveyor?.nearestPickable(player.position.x, BELT_PICKUP_WINDOW);
+      if (nearest) collectDish(nearest);
+    }
     else if (actionType === 'deliver' && actionCustomer) deliver(actionCustomer);
+    else if (actionType === 'return') returnCarriedDish();
   }
 
   function canOccupy(x, z) {
@@ -1139,11 +1240,11 @@ export function createRestaurant(ctx) {
         directorCustomerView[index] = view;
       }
       view.id = customer.id;
-      // Identical food plates are interchangeable. A dish may still be
-      // cooking after its original customer was satisfied by a matching plate,
-      // so readiness follows the dish, never the occupant's current state.
-      view.state = customer.dish?.state === 'preparing' ? 'preparing' : customer.state;
-      view.prepRemaining = customer.dish?.state === 'preparing' ? customer.dish.prepRemaining : undefined;
+      const playerPreparation = customer.state === 'awaiting'
+        && (!claimRegistry || customer.owner === RESTAURANT_OWNERS.PLAYER)
+        && !customer.readyFired;
+      view.state = playerPreparation ? 'preparing' : customer.state;
+      view.prepRemaining = playerPreparation ? customer.prepRemaining : undefined;
       if (claimRegistry) {
         view.owner = customer.owner;
         view.reservedBy = customer.reservation;
@@ -1162,7 +1263,10 @@ export function createRestaurant(ctx) {
     for (const event of events) {
       if (event.type === 'seat') createCustomer(event.customer, event.table, event.food ?? pickFood());
       else if (event.type === 'raiseHand') raiseHand(customers[event.customer]);
-      else if (event.type === 'ready') makeReady(customers[event.customer]?.dish);
+      else if (event.type === 'ready' && customers[event.customer]) {
+        customers[event.customer].readyFired = true;
+        customers[event.customer].prepRemaining = 0;
+      }
       else if (event.type === 'phase') {
         directorPhase = event.phase;
         showPhaseCue(event.phase);
@@ -1278,12 +1382,12 @@ export function createRestaurant(ctx) {
   }
 
   function discardRivalDish() {
-    if (!rivalPassDish) return;
-    rivalCarryAnchor?.remove(rivalPassDish.mesh);
-    world.remove(rivalPassDish.mesh);
-    rivalPassDish.mesh.visible = false;
-    rivalPassDish.state = 'discarded';
-    rivalPassDish = null;
+    if (!rivalHatchDish) return;
+    rivalCarryAnchor?.remove(rivalHatchDish.mesh);
+    world.remove(rivalHatchDish.mesh);
+    rivalHatchDish.mesh.visible = false;
+    rivalHatchDish.state = 'discarded';
+    rivalHatchDish = null;
   }
 
   function applyRivalEvents(serviceDt) {
@@ -1312,39 +1416,39 @@ export function createRestaurant(ctx) {
       } else if (event.type === 'orderTaken') {
         discardRivalDish();
         const mesh = createDish(event.food, sharedDish);
-        mesh.position.set(RIVAL_PASS_POSITION.x, 1.46, RIVAL_PASS_POSITION.z);
-        rivalPassDish = {
+        mesh.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
+        rivalHatchDish = {
           customerId: event.customer,
           food: event.food,
           state: 'preparing',
           mesh,
         };
       } else if (event.type === 'dishReady') {
-        if (rivalPassDish?.customerId !== event.customer) continue;
-        rivalPassDish.state = 'ready';
-        rivalPassDish.mesh.visible = true;
-        rivalPassDish.mesh.position.set(RIVAL_PASS_POSITION.x, 1.46, RIVAL_PASS_POSITION.z);
+        if (rivalHatchDish?.customerId !== event.customer) continue;
+        rivalHatchDish.state = 'ready';
+        rivalHatchDish.mesh.visible = true;
+        rivalHatchDish.mesh.position.set(RIVAL_HATCH_POSITION.x, 1.46, RIVAL_HATCH_POSITION.z);
       } else if (event.type === 'pickUpDish') {
-        if (rivalPassDish?.customerId !== event.customer) continue;
-        rivalPassDish.state = 'carried';
-        world.remove(rivalPassDish.mesh);
-        rivalCarryAnchor.add(rivalPassDish.mesh);
-        rivalPassDish.mesh.position.set(0, 0, 0);
-        rivalPassDish.mesh.scale.setScalar(0.88);
-      } else if (event.type === 'servedCustomer' && customer && rivalPassDish) {
-        rivalCarryAnchor.remove(rivalPassDish.mesh);
-        world.add(rivalPassDish.mesh);
-        rivalPassDish.mesh.position.set(customer.table.x, 1.13, customer.table.z);
-        rivalPassDish.mesh.scale.setScalar(0.78);
-        rivalPassDish.state = 'delivered';
-        customer.servedDish = rivalPassDish;
+        if (rivalHatchDish?.customerId !== event.customer) continue;
+        rivalHatchDish.state = 'carried';
+        world.remove(rivalHatchDish.mesh);
+        rivalCarryAnchor.add(rivalHatchDish.mesh);
+        rivalHatchDish.mesh.position.set(0, 0, 0);
+        rivalHatchDish.mesh.scale.setScalar(0.88);
+      } else if (event.type === 'servedCustomer' && customer && rivalHatchDish) {
+        rivalCarryAnchor.remove(rivalHatchDish.mesh);
+        world.add(rivalHatchDish.mesh);
+        rivalHatchDish.mesh.position.set(customer.table.x, 1.13, customer.table.z);
+        rivalHatchDish.mesh.scale.setScalar(0.78);
+        rivalHatchDish.state = 'delivered';
+        customer.servedDish = rivalHatchDish;
         customer.state = 'eating';
         customer.outcome = 'delivered';
         customer.eatingRemaining = EATING_SECONDS;
         customer.meter.visible = false;
         customer.ownerBadge.visible = false;
         customer.character.playAnimation?.('emote-yes');
-        rivalPassDish = null;
+        rivalHatchDish = null;
         updateProgress();
         updateChallengeScore();
       } else if (event.type === 'abandonTask') {
@@ -1354,7 +1458,7 @@ export function createRestaurant(ctx) {
     }
   }
 
-  // Click-to-walk has no pathfinding. From a front table to the counter the
+  // Click-to-walk has no pathfinding. From a front table to the service wall the
   // straight line runs through a back table, and sliding along the one free axis
   // stalled the avatar against it for good — a trackpad-only child simply stopped.
   // Aim past the side of the first table across the path; once clear, the line
@@ -1391,12 +1495,13 @@ export function createRestaurant(ctx) {
     const dx = destination.x - player.position.x;
     const dz = destination.z - player.position.z;
     const distance = Math.hypot(dx, dz);
-    if (distance <= 0.2) {
+    const arrivalRadius = autoTarget.type === 'dish' || autoTarget.type === 'belt' ? 0.45 : 0.2;
+    if (distance <= arrivalRadius) {
       const arrived = autoTarget;
       autoTarget = null;
       movementActive = false;
       player.playAnimation?.('idle');
-      if (arrived.type === 'dish') collectDish(arrived.value);
+      if (arrived.type === 'dish') collectDish(arrived.value, true);
       else if (arrived.type === 'customer') {
         if (arrived.value.owner === RESTAURANT_OWNERS.RIVAL) return;
         const faceX = arrived.value.character.position.x - player.position.x;
@@ -1526,9 +1631,10 @@ export function createRestaurant(ctx) {
       }
     }
 
-    for (const dish of dishes) {
-      if (dish.state !== 'preparing') continue;
-      dish.prepRemaining -= serviceDt;
+    for (const customer of customers) {
+      if (customer.state !== 'awaiting' || customer.readyFired
+        || (claimRegistry && customer.owner !== RESTAURANT_OWNERS.PLAYER)) continue;
+      customer.prepRemaining -= serviceDt;
     }
   }
 
@@ -1560,20 +1666,15 @@ export function createRestaurant(ctx) {
     return nearest;
   }
 
-  function nearestReadyDish() {
-    let nearest = null;
-    let best = COUNTER_RADIUS_SQ;
-    for (const dish of dishes) {
-      if (dish.state !== 'ready') continue;
-      const dx = player.position.x - SLOT_X[dish.slot];
-      const dz = player.position.z + 5.05;
-      const distance = dx * dx + dz * dz;
-      if (distance < best) {
-        best = distance;
-        nearest = dish;
-      }
-    }
-    return nearest;
+  function nearestBeltDish() {
+    if (!conveyor || Math.abs(player.position.z - BELT_FRONT_Z) > BELT_FRONT_BAND) return null;
+    return conveyor.nearestPickable(player.position.x, BELT_PICKUP_WINDOW);
+  }
+
+  function playerNearDishReturn() {
+    const dx = player.position.x - DISH_RETURN_POSITION.x;
+    const dz = player.position.z - DISH_RETURN_POSITION.z;
+    return dx * dx + dz * dz <= DISH_RETURN_RADIUS_SQ;
   }
 
   function updateTalkDwell(dt) {
@@ -1647,9 +1748,17 @@ export function createRestaurant(ctx) {
     if (carried) {
       // A raised hand can be answered with a dish in hand: "deliver this curry
       // now, or take that order first?" is the decision the room is built around.
+      // It outranks the dish return so the return can never block a conversation.
       if (nearbyCustomer?.state === 'orderCue') {
         hideAction();
         if (!AUTO_TALK_ENABLED) targetQuestion(nearbyCustomer);
+        return;
+      }
+      if (playerNearDishReturn()) {
+        clearQuestion();
+        setListenTarget(null);
+        setInstruction(STRINGS.returnDish);
+        showAction(STRINGS.returnDish, 'return');
         return;
       }
       clearQuestion();
@@ -1662,19 +1771,18 @@ export function createRestaurant(ctx) {
       return;
     }
 
-    // An open conversation outranks the pickup counter. Tables 0 and 2 seat their
-    // customers within the counter's pickup radius, and clearing a dwelling or
-    // committed question there cancelled it and disarmed the dwell for good.
+    // An open conversation outranks belt pickup so collecting cannot cancel a
+    // dwell or read-along that is already in progress.
     if (lockedQuestion) {
       hideAction();
       return;
     }
 
-    const readyDish = nearestReadyDish();
-    if (readyDish) {
+    const beltDish = nearestBeltDish();
+    if (beltDish) {
       clearQuestion();
-      setInstruction(STRINGS.walkToCounter);
-      showAction(STRINGS.collectDish, 'collect', readyDish);
+      setInstruction(STRINGS.walkToConveyor);
+      showAction(STRINGS.collectDish, 'collect', beltDish);
       return;
     }
 
@@ -1687,10 +1795,9 @@ export function createRestaurant(ctx) {
     clearQuestion();
     hideAction();
 
-    if (dishes.some((dish) => dish.state === 'ready')) setInstruction(STRINGS.walkToCounter);
-    else if (hasCustomerInState('orderCue')) setInstruction(STRINGS.wantsToOrder);
+    if (hasCustomerInState('orderCue')) setInstruction(STRINGS.wantsToOrder);
     else if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
-    else setInstruction(STRINGS.waitForBell);
+    else setInstruction(STRINGS.watchConveyor);
   }
 
   function updateCarried(dt) {
@@ -1734,12 +1841,37 @@ export function createRestaurant(ctx) {
       }
       if (!target) continue;
       if (target.type === 'dish') {
-        if (carried || target.value.state !== 'ready') continue;
+        if (carried || target.value.state !== 'belt' || !conveyor) continue;
+        const snapshotDish = conveyor.snapshot().dishes.find((dish) => dish.id === target.value.id);
+        if (!snapshotDish) continue;
+        const estimatedWalkSeconds = Math.hypot(
+          player.position.x - snapshotDish.x,
+          player.position.z - BELT_FRONT_Z,
+        ) / AUTO_SPEED;
+        const predictedX = conveyor.predictX(snapshotDish.id, estimatedWalkSeconds);
+        if (!Number.isFinite(predictedX)) continue;
+        const { visibleHalfWidth } = conveyor.snapshot();
         clickTalkTargetId = null;
         autoTarget = {
           type: 'dish',
-          value: target.value,
-          position: new THREE.Vector3(SLOT_X[target.value.slot], 0, -4.25),
+          value: snapshotDish.id,
+          position: new THREE.Vector3(
+            THREE.MathUtils.clamp(predictedX, -visibleHalfWidth, visibleHalfWidth),
+            0,
+            BELT_FRONT_Z,
+          ),
+        };
+      } else if (target.type === 'belt' && conveyor) {
+        const { visibleHalfWidth } = conveyor.snapshot();
+        clickTalkTargetId = null;
+        autoTarget = {
+          type: 'belt',
+          value: null,
+          position: new THREE.Vector3(
+            THREE.MathUtils.clamp(intersection.point.x, -visibleHalfWidth, visibleHalfWidth),
+            0,
+            BELT_FRONT_Z,
+          ),
         };
       } else if (target.type === 'customer') {
         if (!isSeated(target.value.state)
@@ -1775,6 +1907,16 @@ export function createRestaurant(ctx) {
 
   function debugSnapshot() {
     const scoring = scoreSession(records);
+    const conveyorState = conveyor?.snapshot() ?? {
+      direction: -1,
+      entryX: 0,
+      exitX: 0,
+      visibleHalfWidth: 0,
+      speed: 0,
+      beltTravel: 0,
+      dishes: [],
+      pending: [],
+    };
     const counts = claimRegistry?.counts ?? {
       playerServed: records.filter((record) => record.delivered).length,
       rivalServed: 0,
@@ -1803,13 +1945,41 @@ export function createRestaurant(ctx) {
       })),
       activeOrderLimit,
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
-      readyDishes: dishes.filter((dish) => dish.state === 'ready').map((dish) => ({
-        customer: dish.customerId,
-        food: dish.food,
-        slot: dish.slot,
-        screen: projectObject(dish.mesh, 0.25),
-      })),
+      conveyor: {
+        direction: conveyorState.direction,
+        entryX: conveyorState.entryX,
+        exitX: conveyorState.exitX,
+        visibleHalfWidth: conveyorState.visibleHalfWidth,
+        speed: conveyorState.speed,
+        beltTravel: conveyorState.beltTravel,
+        dishes: conveyorState.dishes.map((snapshotDish) => {
+          const dish = beltDishFor(snapshotDish.id);
+          return {
+            id: snapshotDish.id,
+            food: snapshotDish.food,
+            x: snapshotDish.x,
+            filler: snapshotDish.filler,
+            screen: dish ? projectObject(dish.mesh, 0.25) : null,
+          };
+        }),
+        pending: conveyorState.pending.map(({ food, dueAt, reentry }) => ({ food, dueAt, reentry })),
+      },
+      dishReturn: dishReturnAnchor ? {
+        position: { x: DISH_RETURN_POSITION.x, z: DISH_RETURN_POSITION.z },
+        screen: projectObject(dishReturnAnchor, 0.75),
+      } : null,
+      sign: signAnchor ? {
+        text: RESTAURANT_SIGN_TEXT,
+        visible: signAnchor.visible,
+        screen: projectObject(signAnchor),
+      } : null,
+      host: host ? {
+        inRoom: host.parent === world && host.visible,
+        position: { x: host.position.x, z: host.position.z },
+      } : null,
+      legacy: { bell: false, readyCue: false, counter: false },
       carried: carried ? {
+        dishId: carried.id,
         customer: carried.customerId,
         food: carried.food,
         firstTry: carried.firstTry,
@@ -1823,13 +1993,13 @@ export function createRestaurant(ctx) {
           : rival.position,
         carryingFood,
       } : null,
-      rivalPass: rivalPassAnchor ? {
-        position: { x: RIVAL_PASS_POSITION.x, z: RIVAL_PASS_POSITION.z },
-        screen: projectObject(rivalPassAnchor),
-        contents: rivalPassDish?.state === 'ready' ? {
-          customer: rivalPassDish.customerId,
-          food: rivalPassDish.food,
-          state: rivalPassDish.state,
+      rivalHatch: rivalHatchAnchor ? {
+        position: { x: RIVAL_HATCH_POSITION.x, z: RIVAL_HATCH_POSITION.z },
+        screen: projectObject(rivalHatchAnchor),
+        contents: rivalHatchDish?.state === 'ready' ? {
+          customer: rivalHatchDish.customerId,
+          food: rivalHatchDish.food,
+          state: rivalHatchDish.state,
         } : null,
       } : null,
       playerServed: counts.playerServed,
@@ -1890,13 +2060,15 @@ export function createRestaurant(ctx) {
     temperature.hidden = true;
     noticeRemaining = 0;
     notice.hidden = true;
+    host.position.set(HOST_TURNAROUND_POSITION.x, 0, HOST_TURNAROUND_POSITION.z);
+    host.rotation.y = 0;
+    host.visible = true;
+    world.add(host);
     dialogue.show({ text: LESSON.question, anchor: host, offsetY: 1.8 });
     setInstruction(STRINGS.turnaround);
     cameraRig
       .setTarget(host)
-      // From the open aisle in front of the counter, above chair height, so neither
-      // the right wall nor a chair blocks the shot; the host is turned to face it.
-      .setPreset('closeup', { offset: [-3.4, 3, 3], lookOffset: [0, 0.6, 0], damping: 5.5 });
+      .setPreset('closeup', { offset: [0, 2.8, 4.2], lookOffset: [0, 0.72, 0], damping: 5.5 });
     beginFocus('restaurant-turnaround');
     promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
   }
@@ -1945,11 +2117,16 @@ export function createRestaurant(ctx) {
     rival = claimRegistry ? createRestaurantRival({
       level: difficulty,
       registry: claimRegistry,
-      initialPosition: RIVAL_PASS_POSITION,
-      passPosition: RIVAL_PASS_POSITION,
+      initialPosition: RIVAL_HATCH_POSITION,
+      passPosition: RIVAL_HATCH_POSITION,
       prepScale: configured.prepScale,
       rng: Math.random,
     }) : null;
+    conveyor = createConveyor({
+      difficulty,
+      foods: LESSON.vocabulary.map((food) => food.id),
+      rng: Math.random,
+    });
     serviceDirector = createRestaurantDirector({
       level: difficulty,
       tables: configured.count,
@@ -1991,7 +2168,7 @@ export function createRestaurant(ctx) {
     rivalWalk.active = false;
     rivalWalk.delayRemaining = 0;
     rivalWalk.durationRemaining = 0;
-    rivalPassDish = null;
+    rivalHatchDish = null;
     rivalAnimation = '';
     createOverlay();
     buildWorld();
@@ -2052,6 +2229,7 @@ export function createRestaurant(ctx) {
       updateRivalWalk(serviceDt);
       updateCustomers(serviceDt, safeDt);
       applyDirectorEvents(serviceDt);
+      updateConveyor(serviceDt);
       updateTalkDwell(safeDt);
       applyRivalEvents(serviceDt);
       if (rivalCharacter) {
@@ -2082,13 +2260,6 @@ export function createRestaurant(ctx) {
     player?.updateAnimation?.(safeDt);
     host?.updateAnimation?.(safeDt);
     rivalCharacter?.updateAnimation?.(focus.active ? 0 : safeDt);
-    if (readyCue?.visible) {
-      readyCue.rotation.y += safeDt * 1.8;
-      const pulse = 1 + Math.sin(elapsed * 7) * 0.08;
-      bellDome.scale.setScalar(pulse);
-    } else if (bellDome) {
-      bellDome.scale.setScalar(1);
-    }
   }
 
   function exit() {
@@ -2135,8 +2306,6 @@ export function createRestaurant(ctx) {
     player = null;
     carryAnchor = null;
     host = null;
-    readyCue = null;
-    bellDome = null;
     carried = null;
     autoTarget = null;
     canvas = null;
@@ -2147,10 +2316,15 @@ export function createRestaurant(ctx) {
     rival = null;
     rivalCharacter = null;
     rivalCarryAnchor = null;
-    rivalPassAnchor = null;
-    rivalPassDish = null;
+    rivalHatchAnchor = null;
+    rivalHatchDish = null;
+    conveyor = null;
+    conveyorSurface = null;
+    dishReturnAnchor = null;
+    signAnchor = null;
     rivalCustomerView.length = 0;
     rivalWalk.active = false;
+    beltSlats.length = 0;
     sharedDish = null;
     customerVisuals = null;
     for (const geometry of geometries) geometry.dispose();

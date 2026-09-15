@@ -1,0 +1,42 @@
+{
+  "task": "Correction round 3 of the Restaurant conveyor playthrough (scripts/playthrough.mjs): collision-safe delivery walking, fulfillment ordering, rival-freeze staging, and cascade classification. Fix2 worked for its target: both dedicated pickup probes now PASS.",
+  "requirements": [
+    "A. Delivery walking is collision-unaware (same defect class fix2 solved for pickups). Evidence, manifest 'delivery target remains eligible at commit' in Normal, Anti-shortcut and Challenge: preferredIndex 3 (table 3, seat (-4.2, 2.85)), movementFailure 'position unchanged ... while a key was held', axis x, key KeyA, target -4.2, lastPosition about (0.68, 0.85) — pinned against the table at (0, 1.8), radius 1.12. Fix: every harness walk that is not the dedicated key-pickup probe must be collision-safe — use the game's click-to-walk (it steers past tables) for deliveries and fulfillment, or route key movement through the clear aisles x = ±2.1 and clear rows (z <= -3.95, or between table rows) with a shared planner. Do not special-case table 3.",
+    "B. Fulfillment attempted a pickup while already carrying. Evidence: Normal 'reliable fulfillment pickups collect their targeted dishes' dish 9 hamburger, setup null, attempts 0, carried dishId 8 pizza. Fix: the fulfillment loop must deliver (or return) the carried dish before selecting another pickup; never start a pickup while debug carried is non-null.",
+    "C. Fulfillment targets dishes about to exit. Evidence: Anti-shortcut dish 3 sushi at x -5.63 (belt moves -x, exit on the left), setup null after 1 attempt. Fix: choose a dish whose predicted remaining visible travel (conveyor predictX / speed / visibleHalfWidth) covers the walk time; a dish that leaves before setup is a retry on the next qualifying dish, recorded in trace, not a failure of the check. The fulfillment check fails (HARNESS_PRECONDITION_FAILED) only when no qualifying pickup succeeds within the stagnation watchdog; a reached setup that does not carry stays PRODUCT_FAILURE.",
+    "D. Anti-shortcut wrong delivery must start from a carried plate. Evidence: 'the selected different-food customer refuses the plate' outcome missing with carriedFood null, then 'a wrong-first plate remains recoverable' precondition-failed. Establish and assert the carried plate as a precondition immediately before the wrong delivery; with A–C fixed this should follow.",
+    "E. Challenge 'speech focus freezes rival state, target, position and carried food' — detail 'no speech prompt remained open while the rival was moving'; log also shows '(rival already abandoned the reserved target ...)' and '(rival not mid-walk when customer 3 prompt opened; freeze not sampled here)'. This check passed before the conveyor revision (sampled mid-walk). Stage it deterministically: wait for debug state showing the rival walking with a target, then open a prompt with an eligible player customer (existing dwell/talk path) while that holds, re-checking the rival is still moving at the moment focus becomes active; retry staging on the next rival walk instead of giving up after one opportunity, bounded by the watchdog.",
+    "F. Cascade classification. When a shift never reaches its semantic end, checks whose precondition is shift completion (listening shift reaches its full reported total; all seven customers resolve; turnaround opens under speech focus; host in room at turnaround; session finishes back at the hub; stamp; three stars — and the equivalents in other sessions) must be HARNESS_PRECONDITION_FAILED naming the unreached precondition, not PRODUCT_FAILURE. They are PRODUCT_FAILURE only when the shift did reach its end and the asserted outcome is wrong.",
+    "Keep every check that passes now (fixed 136-check registry; both pickup probes; speech-focus belt freeze; carrying conversation at table 2; dish return; review screenshots A–E; Challenge full shift; no page errors). The check list and total stay fixed; if a check is added or renamed, report the new fixed list.",
+    "RESTAURANT_FORCE_MISS_PICKUP=1 must still never pass the pickup probes.",
+    "Report the full fixed check list and total in the summary."
+  ],
+  "constraints": [
+    "Only scripts/playthrough.mjs (and scripts/playthrough-run.mjs if the manifest needs it). No game source changes; if one seems required, stop and report it.",
+    "Do not touch the other minigame harnesses' behaviour.",
+    "Follow ~/.claude/workers/harness/PROTOCOL.md: wait for state not time, classify preconditions, seeded randomness.",
+    "Your sandbox likely cannot start the preview server; do not fake playthrough results. The controller runs the playthrough.",
+    "Edit files with structured file edits, never whole-file shell or regex rewrites; the first quoting/escaping failure ends shell-based editing."
+  ],
+  "startingPoints": [
+    "scripts/playthrough.mjs",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/conveyor.js",
+    ".tmp/playthrough/restaurant/manifest.json",
+    ".tmp/playthrough-good3.log"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"],
+    "artifacts": ".tmp/playthrough/restaurant"
+  },
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "Known-good run after fix2 (.tmp/playthrough-good3.log, manifest .tmp/playthrough/restaurant/manifest.json): 117/136, no page errors; all failures A–F above are harness-side (Claude reviewed the manifest details; the game shows correct deliveries, combo 5, belt running). Harness still UNTRUSTED; after this the controller runs the known-good run and the RESTAURANT_FORCE_MISS_PICKUP=1 known-bad run. Layout: TABLES (-4.2,-1.0), (0,1.8), (4.2,-1.0), (-4.2,3.9), (4.2,3.9), collision radius 1.12; click-to-walk parks at (seatX, seatZ - 1.65) and steers past tables."
+}

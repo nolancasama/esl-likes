@@ -4,9 +4,15 @@
 
 All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
-`.github/workflows/pages.yml` (unit tests gate the deploy). Live = `7c9e011`
-(Restaurant Challenge rival waiter, accepted and pushed 2026-09-14 with the
-owner's approval).
+`.github/workflows/pages.yml` (unit tests gate the deploy). Live = the Restaurant
+conveyor revision, pushed 2026-09-15 at the owner's explicit request, together
+with the Zoo wrong-photo rule (`ca1c246`) and Zoo harness (`f7186e9`).
+
+Pushed with known gaps (owner informed): `npm test` 239/239 and build passed,
+but Drink Stand/Coloring/Sports/Zoo playthroughs were not rerun after the
+conveyor change (`src/config/lesson.js` touched), the owner has not reviewed
+screenshots A–E, the Restaurant harness is UNTRUSTED (131–134/136, no
+known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## What Exists
 
@@ -17,15 +23,19 @@ owner's approval).
   hold-to-talk fallback, `AUTO_TALK_ENABLED` in `src/config/interaction.js`.
 - Restaurant (`src/minigames/restaurant/`): rush-hour shift run by pure
   `director.js`; tables 3/4/5, live-order limit 1/3/4 (a raised hand counts),
-  food-owned prep times (`FOOD_PREP_SECONDS` in `scoring.js`), several ready
-  dishes, dishes matched by food, combo, Listen Again, wrong-delivery refusal
-  lock, whole-room camera, click-to-walk.
+  food-owned prep times (`FOOD_PREP_SECONDS` in `scoring.js`), dishes matched by
+  food, combo, Listen Again, wrong-delivery refusal lock, whole-room camera,
+  click-to-walk. Working tree: pure `conveyor.js` (committed `07f1f64`) drives a
+  belt entering the right wall and leaving the left under a MATSUBARA
+  RESTAURANT sign; no counter/bell/ready cue; host only at turnaround;
+  dish-return tub at (6.0, -3.95); a raised hand outranks the return action.
 - Restaurant Challenge rival (SPEC §4 "Challenge rival waiter"):
   - Pure `claims.js` (ownership, player reservation on dwell/talk, claim on
     commit) and `rival.js` (state machine, own pass, 4 s hand age, 3-customer
     cap, speed 3.75); director owner-aware budget; Challenge total 11.
-  - Scene: rival character (white apron), rival pass at the left end of the
-    counter (not collectable, no bell), neutral tray badge on rival tables,
+  - Scene: rival character (white apron), rival pass (live: left end of the
+    counter; working tree: its own hatch on the left wall, never on the belt;
+    not collectable, no bell), neutral tray badge on rival tables,
     score pill `きみ N ・ ウェイター N` below the settings button,
     `ランチラッシュ！` intro, debug hook ownership/rival fields.
   - Eating/leaving customers don't use the player's order limit; one extra hand
@@ -38,9 +48,11 @@ owner's approval).
 - Playthroughs: `npm run build`, then `npm run playthrough:<scenario>`
   (restaurant, drink-stand, coloring, sports, zoo); the runner owns the preview.
 
-## Verified (2026-09-14)
+## Verified (2026-09-14; conveyor tree 2026-09-15)
 
-- `npm test` 227/227.
+- `npm test` 239/239 and `npm run build` on the uncommitted conveyor tree
+  (2026-09-15). The Restaurant playthrough counts below predate the conveyor.
+- `npm test` 227/227 (2026-09-14).
 - Restaurant playthrough 127/127 on the current tree, including the Challenge
   staged takeover, rival freeze during speech (sampled mid-walk), rival-owned
   delivery refusal, and a full 11-customer Challenge shift.
@@ -86,13 +98,41 @@ owner's approval).
 
 ## Next Steps
 
-1. Restaurant conveyor revision (SPEC §4 "Conveyor", DESIGN_DECISIONS
-   2026-09-14): slices (a) pure `conveyor.js` + tests
-   `.ai/wo-restaurant-conveyor-logic.json`, (b) scene integration — remove
-   counter/bell/ready cue, host only at turnaround, belt through side-wall
-   openings, MATSUBARA RESTAURANT sign, dish return, rival hatch on left wall,
-   (c) Restaurant playthrough update. Then Claude acceptance + owner
-   screenshots A–E (back wall, multiple dishes, entry, exit, rush).
+1. Restaurant conveyor acceptance. Diagnosis DONE 2026-09-15
+   (`.ai/codex-diagnosis-conveyor-pickup.md`, Claude verified against source/log):
+   key route walks into the table at (-4.2,-1.0); pickupCount made every pickup
+   after the first a key pickup; wall-clock deadline ends Anti-shortcut early;
+   click setup polling can miss the same-frame collect. Fix order
+   `.ai/wo-restaurant-conveyor-harness-fix2.json`: Codex SUCCESS (adds read-only
+   `carried.dishId` debug field). Known-good run 117/136: both pickup probes PASS;
+   remaining failures harness-side (key-walk delivery blocked by table (0,1.8),
+   pickup while carrying, dish near exit, rival-freeze staging, cascade labelled
+   PRODUCT_FAILURE). Fix order `.ai/wo-restaurant-conveyor-harness-fix3.json`:
+   Codex hit its usage limit (unavailable until 2026-09-19, no edits); router fell
+   back to Claude, who implemented it directly in `scripts/playthrough.mjs`
+   (`walkClear` via aisles ±2.1 and crossing row z -3.3, `reachableBeltDishes`,
+   no pickup while carrying, return orphaned plates, `outcomeCheck` for
+   end-of-shift checks, pre-click latch observe, repeated-foods check also
+   accepts two same-food customers served sequentially, table-2 delivery spot
+   x 3.9 clear of the return radius, `stageRivalFreezePrompt` waits outside the
+   talk radius for a long rival walk). Runs: 133/136 → 134/136 → 131/136
+   (`.tmp/playthrough-good6.log`). Still failing and now looping — needs
+   diagnose-review (Codex back 2026-09-19), not more patches:
+   - Challenge rival speech freeze: never sampled; three 12 s waits beside a
+     raised hand saw no rival walk with > 1.9 s left (rival walk = distance /
+     3.75). Unverified whether rivalWalkSecondsLeft reads the right destination.
+   - INTERMITTENT (passed in runs 3–5): Conversation probe 5/6 — mock mic start
+     514 ms after click-to-walk arrival, before the 1.2 s dwell
+     (`startsDuringDwell 1`); unknown if product or harness timing. Normal 40/41
+     table-2 carrying conversation not staged (timing).
+   - PRODUCT QUESTION for owner: near the dish-return tub, Space returns the plate
+     even when a matching awaiting customer is in range (seen at table 2 during
+     delivery). Should delivery outrank return? Not changed.
+   Then known-good
+   `npm run playthrough:restaurant` and known-bad
+   `RESTAURANT_FORCE_MISS_PICKUP=1` (harness TRUSTED only after both), then owner
+   screenshots A–E via visual-review.js. Commit only with the owner's OK — all
+   conveyor work (scene, harness, docs) is still uncommitted.
 2. Push `ca1c246` (wrong photo used up) and the Zoo harness with the owner's OK.
 3. Later: `.ai/wo-zoo-rules.json` (re-check against removed pen signs),
    Chromebook pass, Farm Buildings licence, Zoo triangle budget.
@@ -104,14 +144,27 @@ owner's approval).
   limit) after implementing; Claude completed acceptance and harness fixes
   directly; accepted 2026-09-14.
 - Conveyor logic `.ai/wo-restaurant-conveyor-logic.json`: accepted, committed `07f1f64`.
-- Conveyor scene `.ai/wo-restaurant-conveyor-scene.json`: Codex PARTIAL — usage
-  limit (resets 2026-09-14 23:28). UNCOMMITTED, UNREVIEWED partial edit to
-  `src/minigames/restaurant/index.js` only (+372/−211): conveyor created and
-  advanced, sign, dish return, rival hatch, debug fields, counter slots and bell
-  sounds removed. Known defects: cleanup still assigns undeclared `readyCue` /
-  `bellDome` (ReferenceError on exit); `src/config/lesson.js` untouched, so new
-  STRINGS keys may be missing. Owner chose to wait for the Codex reset: resume
-  with `.ai/wo-restaurant-conveyor-scene-resume.json`. Do not revert the partial
-  work and do not re-implement it from scratch.
-- Conveyor harness `.ai/wo-restaurant-conveyor-harness.json`: drafted, not
-  dispatched; runs after the scene is accepted.
+- Conveyor scene (resume order): Codex SUCCESS 2026-09-15, UNCOMMITTED
+  (`src/minigames/restaurant/index.js`, `src/config/lesson.js`). Claude looked at
+  1366x768 screenshots: belt, side openings, host absent, return tub, speech
+  freeze all fine. Claude fixed directly: sign text clipped ("IATSUBARA
+  RESTAURAN" → fits canvas); dish return moved to (6.0, -3.95) and a raised hand
+  now outranks the return action (the old tub blocked table 2's conversation
+  while carrying — DESIGN_DECISIONS 2026-09-14 conveyor entry). `npm test`
+  239/239 after both; the tub move is NOT yet rebuilt or seen rendered.
+- Conveyor harness `.ai/wo-restaurant-conveyor-harness.json`: Codex SUCCESS,
+  UNCOMMITTED `scripts/playthrough.mjs`, **UNTRUSTED**. First known-good run
+  (pre-tub-fix build) failed: key pickup chases the dish's stale x (harness
+  defect), duplicate check names per session (harness defect), table-2 prompt
+  blocked (product defect, fixed above; Challenge customer 8 at the same table
+  failed the same way), review screenshots A (transition wipe), C and D (no
+  qualifying dish visible) captured the wrong state. Correction fix1 (Codex
+  SUCCESS) rerun on the tub-fixed build: 120/157, no page errors; table-2 talk
+  block gone, full Challenge shift completes, review screenshots A–E now show
+  the right states and Claude accepts the scene visually (tub clear of table 2).
+  Still failing, harness-side: key pickup times out reaching z=-4.40 (19x) and
+  click pickups race the game's on-arrival collect (setup:null while carried),
+  cascading into Normal 4/7 and turnaround failures. Second failed attempt →
+  `diagnose-review` before any further patch. Then rebuild,
+  known-good run, `RESTAURANT_FORCE_MISS_PICKUP=1` known-bad run, screenshots
+  A–E, owner review.
