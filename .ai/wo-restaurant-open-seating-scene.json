@@ -1,0 +1,43 @@
+{
+  "id": "restaurant-open-seating-scene",
+  "task": "Integrate open seating into the Restaurant scene (src/minigames/restaurant/index.js): any seated unclaimed customer is talkable, raised hands / ? cue / patience meter / rival owner badge are removed, and ownership is shown by a white (player) or black (rival) 'I like...' bubble.",
+  "notes": "The pure modules were just changed and are frozen: claims.js now has markSeated(id) instead of raiseHand, claimRival(id, { minSeatedAge }), seated/seatedAge in copies; rival.js exports RIVAL_LEVELS (level 2 defined but enabled:false, level 3 enabled) and no RIVAL_SHARE_CAP, and createRestaurantRival takes total; director.js emits no raiseHand events and has no liveOrderLimit getter or rivalAvailable view field. index.js currently still imports RIVAL_SHARE_CAP and uses orderCue, so the scene is broken until this order lands. Talk is now the Space key (src/systems/speech.js captures a handled Space press on window before input.js sees it); while a speech target is set and the press is handled, Space does not reach input.consumeInteract(). So the scene must decide carefully WHEN a talk prompt is set. Read DESIGN_DECISIONS.md entries on the Restaurant conveyor (2026-09-14/15) and SPEC.md §4 Restaurant before editing. Owner intent: the room should read as a restaurant, not a quest board; the rush comes from many customers, memory, belt scanning and rival competition, not HUD meters.",
+  "requirements": [
+    "Customer lifecycle: walkingIn -> seated (unclaimed, talkable) -> awaiting (owner 'player' or 'rival') -> eating -> leaving -> delivered/left. Remove the 'orderCue' state entirely (raiseHand function, director raiseHand handling, activeOrderLimit, activeOrReservedOrderCount, rivalCanTakeHand, directorView.rivalAvailable, DIFFICULTY activeOrderLimit, hand-pop sfx, STRINGS.wantsToOrder usage). When a customer finishes walking in and becomes 'seated', call claimRegistry?.markSeated(customer.id).",
+    "Put the scene's pure customer-state rules in a new pure module src/minigames/restaurant/customerState.js with tests customerState.test.mjs: isTalkable(customer) = state 'seated' && owner null && no reservation by anyone other than the player; ownershipBubble(customer, { dialogueOnCustomer }) returns null unless state 'awaiting' with owner 'player' or 'rival' and dialogueOnCustomer is false, else { kind: owner, text: 'I like...' } (export OWNERSHIP_BUBBLE_TEXT = 'I like...'; the text never contains the food). Tests: unclaimed seated is talkable; walkingIn, eating, leaving, player-owned, rival-owned are not; unclaimed has no bubble; player-owned bubble kind player; rival-owned bubble kind rival; bubble text is exactly 'I like...' for every food and never includes the food id; eating/leaving have no bubble; bubble hidden while dialogueOnCustomer (the full answer / Listen Again replay is showing) and back after.",
+    "Talk availability: the player may target any talkable customer. targetQuestion/commitQuestion/acceptQuestion/customerStillNear/reservePlayerCustomer use isTalkable (committed question stays locked while in range, as today). Press refused by reservation releases nothing and opens no mic (commitQuestion returns false; promptSpeech now forwards that). Cancel/leaving range releases the reservation and the customer stays unclaimed with no bubble. Successful question: owner player, state awaiting, full answer dialogue shown ~2.5 s (existing showCustomerAnswer).",
+    "Context priority in updateContext: (1) a committed/locked question; (2) a clicked customer still in range; (3) otherwise the NEAREST seated non-rival customer within CUSTOMER_RADIUS decides — if talkable, set the talk prompt (even while carrying a dish; hide deliver/return action so the Space meaning is unambiguous); if player-owned awaiting, no talk prompt, offer Listen Again and, when carrying, Deliver (dish return still outranks deliver near the tub as today). Belt exception: when not carrying and the player stands at the belt front (player z <= -4.0) with a pickable dish, the collect action wins and NO talk prompt is set unless a question is locked or a customer was clicked. Never set a talk prompt for rival-owned, eating or leaving customers.",
+    "deliver(): only player-owned awaiting customers can receive a dish (wrong food still refuses as today); unclaimed or rival-owned customers are never delivery targets. Click-to-walk arrival at a customer never starts speech; with a dish it delivers only to a player-owned awaiting customer. Clicking rival-owned/eating/leaving customers does nothing.",
+    "Remove the patience meter (meter group, fill materials, meterGeometry, update code, all meter.visible lines), the '?' order cue sprite/texture, and the rival owner badge sprite/texture. Add no replacement bar, ring, countdown or icon.",
+    "Patience stays internal and forgiving: DIFFICULTY patience 150/140/130 (awaiting drain 1 per service second; preOrderDrain unchanged so unclaimed customers effectively never leave). Readable late warning with no icon: while an awaiting player- or rival-owned customer is below 30% patience, the seated character slowly looks around (character.rotation.y = sin(elapsed*2.2 + index) * 0.35); otherwise rotation.y stays 0 while seated. Service-frozen during speech focus is unchanged.",
+    "Ownership bubble: one THREE.Sprite per customer using two shared SpriteMaterials built from CanvasTextures (owned via ownTexture/ownMaterial): rounded speech bubble with a small tail pointing down, text 'I like...' in bold system-ui, player = white fill #ffffff, dark text #1b2940, dark outline #273858; rival = near-black fill #1b2233, white text, white outline. depthTest false, high renderOrder, world size about 1.45 x 0.72, positioned about 2.25 above the customer's world position each frame. Visible exactly when ownershipBubble(customer, { dialogueOnCustomer: dialogueCustomer === customer && dialogueRemaining > 0 }) is non-null and the character is visible. Shown for rival-owned customers from the claimCustomer event; hidden when eating/leaving.",
+    "Rival: create claimRegistry and rival when RIVAL_LEVELS[difficulty]?.enabled (today only Challenge), pass total: shiftTotal. Build the rival character, score pill and lunch-rush pill under the same condition instead of difficulty === 3. Keep the white apron; no other rival visual change.",
+    "Listen Again: unchanged behaviour for player-owned awaiting customers; forfeits only the memory bonus; the bubble hides while the replayed answer shows and returns to 'I like...' after.",
+    "Debug hook (window.__eslDebug.restaurant): per customer add talkable (boolean), bubble ({ kind, text } or null), answerShowing (boolean), remove cueShowing; remove activeOrderLimit; rival adds claims and claimLimit; add question.reservedCustomer (claimRegistry reservation id or null). Keep every other existing field.",
+    "SPEC.md §4 Restaurant (and the Challenge rival subsection): replace raised-hand / live-order-limit / visible patience meter / RIVAL_SHARE_CAP 3 / owner badge text with the new rules: any seated unclaimed customer can be asked; no bubble = not yet asked, white 'I like...' = yours, black 'I like...' = rival's, nothing while eating; full answer visible ~2.5 s then collapses; patience internal and forgiving with a look-around late warning; rival share 0.5 of the shift with 4 s seated-age reaction delay; rival on Normal defined but disabled pending playtest; belt front outranks talk when standing at the belt."
+  ],
+  "constraints": [
+    "Do not edit claims.js, rival.js, director.js, conveyor.js, scoring.js, src/systems/**, src/ui/**, scripts/**, DESIGN_DECISIONS.md or CURRENT_STATE.md.",
+    "Do not add hold-to-talk, proximity/dwell auto-talk, or any new HUD meter/icon.",
+    "Never show the requested food in a persistent bubble.",
+    "Keep the change contained to the Restaurant scene; no unrelated refactors.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/claims.js",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/director.js",
+    "src/systems/speechPrompt.js",
+    "SPEC.md",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": { "required": true, "owner": "controller", "commands": ["npm run build"] },
+  "category": "ui-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

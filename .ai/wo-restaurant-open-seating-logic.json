@@ -1,0 +1,35 @@
+{
+  "id": "restaurant-open-seating-logic",
+  "task": "Restaurant pure logic: remove raised-hand gating from the claim registry, rival and director so every seated unclaimed customer is available; replace the rival's fixed 3-claim cap with per-level share/speed/reaction settings.",
+  "requirements": [
+    "claims.js: replace raiseHand(id) with markSeated(id) (records seatedAt service time; false if unknown or owned). Public customer copies expose seated: boolean and seatedAge (0 when not seated) instead of handRaised/handAge.",
+    "claims.js: reservePlayer(id) succeeds for a seated, unowned customer not reserved by anyone else (moving the single player reservation as today). commitPlayer requires seated (or already player-owned). claimRival(id, { minSeatedAge }) succeeds only for a seated, unowned, unreserved customer whose seatedAge >= minSeatedAge (default RIVAL_MIN_SEATED_AGE = 4, replacing RIVAL_MIN_HAND_AGE). longestWaitingUnclaimed(minimumAge) orders by seatedAt. Update the controller-contract doc comment.",
+    "rival.js: remove RIVAL_SHARE_CAP. Export RIVAL_LEVELS = { 2: { enabled: false, speed: 3.4, minSeatedAge: 8, share: 0.3, hesitationMin: 0.8, hesitationMax: 1.6 }, 3: { enabled: true, speed: 4.25, minSeatedAge: 4, share: 0.5, hesitationMin: 0.3, hesitationMax: 0.9 } }. Keep exporting RIVAL_SPEED (= RIVAL_LEVELS[3].speed) for existing imports.",
+    "createRestaurantRival accepts total (shift customer count, default 11) and optional config overrides (speed, minSeatedAge, share, hesitationMin, hesitationMax, enabled). enabled = config.enabled for the level (level 1 and unknown levels inert). claimLimit = max(1, round(total * share)); expose get claimLimit(). The rival keeps choosing customers until claims >= claimLimit, so on Challenge (total 11) it stays active for ~6 claims instead of 3.",
+    "rival.js: all walk timings and interception use the instance speed, not the module constant. Hesitation uses the instance range. Choosing uses longestWaitingUnclaimed(minSeatedAge) and claimRival(id, { minSeatedAge }).",
+    "director.js: remove raiseHand events and all hand scheduling (handAt, pendingHands, HAND_SPACING_SECONDS, RAISED_HAND_STATES, rivalAvailable, the extra-hand rule, LEVELS liveOrderLimit and the liveOrderLimit getter). The director controls only arrivals, table occupancy, phases, replacement timing, ready events and completion. Live demand for the rush idle guard = unresolved player-owned customers when owner fields are present, else view.liveOrders; the idle guard only pulls seating forward. A seated customer never needs a director event to become available. Update the view doc comment.",
+    "Update claims.test.mjs, rival.test.mjs, director.test.mjs: remove/replace raised-hand tests. Add tests: a newly seated unclaimed customer can be reserved and committed immediately with no other call; a customer registered but not yet seated cannot be reserved; player can reserve any of several seated customers (reservation moves); owned (player or rival) customers cannot be reserved; a player reservation blocks claimRival until released; release returns the customer to unclaimed; rival claims a different unclaimed customer while one is reserved; rival respects minSeatedAge; Challenge rival claim limit is round(11*0.5)=6 and it keeps claiming past 3; level 2 default config is inert; director emits no raiseHand events over a full simulated shift and still seats, phases and completes.",
+    "Do not edit DESIGN_DECISIONS.md, SPEC.md or CURRENT_STATE.md; the controller records decisions (another order is editing SPEC.md concurrently)."
+  ],
+  "constraints": [
+    "Only edit src/minigames/restaurant/claims.js, rival.js, director.js, and their .test.mjs files. Do NOT edit src/minigames/restaurant/index.js — the controller integrates it afterwards against this interface; it is expected to break until then only if imports are removed, so keep RIVAL_SPEED exported.",
+    "Do not change conveyor.js or scoring.js or belt-racing behaviour.",
+    "Keep all modules pure (no DOM/three.js).",
+    "Edit files with structured edit tools, not shell rewrites with nested quoting."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/claims.js",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/director.js",
+    "src/minigames/restaurant/claims.test.mjs",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/director.test.mjs"
+  ],
+  "validation": ["npm test"],
+  "category": "logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

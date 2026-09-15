@@ -76,7 +76,7 @@ child's L2 is not the skill being taught here.
 
 - WASD / arrow keys to move. Nothing else is required to play.
 - One interact key (Space) and one talk control: the on-screen 🎤 button or
-  Enter, pressed once (see §3 "Press to talk", revised 2026-09-15). Walking up
+  Space, pressed once (see §3 "Press to talk", revised 2026-09-15). Walking up
   to someone never starts a conversation by itself.
 - Camera follows gently from a raised three-quarter angle. NO mandatory mouse
   look, NO manual rotation, NO precision movement, NO platforming.
@@ -129,7 +129,7 @@ One interaction in every minigame:
   in range the 🎤 Talk control is shown. Being near someone, standing still
   beside them, or arriving by click-to-walk **never** opens the microphone or
   the fallback.
-- **Press once** (the button, a tap, or **Enter**) to commit: the target is
+- **Press once** (the button, a tap, or **Space**) to commit: the target is
   locked, protected speech focus begins, and one recognition session starts
   (`continuous = false`, interim results on). The press is a user gesture, so it
   is also where a first-time browser permission prompt may appear — never on
@@ -147,9 +147,9 @@ One interaction in every minigame:
   or the child leaves range, no neighbouring NPC can take the prompt.
 - **Mic-free mode.** The same press opens the read-and-tap fallback for the
   locked target instead of the microphone.
-- **Enter, not Space.** Space already means collect / deliver / return at the
-  Restaurant — whose belt front lies inside the back tables' talk radius — and
-  fill at the Drink Stand. One key, one meaning, in every minigame.
+- **Space shares Talk and interact.** While a Talk prompt is live, speech takes
+  priority only when it handles the press. A refused Talk press remains available
+  to collect / deliver / return at the Restaurant or fill at the Drink Stand.
 
 Interim hypotheses are judged live, for SUCCESS ONLY — a correct sentence is
 accepted the instant the recognizer reports it. A non-match keeps listening
@@ -292,12 +292,15 @@ a pass (revised 2026-09-14).
 
 ### Loop
 
-1. Three to five customers are visibly seated. A customer ready to order raises
-   a hand. That cue says *somebody wants to order*; it never says what they
-   want, and it clears the moment the order is taken.
+1. Three to five customers are visibly seated. Every unclaimed seated customer
+   can be asked; there is no raised hand, question mark or other order cue.
 2. Player walks over and presses Talk once: "What food do you like?"
-3. NPC answers "I like curry." — spoken, plus a speech bubble, which then
-   clears. Speech focus holds all service pressure while this happens.
+3. NPC answers "I like curry." — spoken, plus a full speech bubble for about
+   2.5 seconds. It then collapses to a persistent ownership bubble that says
+   only "I like...": white means the player's customer and black means the
+   rival's. No bubble means the seated customer has not yet been asked, and no
+   ownership bubble is shown while a customer eats or leaves. Speech focus
+   holds all service pressure while the full answer is showing.
 4. The kitchen never cooks to order (revised 2026-09-15): a continuous random
    stream of every menu food rides the conveyor at all times. No sound or
    marker announces anything; the child watches for a curry.
@@ -335,16 +338,20 @@ all work, with a forgiving pickup window along the belt front; a click leads the
 moving dish rather than demanding precision. A player carries one dish at a
 time. A wrongly picked dish goes into the **dish return** beside the entry end:
 it is removed and nothing else changes; the stream is unaffected. Wrong pickup
-and wrong delivery are separate mistakes.
+and wrong delivery are separate mistakes. When the player is standing at the
+belt front without a dish, a pickable dish takes priority over a nearby
+customer's Talk prompt unless a question is already locked or that customer was
+explicitly clicked.
 
 **Never added:** a food icon over a customer, a line or glow linking dish and
 table, a ticket, a label of the requested food, or automatic delivery. The
 conveyor changes how food is acquired, never what must be remembered.
 
-Several demands overlap by design: one customer waiting to order, another's
-food cooking, a dish cooling in the player's hands, a third's patience falling.
-The player chooses what to do next. There is no global countdown — the
-interesting decision is "deliver this hot curry now, or take that order first?"
+Several demands overlap by design: unasked seated customers, unresolved orders,
+dishes moving past on the belt, food cooling in the player's hands, and internal
+customer patience. The player chooses what to do next. There is no global
+countdown — the interesting decision is "deliver this hot curry now, or ask
+another customer first?"
 
 The order is NOT displayed on a ticket, a HUD, or above the table. Memory is
 the mechanic. A secondary 🔊 もういちど きく control re-asks the customer, so a
@@ -375,9 +382,11 @@ binding each plate to one person.
   forfeits that customer's memory bonus without breaking the combo.
 - Food temperature: the dish cools after it is picked up from the belt.
   Hot 3 stars / Warm 2 / Cold 1.
-- Customer patience: a visible, generous meter. A customer who has not yet
-  ordered loses no patience on Easy and loses it slowly above; pressure becomes
-  real only once their order has been taken.
+- Customer patience stays internal and forgiving. Unclaimed seated customers
+  effectively never leave; once claimed, patience drains at one point per
+  service second from a starting 150 / 140 / 130 on Easy / Normal / Challenge.
+  Below 30%, a seated customer looks around gently as the only late warning —
+  no meter, bar, ring, countdown or icon is shown.
 
 Cold food never fails, and no order is ever permanently lost.
 
@@ -404,34 +413,42 @@ Never one customer. With a single recipient the only ready dish obviously
 belongs to them, and the English answer becomes unnecessary — the anti-shortcut
 rule fails at the easiest level, where it matters most.
 
-- **L1** — warm-up shift: 3 tables, one live order at a time, 5 customers in
-  total, very generous patience. The answer must still be remembered, because
-  three people could have asked for it.
-- **L2** — rush: 4 tables, up to 3 live orders, 7 customers in total,
-  several unresolved orders at once, matching dishes arriving in no set order.
-- **L3** — rush hour: 5 tables, up to 4 live orders, 11 customers in total;
-  hands go up while the player carries food, a rival waiter shares the belt,
-  moderate but still forgiving patience.
+- **L1** — warm-up shift: 3 tables, 5 customers in total, very generous
+  patience. Every unclaimed seated customer may be asked, so the answer must
+  still be remembered among several possible recipients.
+- **L2** — rush: 4 tables, 7 customers in total, several unresolved orders at
+  once, matching dishes arriving in no set order. Rival parameters are defined
+  for this level but disabled pending playtest.
+- **L3** — rush hour: 5 tables, 11 customers in total; the player may ask any
+  unclaimed seated customer while carrying food, a rival waiter shares the
+  belt, and patience is moderate but still forgiving.
 
-The live-order limit counts a raised hand as well as a taken order (revised
-2026-09-13), and sits at the top of each range so Normal never plays as one
-order at a time.
+### Challenge rival waiter (added 2026-09-13, revised 2026-09-16)
 
-### Challenge rival waiter (added 2026-09-13)
-
-Challenge only adds a rival waiter. Easy and Normal are unchanged and have no
-rival. Challenge resolves 11 customers rather than 8, so the rival does not
-reduce the child's number of English askings.
+Challenge enables a rival waiter. Easy has none; Normal's rival configuration
+is defined but remains disabled pending playtest. Challenge resolves 11
+customers rather than 8, so the rival does not reduce the child's number of
+English askings.
 
 Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
-A newly seated replacement and a newly raised hand are unclaimed. Pressing Talk
-on an unclaimed raised hand reserves that customer at once (revised
-2026-09-15); the rival can never claim a reserved customer, so recognition time
-can never cost the child an order. A cancel press, or leaving the talk radius
-before the question is accepted, releases the reservation; a failed attempt
-keeps it while the child stays in range. An accepted question (spoken or
-read-along) converts it to player ownership. Click-to-walk alone never reserves
-anyone.
+A newly seated customer is unclaimed and immediately talkable. Pressing Talk on
+an unclaimed seated customer reserves that customer at once; the rival can
+never claim a player-reserved customer, so recognition time can never cost the
+child an order. A refused reservation opens no microphone. A cancel press, or
+leaving the talk radius before the question is accepted, releases the
+reservation and leaves the customer unclaimed; a failed attempt keeps it while
+the child stays in range. An accepted question (spoken or read-along) converts
+it to player ownership. Click-to-walk alone never reserves or starts speech.
+
+The customer lifecycle is `walkingIn → seated → awaiting → eating → leaving →
+delivered/left`. Only seated, unclaimed customers are talkable. Only
+player-owned awaiting customers accept the player's delivery; rival-owned,
+unclaimed, eating and leaving customers are never delivery targets. The full
+answer bubble is visible for about 2.5 seconds after a successful question or
+Listen Again, hiding the ownership bubble during that time. It then returns as
+a white player or black rival "I like..." bubble. It never contains the food.
+There is no separate owner badge. Listen Again remains available only for
+player-owned awaiting customers and forfeits only that customer's memory bonus.
 
 The rival announces a target before walking and claims only when it physically
 arrives, if the customer is still unclaimed and unreserved. If the player has
@@ -444,8 +461,8 @@ The rival is a pure, one-customer-at-a-time state machine (revised 2026-09-15):
     idle → choosing → walkingToCustomer → takingOrder → watchingBelt
          → walkingToDish → carrying → delivering → idle
 
-It chooses the longest-waiting unclaimed, unreserved raised hand, but only after
-that hand has been raised for `RIVAL_MIN_HAND_AGE` (4 seconds of service time).
+It chooses the longest-seated unclaimed, unreserved customer, but only after
+that customer has been seated for 4 seconds of service time.
 Taking an order lasts about 1.2 seconds. It then watches the same belt as the
 player for its customer's food. A dish becomes an option only after it has been
 visible for 0.6 seconds (no instant knowledge) and only if the rival can reach
@@ -471,21 +488,18 @@ across both waiters and repeats are allowed. Customer patience still applies
 after a rival claim; if that customer leaves, the rival discards any dish it
 carries and abandons the task.
 
-The rival may claim at most `RIVAL_SHARE_CAP` (3) customers per shift. After
-that it only finishes its current task. The shift ends when all customers have
-been served by either waiter or have left. The player's live-order budget
-counts player-owned unresolved orders plus unclaimed raised hands; a
-player-reserved hand is still an unclaimed hand for this count. Rival-owned
-customers never consume the player's budget. Progress counts all resolved
-customers. Pure comparison data separately tracks `playerServed` and
-`rivalServed`; the player's stars and scoring never depend on `rivalServed`.
+The rival's claim share is 0.5 of the shift total. After reaching that limit it
+only finishes its current task. The shift ends when all customers have been
+served by either waiter or have left. Progress counts all resolved customers.
+Pure comparison data separately tracks `playerServed` and `rivalServed`; the
+player's stars and scoring never depend on `rivalServed`.
 
-The registry and rival read only service delta. Zero service delta freezes hand
-age, walking, claiming, hesitation, order-taking, dish targeting, pickup,
-delivery and every other
-rival timer, including through recognition retries. New rival claims also
-honour the existing 0.8-second post-focus hold. Events and ownership are plain
-data; the Restaurant controller continues to own every scene object.
+The registry and rival read only service delta. Zero service delta freezes
+seated age, walking, claiming, hesitation, order-taking, dish targeting,
+pickup, delivery and every other rival timer, including through recognition
+retries. New rival claims also honour the existing 0.8-second post-focus hold.
+Events and ownership are plain data; the Restaurant controller continues to
+own every scene object.
 
 ### Service shift (revised 2026-09-13)
 
@@ -498,21 +512,20 @@ last few customers.
 
 A small service director, driven only by the service clock, shapes the shift:
 
-- **Warm-up** — about the first 18 seconds of service time, at most two
-  demands at once, gentler delays.
-- **Rush** — arrivals and hands overlap; bells, raised hands and ready dishes
-  coexist; idle stretches are cut short.
-- **Final push** — once the last customers are seated: shorter replacement and
-  hand-raise delays and a small ラストスパート！ cue. No sudden spike.
+- **Warm-up** — about the first 18 seconds of service time, with staggered
+  arrivals and gentler delays.
+- **Rush** — arrivals, open seating, claimed customers and moving dishes
+  overlap; idle stretches are cut short.
+- **Final push** — once the last customers are seated: shorter replacement
+  delays and a small ラストスパート！ cue. No sudden spike.
 
-The director staggers hands (a newly seated customer settles about 1–2.5
-seconds before raising a hand), spaces bells so dishes never ring on the same
-frame, briefly holds new events after speech focus ends so the child is not
-ambushed the instant they finish speaking, and keeps enough randomness that
-shifts do not feel scripted. Because it reads only the service clock, speech
-focus freezes it entirely. A small progress counter is allowed; a large
-countdown is not. Nothing is ever a game over: a shift always ends, because
-patience eventually resolves every customer.
+The director schedules arrivals and replacements, briefly holds new events
+after speech focus ends so the child is not ambushed the instant they finish
+speaking, and keeps enough randomness that shifts do not feel scripted. Because
+it reads only the service clock, speech focus freezes it entirely. A small
+progress counter is allowed; a large countdown is not. Nothing is ever a game
+over: a shift always ends, because patience eventually resolves every claimed
+customer while unclaimed seated customers remain available to ask.
 
 Rejected for now: continuous ambience (in a classroom it bleeds into the
 microphone during recognition) and footstep sounds (noise for no information).
@@ -618,7 +631,7 @@ Each drink looks different at a glance: water (clear, pale blue), milk
   latches the dispenser and fills to full on its own, while a real hold behaves
   as a hold. Every route ends in a valid cup.
 - Space at an asked customer while holding a cup serves it.
-- At an unasked customer, the 🎤 Talk control appears; press it (or Enter) once
+- At an unasked customer, the 🎤 Talk control appears; press it (or Space) once
   to ask.
 - Click / tap a station or a customer: the avatar walks there by itself and
   does the same action on arrival, so a trackpad alone is enough.

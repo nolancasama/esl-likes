@@ -12,7 +12,8 @@ import {
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { RESTAURANT_OWNERS, createCustomerClaimRegistry } from './claims.js';
-import { RIVAL_SHARE_CAP, RIVAL_SPEED, createRestaurantRival } from './rival.js';
+import { RIVAL_LEVELS, RIVAL_SPEED, createRestaurantRival } from './rival.js';
+import { OWNERSHIP_BUBBLE_TEXT, isTalkable, ownershipBubble } from './customerState.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
 const STRINGS = UI.restaurant;
@@ -53,12 +54,9 @@ const TABLES = Object.freeze([
 ]);
 
 const DIFFICULTY = Object.freeze({
-  1: Object.freeze({ count: 3, total: 5, activeOrderLimit: 1, prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
-  // The budget counts a raised hand as well as a taken order, so a budget of 2
-  // could never hold "one cooking, one ready, one waiting to order" at once and
-  // Normal played close to one-at-a-time. Use the top of each SPEC range.
-  2: Object.freeze({ count: 4, total: 7, activeOrderLimit: 3, prepScale: 0.85, patience: 130, preOrderDrain: 0.12 }),
-  3: Object.freeze({ count: 5, total: 11, activeOrderLimit: 4, prepScale: 1.3, patience: 115, preOrderDrain: 0.2 }),
+  1: Object.freeze({ count: 3, total: 5, prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
+  2: Object.freeze({ count: 4, total: 7, prepScale: 0.85, patience: 140, preOrderDrain: 0.12 }),
+  3: Object.freeze({ count: 5, total: 11, prepScale: 1.3, patience: 130, preOrderDrain: 0.2 }),
 });
 
 const CUSTOMER_TINTS = Object.freeze([0xff7d63, 0x54b8ff, 0xb36bff, 0x4bd596, 0xffcf45]);
@@ -116,7 +114,6 @@ export function createRestaurant(ctx) {
   let rival = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
-  let activeOrderLimit = 1;
   let focusReleasedAgo = Infinity;
   let speechCooldown = 0;
   let noticeRemaining = 0;
@@ -150,7 +147,7 @@ export function createRestaurant(ctx) {
   const materials = new Set();
   const textures = new Set();
   const move = new THREE.Vector2();
-  const meterPosition = new THREE.Vector3();
+  const bubblePosition = new THREE.Vector3();
   const worldPoint = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -520,7 +517,7 @@ export function createRestaurant(ctx) {
     host.rotation.y = 0;
     host.scale.setScalar(0.82);
 
-    if (difficulty === 3) {
+    if (RIVAL_LEVELS[difficulty]?.enabled) {
       rivalCharacter = characters.create({ model: 'r', tint: 0x4b78c5 });
       rivalCharacter.position.set(RIVAL_START_POSITION.x, 0, RIVAL_START_POSITION.z);
       rivalCharacter.rotation.y = Math.PI;
@@ -528,81 +525,72 @@ export function createRestaurant(ctx) {
       // A bright apron is readable even when the textured character ignores
       // tint, and keeps this waiter distinct from every seated customer.
       // White, not navy: the dark model plus a navy apron read as one more customer.
-      addPart(rivalCharacter, box, makeMaterial(0xffffff, { emissive: 0x333333 }), 0, 1.06, 0.28, 0.56, 0.64, 0.08);
+      const apronMaterial = makeMaterial(0xffffff, { emissive: 0x333333 });
+      addPart(rivalCharacter, box, apronMaterial, 0, 1.06, 0.28, 0.56, 0.64, 0.08);
+      // The apron ties round the waist: the rival mostly walks away from the
+      // fixed camera, and from behind the front panel alone read as a dark customer.
+      addPart(rivalCharacter, box, apronMaterial, 0, 1.2, 0, 0.62, 0.14, 0.62);
       rivalCarryAnchor = new THREE.Group();
       rivalCarryAnchor.position.set(0, 1.42, 0.58);
       rivalCharacter.add(rivalCarryAnchor);
       world.add(rivalCharacter);
     }
 
-    const meterGeometry = ownGeometry(new THREE.BoxGeometry(1.25, 0.14, 0.05));
-    const meterBackMaterial = makeMaterial(0x273858);
     const hitGeometry = ownGeometry(new THREE.BoxGeometry(1.2, 2.1, 0.8));
     const hitMaterial = makeMaterial(0xffffff, { transparent: true, opacity: 0, depthWrite: false });
-    const cueCanvas = document.createElement('canvas');
-    cueCanvas.width = 128;
-    cueCanvas.height = 128;
-    const cueContext = cueCanvas.getContext('2d');
-    cueContext.fillStyle = '#ffe65a';
-    cueContext.strokeStyle = '#ffffff';
-    cueContext.lineWidth = 10;
-    cueContext.beginPath();
-    cueContext.arc(64, 64, 51, 0, Math.PI * 2);
-    cueContext.fill();
-    cueContext.stroke();
-    cueContext.fillStyle = '#273858';
-    cueContext.font = '900 78px system-ui, sans-serif';
-    cueContext.textAlign = 'center';
-    cueContext.textBaseline = 'middle';
-    cueContext.fillText('?', 64, 68);
-    const orderCueTexture = ownTexture(new THREE.CanvasTexture(cueCanvas));
-    orderCueTexture.colorSpace = THREE.SRGBColorSpace;
-    const orderCueMaterial = ownMaterial(new THREE.SpriteMaterial({ map: orderCueTexture, transparent: true }));
-    const badgeCanvas = document.createElement('canvas');
-    badgeCanvas.width = 128;
-    badgeCanvas.height = 128;
-    const badgeContext = badgeCanvas.getContext('2d');
-    badgeContext.fillStyle = '#ffffff';
-    badgeContext.strokeStyle = '#273858';
-    badgeContext.lineWidth = 9;
-    badgeContext.beginPath();
-    badgeContext.arc(64, 64, 49, 0, Math.PI * 2);
-    badgeContext.fill();
-    badgeContext.stroke();
-    // Neutral tray-and-apron silhouette: ownership only, never food content.
-    badgeContext.fillStyle = '#617188';
-    badgeContext.fillRect(30, 67, 68, 10);
-    badgeContext.fillRect(61, 49, 6, 18);
-    badgeContext.beginPath();
-    badgeContext.arc(64, 47, 8, 0, Math.PI * 2);
-    badgeContext.fill();
-    badgeContext.beginPath();
-    badgeContext.moveTo(45, 82);
-    badgeContext.lineTo(83, 82);
-    badgeContext.lineTo(88, 104);
-    badgeContext.lineTo(40, 104);
-    badgeContext.closePath();
-    badgeContext.fill();
-    const badgeTexture = ownTexture(new THREE.CanvasTexture(badgeCanvas));
-    badgeTexture.colorSpace = THREE.SRGBColorSpace;
-    const waiterBadgeMaterial = ownMaterial(new THREE.SpriteMaterial({
-      map: badgeTexture,
-      transparent: true,
-      depthTest: false,
-    }));
+    function createOwnershipMaterial({ fill, text, outline }) {
+      const bubbleCanvas = document.createElement('canvas');
+      bubbleCanvas.width = 512;
+      bubbleCanvas.height = 256;
+      const context = bubbleCanvas.getContext('2d');
+      context.fillStyle = fill;
+      context.strokeStyle = outline;
+      context.lineWidth = 14;
+      context.lineJoin = 'round';
+      context.beginPath();
+      context.roundRect(14, 14, 484, 190, 48);
+      context.moveTo(212, 203);
+      context.lineTo(256, 244);
+      context.lineTo(300, 203);
+      context.closePath();
+      context.fill();
+      context.stroke();
+      context.fillStyle = text;
+      context.font = '900 92px system-ui, sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(OWNERSHIP_BUBBLE_TEXT, 256, 112);
+      const texture = ownTexture(new THREE.CanvasTexture(bubbleCanvas));
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      // Not tone mapped: the player's bubble must read as true white, not the
+      // pale grey the scene's tone mapping made of it beside the dark rival one.
+      return ownMaterial(new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      }));
+    }
+
+    const playerBubbleMaterial = createOwnershipMaterial({
+      fill: '#ffffff', text: '#1b2940', outline: '#273858',
+    });
+    const rivalBubbleMaterial = createOwnershipMaterial({
+      fill: '#1b2233', text: '#ffffff', outline: '#ffffff',
+    });
     customerVisuals = {
       hitGeometry,
       hitMaterial,
-      meterGeometry,
-      meterBackMaterial,
-      orderCueMaterial,
-      waiterBadgeMaterial,
+      playerBubbleMaterial,
+      rivalBubbleMaterial,
     };
 
     scene.add(world);
     // The whole dining room at once, not a camera that follows the waiter. With
     // the follow camera the front tables slid off the bottom edge whenever the
-    // child stood at the back service wall, so a raised hand could be asking for service
+    // child stood at the back service wall, so a customer could be asking for service
     // from off-screen — fatal for a game whose mechanic is choosing who to serve
     // next. The room is small enough to frame entirely, so it is.
     cameraRig
@@ -657,24 +645,11 @@ export function createRestaurant(ctx) {
     clickTarget.position.set(0, 1.05, 0);
     character.add(clickTarget);
 
-    const meter = new THREE.Group();
-    const meterBack = addPart(meter, customerVisuals.meterGeometry, customerVisuals.meterBackMaterial, 0, 0, 0);
-    meterBack.scale.set(1.08, 1.3, 1);
-    const fillMaterial = makeMaterial(0x5bd16f, { emissive: 0x123d1b });
-    const fill = addPart(meter, customerVisuals.meterGeometry, fillMaterial, 0, 0, 0.035);
-    meter.visible = false;
-    world.add(meter);
-
-    const orderCue = new THREE.Sprite(customerVisuals.orderCueMaterial);
-    orderCue.scale.set(0.9, 0.9, 0.9);
-    orderCue.visible = false;
-    world.add(orderCue);
-
-    const ownerBadge = new THREE.Sprite(customerVisuals.waiterBadgeMaterial);
-    ownerBadge.position.set(table.x, 1.72, table.z + 0.08);
-    ownerBadge.scale.set(0.62, 0.62, 0.62);
-    ownerBadge.visible = false;
-    world.add(ownerBadge);
+    const ownership = new THREE.Sprite(customerVisuals.playerBubbleMaterial);
+    ownership.scale.set(2.0, 1.0, 1);
+    ownership.visible = false;
+    ownership.renderOrder = 1000;
+    world.add(ownership);
 
     const customer = {
       id: index,
@@ -695,11 +670,7 @@ export function createRestaurant(ctx) {
       patience: configured.patience,
       character,
       clickTarget,
-      meter,
-      fill,
-      fillMaterial,
-      orderCue,
-      ownerBadge,
+      ownership,
       refusalRemaining: 0,
       eatingRemaining: 0,
       walkStage: 0,
@@ -740,16 +711,15 @@ export function createRestaurant(ctx) {
   }
 
   function releasePlayerReservation(customer) {
-    if (!claimRegistry || !customer || customer.reservation !== RESTAURANT_OWNERS.PLAYER) return;
-    claimRegistry.releasePlayerReservation(customer.id);
+    if (!customer || customer.reservation !== RESTAURANT_OWNERS.PLAYER) return;
+    claimRegistry?.releasePlayerReservation(customer.id);
     customer.reservation = null;
   }
 
   function reservePlayerCustomer(customer) {
-    if (!claimRegistry) return true;
-    if (!customer || customer.owner === RESTAURANT_OWNERS.RIVAL || customer.state !== 'orderCue') return false;
-    if (customer.owner === RESTAURANT_OWNERS.PLAYER) return true;
-    if (!claimRegistry.reservePlayer(customer.id)) return false;
+    if (!isTalkable(customer)) return false;
+    if (customer.reservation === RESTAURANT_OWNERS.PLAYER) return true;
+    if (claimRegistry && !claimRegistry.reservePlayer(customer.id)) return false;
     for (const other of customers) {
       if (other !== customer) other.reservation = null;
     }
@@ -781,11 +751,27 @@ export function createRestaurant(ctx) {
     const text = answerFor(LESSON, customer.food);
     dialogueCustomer = customer;
     dialogueRemaining = 2.5;
+    customer.ownership.visible = false;
     dialogue.show({ text, anchor: customer.character, offsetY: 1.65 });
   }
 
+  function refreshOwnership(customer) {
+    const bubble = ownershipBubble(customer, {
+      dialogueOnCustomer: dialogueCustomer === customer && dialogueRemaining > 0,
+    });
+    customer.ownership.visible = customer.character.visible && bubble !== null;
+    if (!bubble) return;
+    customer.ownership.material = bubble.kind === RESTAURANT_OWNERS.PLAYER
+      ? customerVisuals.playerBubbleMaterial
+      : customerVisuals.rivalBubbleMaterial;
+    customer.character.getWorldPosition(bubblePosition);
+    customer.ownership.position.copy(bubblePosition);
+    customer.ownership.position.y += 2.25;
+    customer.ownership.quaternion.copy(camera.quaternion);
+  }
+
   function acceptQuestion(customer) {
-    if (!active || phase !== 'service' || customer.state !== 'orderCue'
+    if (!active || phase !== 'service' || !isTalkable(customer)
       || questionCustomer !== customer || !questionCommitted) return;
     if (claimRegistry && !claimRegistry.commitPlayer(customer.id)) {
       clearQuestion();
@@ -797,7 +783,6 @@ export function createRestaurant(ctx) {
     hud.setTalkState('accepted');
     speechCooldown = 0.6;
     customer.state = 'awaiting';
-    customer.orderCue.visible = false;
     customer.prepRemaining = customer.prepDuration;
     customer.readyFired = false;
     customer.character.playAnimation?.('emote-yes');
@@ -808,10 +793,7 @@ export function createRestaurant(ctx) {
 
   function targetQuestion(customer) {
     if (questionCustomer === customer || speechCooldown > 0 || phase !== 'service'
-      || questionCommitted || customer.owner === RESTAURANT_OWNERS.RIVAL) return;
-    // A click-to-walk passing another raised hand must not let that neighbour
-    // replace the customer the child deliberately selected.
-    if (autoTarget && autoTarget.value !== customer) return;
+      || questionCommitted || !isTalkable(customer)) return;
     clearQuestion();
     questionCustomer = customer;
     promptQuestion(ctx, LESSON, {
@@ -826,7 +808,7 @@ export function createRestaurant(ctx) {
   // Returns false when the press must not open the microphone: the reservation
   // is made before recognition starts, so a refused customer never hears a mic.
   function commitQuestion(customer) {
-    if (!customer || questionCustomer !== customer) return false;
+    if (!customer || questionCustomer !== customer || !isTalkable(customer)) return false;
     if (questionCommitted) return true;
     if (!reservePlayerCustomer(customer)) {
       clearQuestion();
@@ -970,13 +952,10 @@ export function createRestaurant(ctx) {
   }
 
   function deliver(customer) {
-    // A raised hand is never a wrong delivery: walking up to it with a dish in
-    // hand takes their order instead (see updateContext), so a waiter carrying
-    // food is never punished for answering a new customer first.
-    if (!carried || customer.owner === RESTAURANT_OWNERS.RIVAL
-      || !isSeated(customer.state) || customer.state === 'orderCue'
+    if (!carried || customer.owner !== RESTAURANT_OWNERS.PLAYER
+      || customer.state !== 'awaiting'
       || customer.refusalRemaining > 0) return;
-    if (customer.state !== 'awaiting' || carried.food !== customer.food) {
+    if (carried.food !== customer.food) {
       carried.firstTry = false;
       combo = 0;
       comboRemaining = 0;
@@ -1007,9 +986,8 @@ export function createRestaurant(ctx) {
     customer.recorded = true;
     customer.outcome = 'delivered';
     customer.state = 'eating';
+    customer.ownership.visible = false;
     customer.eatingRemaining = EATING_SECONDS;
-    customer.meter.visible = false;
-    customer.orderCue.visible = false;
     carryAnchor.remove(carried.mesh);
     world.add(carried.mesh);
     carried.mesh.position.set(customer.table.x, 1.13, customer.table.z);
@@ -1041,7 +1019,7 @@ export function createRestaurant(ctx) {
   }
 
   function leaveCustomer(customer) {
-    if (!['seated', 'orderCue', 'awaiting'].includes(customer.state)) return;
+    if (!['seated', 'awaiting'].includes(customer.state)) return;
     const rivalOwned = customer.owner === RESTAURANT_OWNERS.RIVAL;
     if (questionCustomer === customer) clearQuestion();
     if (listenCustomer === customer) setListenTarget(null);
@@ -1060,9 +1038,8 @@ export function createRestaurant(ctx) {
     }
     customer.outcome = 'left';
     customer.state = 'leaving';
+    customer.ownership.visible = false;
     customer.walkStage = 0;
-    customer.meter.visible = false;
-    customer.orderCue.visible = false;
     customer.character.playAnimation?.('walk');
     dialogueCustomer = customer;
     dialogueRemaining = 1.8;
@@ -1093,7 +1070,7 @@ export function createRestaurant(ctx) {
   }
 
   function isSeated(state) {
-    return state === 'seated' || state === 'orderCue' || state === 'awaiting';
+    return state === 'seated' || state === 'awaiting';
   }
 
   function canBeReminded(state) {
@@ -1105,36 +1082,6 @@ export function createRestaurant(ctx) {
       if (customer.state === state) return true;
     }
     return false;
-  }
-
-  function rivalCanTakeHand() {
-    return Boolean(rival?.enabled) && rival.claims < RIVAL_SHARE_CAP
-      && (rival.state === 'idle' || rival.state === 'choosing');
-  }
-
-  function activeOrReservedOrderCount() {
-    let count = 0;
-    for (const customer of customers) {
-      if (claimRegistry) {
-        if ((customer.owner === RESTAURANT_OWNERS.PLAYER && customer.state === 'awaiting')
-          || (customer.owner === null && customer.state === 'orderCue')) count += 1;
-      } else if (customer.state === 'orderCue' || customer.state === 'awaiting') count += 1;
-    }
-    return count;
-  }
-
-  function raiseHand(customer) {
-    const handLimit = activeOrderLimit + (rivalCanTakeHand() ? 1 : 0);
-    if (!customer || customer.state !== 'seated' || activeOrReservedOrderCount() >= handLimit) return;
-    if (claimRegistry && !claimRegistry.raiseHand(customer.id)) return;
-    customer.state = 'orderCue';
-    customer.orderCue.visible = true;
-    customer.meter.visible = true;
-    customer.character.playAnimation?.('emote-yes');
-    audio.playSfx('restaurant-hand-pop', {
-      frequency: 520, endFrequency: 760, duration: 0.11, type: 'sine', gain: 0.12,
-    });
-    setInstruction(STRINGS.wantsToOrder);
   }
 
   function updateDirectorView() {
@@ -1168,7 +1115,6 @@ export function createRestaurant(ctx) {
     }
     directorView.liveOrders = liveOrders;
     directorView.focusReleasedAgo = focusReleasedAgo;
-    directorView.rivalAvailable = rivalCanTakeHand();
     directorView.progress.done = claimRegistry?.progress.done ?? records.length;
   }
 
@@ -1177,7 +1123,6 @@ export function createRestaurant(ctx) {
     const events = serviceDirector.advance(serviceDt, directorView);
     for (const event of events) {
       if (event.type === 'seat') createCustomer(event.customer, event.table, event.food ?? pickFood());
-      else if (event.type === 'raiseHand') raiseHand(customers[event.customer]);
       else if (event.type === 'ready' && customers[event.customer]) {
         customers[event.customer].readyFired = true;
         customers[event.customer].prepRemaining = 0;
@@ -1343,8 +1288,7 @@ export function createRestaurant(ctx) {
         customer.owner = RESTAURANT_OWNERS.RIVAL;
         customer.reservation = null;
         customer.state = 'awaiting';
-        customer.orderCue.visible = false;
-        customer.ownerBadge.visible = true;
+        refreshOwnership(customer);
         if (autoTarget?.type === 'customer' && autoTarget.value === customer) autoTarget = null;
         if (clickQuestionCustomer === customer) clickQuestionCustomer = null;
         if (questionCustomer === customer) clearQuestion();
@@ -1361,10 +1305,9 @@ export function createRestaurant(ctx) {
         rivalCarriedDish.state = 'delivered';
         customer.servedDish = rivalCarriedDish;
         customer.state = 'eating';
+        customer.ownership.visible = false;
         customer.outcome = 'delivered';
         customer.eatingRemaining = EATING_SECONDS;
-        customer.meter.visible = false;
-        customer.ownerBadge.visible = false;
         customer.character.playAnimation?.('emote-yes');
         rivalCarriedDish = null;
         updateProgress();
@@ -1416,11 +1359,11 @@ export function createRestaurant(ctx) {
       player.playAnimation?.('idle');
       if (arrived.type === 'dish') collectDish(arrived.value, true);
       else if (arrived.type === 'customer') {
-        if (arrived.value.owner === RESTAURANT_OWNERS.RIVAL) return;
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
         player.rotation.y = Math.atan2(faceX, faceZ);
-        if (arrived.value.state !== 'orderCue' && carried) deliver(arrived.value);
+        if (carried && arrived.value.owner === RESTAURANT_OWNERS.PLAYER
+          && arrived.value.state === 'awaiting') deliver(arrived.value);
       }
       return;
     }
@@ -1463,6 +1406,7 @@ export function createRestaurant(ctx) {
       if (customer.walkStage === 0 && moveCustomerToward(customer, aisleX, aisleZ, serviceDt)) customer.walkStage = 1;
       if (customer.walkStage === 1 && moveCustomerToward(customer, customer.table.seatX, customer.table.seatZ, serviceDt)) {
         customer.state = 'seated';
+        claimRegistry?.markSeated(customer.id);
         customer.character.position.y = 0.34;
         customer.character.rotation.y = 0;
         customer.character.playAnimation?.('idle');
@@ -1475,8 +1419,6 @@ export function createRestaurant(ctx) {
     if (customer.walkStage === 1 && moveCustomerToward(customer, 0, 6.85, serviceDt)) {
       customer.state = customer.outcome === 'delivered' ? 'delivered' : 'left';
       customer.character.visible = false;
-      customer.orderCue.visible = false;
-      customer.meter.visible = false;
     }
   }
 
@@ -1502,38 +1444,22 @@ export function createRestaurant(ctx) {
 
       const patienceDrain = customer.state === 'awaiting'
         ? 1
-        : (customer.state === 'seated' || customer.state === 'orderCue' ? configured.preOrderDrain : 0);
+        : (customer.state === 'seated' ? configured.preOrderDrain : 0);
       if (patienceDrain > 0) {
         customer.patience = Math.max(0, customer.patience - serviceDt * patienceDrain);
-        const ratio = customer.patience / customer.patienceMax;
-        customer.fill.scale.x = Math.max(0.001, ratio);
-        customer.fill.position.x = -(1 - ratio) * 0.625;
-        if (ratio < 0.28) customer.fillMaterial.color.setHex(0xef5350);
-        else if (ratio < 0.56) customer.fillMaterial.color.setHex(0xffc847);
-        else customer.fillMaterial.color.setHex(0x5bd16f);
         if (customer.patience <= 0) leaveCustomer(customer);
       }
 
-      customer.meter.visible = customer.character.visible
-        && (customer.state === 'orderCue' || customer.state === 'awaiting');
-      customer.ownerBadge.visible = customer.character.visible
-        && customer.owner === RESTAURANT_OWNERS.RIVAL
-        && customer.state === 'awaiting';
+      if (customer.state === 'seated' || customer.state === 'awaiting') {
+        const late = customer.state === 'awaiting'
+          && customer.patience / customer.patienceMax < 0.3;
+        customer.character.rotation.y = late
+          ? Math.sin(serviceElapsed * 2.2 + customer.index) * 0.35
+          : 0;
+      }
+
+      refreshOwnership(customer);
       if (customer.character.visible) customer.character.updateAnimation?.(cosmeticDt);
-      if (customer.meter.visible) {
-        customer.character.getWorldPosition(meterPosition);
-        customer.meter.position.copy(meterPosition);
-        customer.meter.position.y += 1.75;
-        customer.meter.quaternion.copy(camera.quaternion);
-      }
-      if (customer.orderCue.visible) {
-        customer.character.getWorldPosition(meterPosition);
-        customer.orderCue.position.copy(meterPosition);
-        customer.orderCue.position.y += 2.35;
-        const cuePulse = 0.92 + Math.sin(elapsed * 6 + customer.index) * 0.08;
-        customer.orderCue.scale.setScalar(cuePulse);
-      }
-      if (customer.ownerBadge.visible) customer.ownerBadge.quaternion.copy(camera.quaternion);
     }
 
     for (const customer of customers) {
@@ -1544,7 +1470,14 @@ export function createRestaurant(ctx) {
   }
 
   function customerStillNear(customer) {
-    if (!customer || customer.state !== 'orderCue'
+    if (!isTalkable(customer)) return null;
+    const dx = player.position.x - customer.character.position.x;
+    const dz = player.position.z - customer.character.position.z;
+    return dx * dx + dz * dz < CUSTOMER_RADIUS_SQ ? customer : null;
+  }
+
+  function customerWithinRange(customer) {
+    if (!customer || !isSeated(customer.state)
       || customer.owner === RESTAURANT_OWNERS.RIVAL) return null;
     const dx = player.position.x - customer.character.position.x;
     const dz = player.position.z - customer.character.position.z;
@@ -1556,22 +1489,6 @@ export function createRestaurant(ctx) {
     let best = CUSTOMER_RADIUS_SQ;
     for (const customer of customers) {
       if (!isSeated(customer.state) || customer.owner === RESTAURANT_OWNERS.RIVAL) continue;
-      const dx = player.position.x - customer.character.position.x;
-      const dz = player.position.z - customer.character.position.z;
-      const distance = dx * dx + dz * dz;
-      if (distance < best) {
-        best = distance;
-        nearest = customer;
-      }
-    }
-    return nearest;
-  }
-
-  function nearestOrderCustomer() {
-    let nearest = null;
-    let best = CUSTOMER_RADIUS_SQ;
-    for (const customer of customers) {
-      if (customer.state !== 'orderCue' || customer.owner === RESTAURANT_OWNERS.RIVAL) continue;
       const dx = player.position.x - customer.character.position.x;
       const dz = player.position.z - customer.character.position.z;
       const distance = dx * dx + dz * dz;
@@ -1607,38 +1524,40 @@ export function createRestaurant(ctx) {
     if (questionCommitted && !lockedQuestion) clearQuestion();
 
     if (clickQuestionCustomer
-      && (clickQuestionCustomer.state !== 'orderCue'
+      && (!isSeated(clickQuestionCustomer.state)
         || clickQuestionCustomer.owner === RESTAURANT_OWNERS.RIVAL)) {
       clickQuestionCustomer = null;
     }
-    const clickedCustomer = customerStillNear(clickQuestionCustomer);
+    const clickedCustomer = customerWithinRange(clickQuestionCustomer);
+    const nearbyCustomer = lockedQuestion ?? clickedCustomer ?? nearestSeatedCustomer();
+    const beltDish = !carried && player.position.z <= -4.0 ? nearestBeltDish() : null;
+    const beltWins = Boolean(beltDish && !lockedQuestion && !clickedCustomer);
     const questionCandidate = lockedQuestion
-      ?? (clickQuestionCustomer ? clickedCustomer : nearestOrderCustomer());
-    const nearbyCustomer = questionCandidate ?? nearestSeatedCustomer();
+      ?? (!beltWins && isTalkable(nearbyCustomer) ? nearbyCustomer : null);
 
     if (!questionCommitted) {
       if (questionCandidate) targetQuestion(questionCandidate);
       else clearQuestion();
     }
     // The 🔊 control sits beside the main action, never in its place (SPEC 3).
-    setListenTarget(nearbyCustomer && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
+    setListenTarget(nearbyCustomer?.owner === RESTAURANT_OWNERS.PLAYER
+      && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
     if (carried) {
-      // A raised hand can be answered with a dish in hand: "deliver this curry
-      // now, or take that order first?" is the decision the room is built around.
-      // It outranks the dish return so the return can never block a conversation.
-      if (nearbyCustomer?.state === 'orderCue') {
+      // A talkable customer keeps Space dedicated to Talk even with a dish in
+      // hand; otherwise the nearby return tub still outranks delivery.
+      if (questionCandidate) {
         hideAction();
         return;
       }
       if (playerNearDishReturn()) {
-        setListenTarget(null);
         setInstruction(STRINGS.returnDish);
         showAction(STRINGS.returnDish, 'return');
         return;
       }
-      setListenTarget(null);
       setInstruction(STRINGS.walkToDeliver);
-      if (nearbyCustomer && nearbyCustomer.refusalRemaining <= 0) {
+      if (nearbyCustomer?.owner === RESTAURANT_OWNERS.PLAYER
+        && nearbyCustomer.state === 'awaiting'
+        && nearbyCustomer.refusalRemaining <= 0) {
         showAction(STRINGS.deliverDish, 'deliver', nearbyCustomer);
       }
       else hideAction();
@@ -1652,22 +1571,20 @@ export function createRestaurant(ctx) {
       return;
     }
 
-    const beltDish = nearestBeltDish();
-    if (beltDish) {
+    if (beltWins) {
       setInstruction(STRINGS.walkToConveyor);
       showAction(STRINGS.collectDish, 'collect', beltDish);
       return;
     }
 
-    if (nearbyCustomer?.state === 'orderCue') {
+    if (questionCandidate) {
       hideAction();
       return;
     }
 
     hideAction();
 
-    if (hasCustomerInState('orderCue')) setInstruction(STRINGS.wantsToOrder);
-    else if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
+    if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
     else setInstruction(STRINGS.watchConveyor);
   }
 
@@ -1745,10 +1662,11 @@ export function createRestaurant(ctx) {
           ),
         };
       } else if (target.type === 'customer') {
-        if (!isSeated(target.value.state)
-          || target.value.owner === RESTAURANT_OWNERS.RIVAL) continue;
+        const playerOrder = target.value.owner === RESTAURANT_OWNERS.PLAYER
+          && target.value.state === 'awaiting';
+        if (!isTalkable(target.value) && !playerOrder) continue;
         if (!questionCommitted) {
-          clickQuestionCustomer = target.value.state === 'orderCue' ? target.value : null;
+          clickQuestionCustomer = target.value;
         }
         autoTarget = {
           type: 'customer',
@@ -1807,12 +1725,15 @@ export function createRestaurant(ctx) {
         food: customer.food,
         owner: customer.owner,
         reservation: customer.reservation,
-        cueShowing: customer.orderCue.visible,
+        talkable: isTalkable(customer),
+        bubble: ownershipBubble(customer, {
+          dialogueOnCustomer: dialogueCustomer === customer && dialogueRemaining > 0,
+        }),
+        answerShowing: dialogueCustomer === customer && dialogueRemaining > 0,
         screen: projectObject(customer.clickTarget),
         patience: customer.patience,
         refusalRemaining: customer.refusalRemaining,
       })),
-      activeOrderLimit,
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
       conveyor: {
         direction: conveyorState.direction,
@@ -1855,6 +1776,8 @@ export function createRestaurant(ctx) {
       } : null,
       rival: rival ? {
         state: rival.state,
+        claims: rival.claims,
+        claimLimit: rival.claimLimit,
         targetCustomer: rival.targetCustomer,
         targetDishId: rival.targetDishId,
         carriedDish: rival.carriedDish,
@@ -1868,7 +1791,11 @@ export function createRestaurant(ctx) {
       scoreText: scoreText?.hidden ? null : scoreText?.textContent ?? null,
       combo,
       focusActive: focus.active,
-      question: { customer: questionCustomer?.id ?? null, committed: questionCommitted },
+      question: {
+        customer: questionCustomer?.id ?? null,
+        committed: questionCommitted,
+        reservedCustomer: claimRegistry?.reservation ?? null,
+      },
       records: records.map((record) => ({ ...record })),
       scoring,
     };
@@ -1971,9 +1898,8 @@ export function createRestaurant(ctx) {
     elapsed = 0;
     serviceElapsed = 0;
     const configured = DIFFICULTY[difficulty];
-    activeOrderLimit = configured.activeOrderLimit;
     shiftTotal = configured.total;
-    claimRegistry = difficulty === 3 ? createCustomerClaimRegistry() : null;
+    claimRegistry = RIVAL_LEVELS[difficulty]?.enabled ? createCustomerClaimRegistry() : null;
     conveyor = createConveyor({
       difficulty,
       foods: LESSON.vocabulary.map((food) => food.id),
@@ -1982,6 +1908,7 @@ export function createRestaurant(ctx) {
     // The rival races the player for the same physical dishes on this belt.
     rival = claimRegistry ? createRestaurantRival({
       level: difficulty,
+      total: shiftTotal,
       registry: claimRegistry,
       conveyor,
       initialPosition: RIVAL_START_POSITION,

@@ -3,7 +3,7 @@ export const RESTAURANT_OWNERS = Object.freeze({
   RIVAL: 'rival',
 });
 
-export const RIVAL_MIN_HAND_AGE = 4;
+export const RIVAL_MIN_SEATED_AGE = 4;
 
 function customerId(customer) {
   return customer?.id ?? customer?.index;
@@ -28,8 +28,8 @@ function publicCustomer(customer, serviceTime) {
     position: copyPosition(customer.position),
     owner: customer.owner,
     reservedBy: customer.reservedBy,
-    handRaised: customer.handRaisedAt !== null,
-    handAge: customer.handRaisedAt === null ? 0 : serviceTime - customer.handRaisedAt,
+    seated: customer.seatedAt !== null,
+    seatedAge: customer.seatedAt === null ? 0 : serviceTime - customer.seatedAt,
   };
 }
 
@@ -37,9 +37,11 @@ function publicCustomer(customer, serviceTime) {
  * Pure ownership registry for one Restaurant shift.
  *
  * Controller contract:
- * - `registerCustomer({ id, food, position? })` is called for every `seat`
- *   event. A newly registered (including replacement) customer is unclaimed.
- * - `raiseHand(id)` marks the service-clock instant at which the cue appears.
+ * - `registerCustomer({ id, food, position? })` records every arriving
+ *   customer. A newly registered (including replacement) customer is
+ *   unclaimed but unavailable until seated.
+ * - `markSeated(id)` is called for the matching `seat` event and marks the
+ *   service-clock instant at which the customer becomes available to claim.
  * - `reservePlayer(id)` is called on Talk press for the locked target. At most
  *   one reservation exists.
  * - `releasePlayerReservation(id?)` is called on a cancel press or when the
@@ -47,12 +49,13 @@ function publicCustomer(customer, serviceTime) {
  *   reservation while the player remains in range.
  * - `commitPlayer(id)` is called when the question is accepted, whether spoken
  *   or through read-along.
- * - `claimRival(id)` is intentionally strict: it succeeds only for an
- *   unowned, unreserved raised hand at least `RIVAL_MIN_HAND_AGE` old.
+ * - `claimRival(id, { minSeatedAge? })` is intentionally strict: it succeeds
+ *   only for an unowned, unreserved seated customer old enough for the given
+ *   threshold (default `RIVAL_MIN_SEATED_AGE`).
  * - `resolveCustomer(id, { outcome })` removes the customer. `outcome` is
  *   `'served'` or `'left'`; only a served owned customer increments a waiter
  *   count. `progress.done` counts both outcomes.
- * - `advance(serviceDt)` advances hand ages. Invalid, negative, and zero
+ * - `advance(serviceDt)` advances seated ages. Invalid, negative, and zero
  *   deltas change nothing. When a registry is owned by `createRestaurantRival`,
  *   its `advance` method advances the registry; the controller must not also
  *   advance it separately.
@@ -78,7 +81,7 @@ export function createCustomerClaimRegistry() {
       position: copyPosition(customer?.position),
       owner: null,
       reservedBy: null,
-      handRaisedAt: null,
+      seatedAt: null,
     });
     return true;
   }
@@ -91,16 +94,17 @@ export function createCustomerClaimRegistry() {
     return true;
   }
 
-  function raiseHand(id) {
+  function markSeated(id) {
     const customer = customers.get(id);
     if (!customer || customer.owner !== null) return false;
-    if (customer.handRaisedAt === null) customer.handRaisedAt = serviceTime;
+    if (customer.seatedAt === null) customer.seatedAt = serviceTime;
     return true;
   }
 
   function reservePlayer(id) {
     const customer = customers.get(id);
-    if (!customer || customer.owner !== null || customer.handRaisedAt === null) return false;
+    if (!customer || customer.owner !== null || customer.seatedAt === null
+      || (customer.reservedBy !== null && playerReservation !== id)) return false;
     if (playerReservation !== null && playerReservation !== id) {
       const previous = customers.get(playerReservation);
       if (previous) previous.reservedBy = null;
@@ -122,7 +126,7 @@ export function createCustomerClaimRegistry() {
     const customer = customers.get(id);
     if (!customer || customer.owner === RESTAURANT_OWNERS.RIVAL) return false;
     if (customer.owner === RESTAURANT_OWNERS.PLAYER) return true;
-    if (customer.handRaisedAt === null) return false;
+    if (customer.seatedAt === null) return false;
     if (playerReservation !== null && playerReservation !== id) return false;
     customer.owner = RESTAURANT_OWNERS.PLAYER;
     customer.reservedBy = null;
@@ -130,11 +134,14 @@ export function createCustomerClaimRegistry() {
     return true;
   }
 
-  function claimRival(id) {
+  function claimRival(id, { minSeatedAge = RIVAL_MIN_SEATED_AGE } = {}) {
     const customer = customers.get(id);
+    const minimumAge = Number.isFinite(Number(minSeatedAge))
+      ? Math.max(0, Number(minSeatedAge))
+      : RIVAL_MIN_SEATED_AGE;
     if (!customer || customer.owner !== null || customer.reservedBy !== null
-      || customer.handRaisedAt === null
-      || serviceTime - customer.handRaisedAt < RIVAL_MIN_HAND_AGE) return false;
+      || customer.seatedAt === null
+      || serviceTime - customer.seatedAt < minimumAge) return false;
     customer.owner = RESTAURANT_OWNERS.RIVAL;
     return true;
   }
@@ -165,13 +172,13 @@ export function createCustomerClaimRegistry() {
     return [...customers.values()].map((customer) => publicCustomer(customer, serviceTime));
   }
 
-  function longestWaitingUnclaimed(minimumAge = RIVAL_MIN_HAND_AGE) {
+  function longestWaitingUnclaimed(minimumAge = RIVAL_MIN_SEATED_AGE) {
     const safeAge = Number.isFinite(Number(minimumAge)) ? Math.max(0, Number(minimumAge)) : 0;
     let selected = null;
     for (const customer of customers.values()) {
-      if (customer.owner !== null || customer.reservedBy !== null || customer.handRaisedAt === null) continue;
-      if (serviceTime - customer.handRaisedAt < safeAge) continue;
-      if (!selected || customer.handRaisedAt < selected.handRaisedAt) selected = customer;
+      if (customer.owner !== null || customer.reservedBy !== null || customer.seatedAt === null) continue;
+      if (serviceTime - customer.seatedAt < safeAge) continue;
+      if (!selected || customer.seatedAt < selected.seatedAt) selected = customer;
     }
     return publicCustomer(selected, serviceTime);
   }
@@ -180,7 +187,7 @@ export function createCustomerClaimRegistry() {
     advance,
     registerCustomer,
     updateCustomer,
-    raiseHand,
+    markSeated,
     reservePlayer,
     releasePlayerReservation,
     commitPlayer,

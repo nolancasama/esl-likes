@@ -25,7 +25,7 @@ const context = await browser.newContext({ viewport: { width: 1024, height: 600 
 
 // Fresh save per page (micFree OFF), plus the fake recogniser. Each start()
 // consumes the next scripted list of alternatives and reports it as a final
-// result 250 ms into the hold.
+// result 250 ms after the press.
 await context.addInitScript((key) => {
   if (!sessionStorage.getItem('seeded')) {
     localStorage.setItem(key, JSON.stringify({ version: 1, settings: { micFree: false, difficulty: 1 } }));

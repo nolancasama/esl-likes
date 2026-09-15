@@ -38,7 +38,8 @@ export function promptSpeech(ctx, {
     category,
     micFree: () => Boolean(settings.get('micFree')),
     onCommit: () => {
-      if (isActive()) onCommit?.();
+      if (!isActive()) return false;
+      return onCommit?.();
     },
     onCancel: () => {
       if (isActive()) onCancel?.();

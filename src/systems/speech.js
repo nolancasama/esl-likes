@@ -59,26 +59,42 @@ export class PressToTalk {
     this.timeout = null;
     this.finishTimer = null;
     this.finished = false;
+    this.consumedSpaceDown = false;
 
     this._click = (event) => {
       if (event.button !== undefined && event.button !== 0) return;
       this._press();
     };
     this._keyDown = (event) => {
-      if (!this.enabled || this.button.disabled || this.button.hidden
-        || event.key !== 'Enter' || event.repeat) return;
+      if (event.code !== 'Space' && event.key !== ' ') return;
+      // Only repeats belong to a consumed press: a keyup lost to a window blur
+      // must not swallow the child's next real press.
+      if (this.consumedSpaceDown && event.repeat) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      this.consumedSpaceDown = false;
+      if (event.repeat || !this._press()) return;
+      this.consumedSpaceDown = true;
       event.preventDefault();
       event.stopImmediatePropagation();
-      this._press();
+    };
+    this._keyUp = (event) => {
+      if ((event.code !== 'Space' && event.key !== ' ') || !this.consumedSpaceDown) return;
+      this.consumedSpaceDown = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
     };
     this._windowBlur = () => this.cancel();
     this._visibilityChange = () => {
       if (document.hidden) this.cancel();
     };
     button.addEventListener('click', this._click);
-    // Capture globally while this prompt is enabled so Enter works without
-    // button focus. preventDefault avoids a focused button synthesising click.
+    // Capture globally so handled Space presses take priority over world
+    // interaction and cannot synthesize a click on a focused button.
     window.addEventListener('keydown', this._keyDown, true);
+    window.addEventListener('keyup', this._keyUp, true);
     window.addEventListener('blur', this._windowBlur);
     document.addEventListener('visibilitychange', this._visibilityChange);
   }
@@ -135,9 +151,11 @@ export class PressToTalk {
     if (!this.enabled || this.button.disabled || this.button.hidden) return false;
     if (this.active) {
       this.cancel({ notify: true });
-      return false;
+      return true;
     }
-    if (this.onPress() === false) return false;
+    const pressResult = this.onPress();
+    if (pressResult === false) return false;
+    if (pressResult === 'handled') return true;
     return this._start();
   }
 
@@ -145,13 +163,13 @@ export class PressToTalk {
     if (!this.enabled || this.active) return false;
     if (!speechSupported()) {
       this._giveUp(MIC.UNSUPPORTED);
-      return false;
+      return true;
     }
 
     this.recognition = this._createRecognition();
     if (!this.recognition) {
       this._giveUp(MIC.UNSUPPORTED);
-      return false;
+      return true;
     }
 
     this.active = true;
@@ -169,7 +187,7 @@ export class PressToTalk {
       return true;
     } catch {
       this._giveUp(MIC.ERROR);
-      return false;
+      return true;
     }
   }
 
@@ -239,6 +257,7 @@ export class PressToTalk {
     const button = this.button;
     button.removeEventListener('click', this._click);
     window.removeEventListener('keydown', this._keyDown, true);
+    window.removeEventListener('keyup', this._keyUp, true);
     window.removeEventListener('blur', this._windowBlur);
     document.removeEventListener('visibilitychange', this._visibilityChange);
   }
@@ -288,7 +307,7 @@ export function createSpeechSystem() {
           : Boolean(target.micFree);
         if (!micFree) return true;
         target.onFallback?.();
-        return false;
+        return 'handled';
       },
       onState: (micState) => {
         if (micState === MIC.LISTENING) emitState(SPEECH_STATE.LISTENING);

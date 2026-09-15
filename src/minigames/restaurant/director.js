@@ -6,12 +6,6 @@ const PHASES = Object.freeze({
   FINAL_PUSH: 'finalPush',
 });
 
-const LEVELS = Object.freeze({
-  1: { liveOrderLimit: 1 },
-  2: { liveOrderLimit: 3 },
-  3: { liveOrderLimit: 4 },
-});
-
 const DEFAULT_TOTALS = Object.freeze({
   // Easy and Normal retain the director's previous fallback. Their controller
   // supplies 5 and 7 explicitly; Challenge's new default is part of the rival
@@ -24,10 +18,7 @@ const DEFAULT_TOTALS = Object.freeze({
 const WARMUP_SECONDS = 18;
 const POST_FOCUS_HOLD_SECONDS = 0.8;
 const READY_SPACING_SECONDS = 0.9;
-const HAND_SPACING_SECONDS = 0.32;
 
-const SETTLING_STATES = new Set(['seated', 'settling']);
-const RAISED_HAND_STATES = new Set(['orderCue', 'raisedHand']);
 const RESOLVED_STATES = new Set(['delivered', 'eating', 'leaving', 'left', 'resolved']);
 
 function finiteInt(value, minimum, fallback) {
@@ -73,30 +64,16 @@ function countLiveOrders(view, customers) {
   const ownerAware = customers.some((customer) => customer
     && Object.prototype.hasOwnProperty.call(customer, 'owner'));
   if (ownerAware) {
-    let demand = 0;
-    for (const customer of customers) {
-      if (!customer || RESOLVED_STATES.has(customer.state)) continue;
-      if (customer.owner === 'player') {
-        demand += 1;
-      } else if ((customer.owner === null || customer.owner === undefined)
-        && RAISED_HAND_STATES.has(customer.state)) {
-        // A player reservation does not change ownership, so it remains an
-        // unclaimed raised hand for budget purposes.
-        demand += 1;
-      }
-    }
-    return demand;
+    return customers.filter((customer) => customer
+      && customer.owner === 'player'
+      && !RESOLVED_STATES.has(customer.state)).length;
   }
 
   const reported = Array.isArray(view?.liveOrders)
     ? view.liveOrders.length
     : Number(view?.liveOrders);
   const takenOrders = Number.isFinite(reported) ? Math.max(0, Math.floor(reported)) : 0;
-  let raisedHands = 0;
-  for (const customer of customers) {
-    if (RAISED_HAND_STATES.has(customer?.state)) raisedHands += 1;
-  }
-  return takenOrders + raisedHands;
+  return takenOrders;
 }
 
 function resolvedCount(view, customers) {
@@ -114,20 +91,14 @@ function resolvedCount(view, customers) {
  *
  * Controller view:
  *   tables: [{ occupied: boolean, available?: boolean, customer?: number }]
- *   customers: [{ id: number, state: string, prepRemaining?: number }]
+ *   customers: [{ id: number, state: string, prepRemaining?: number,
+ *                 owner?: null | 'player' | 'rival' }]
  *     prepRemaining is copied from that customer's preparing dish; state may
  *     be either `preparing` or the controller's existing `awaiting` state.
- *     Challenge additionally supplies owner: null | 'player' | 'rival' and
- *     reservedBy: null | 'player'. When any owner is supplied, demand is
- *     derived from these records: player-owned unresolved orders plus
- *     unclaimed raised hands. Eating/leaving customers are already resolved
- *     for demand purposes, rival-owned customers never consume the budget,
- *     and a player-reserved hand still does.
- *   liveOrders: number // taken, unresolved orders; excludes raised hands
- *     Legacy Easy/Normal fallback used only when owner fields are absent.
+ *     When any owner field is supplied, rush-idle demand is the number of
+ *     unresolved player-owned customers. Otherwise `liveOrders` is used.
+ *   liveOrders: number | unknown[] // unresolved player orders fallback
  *   focusReleasedAgo: number // Infinity/null before any focus
- *   rivalAvailable?: boolean // Challenge rival could take a customer now;
- *     outside warm-up it allows one hand above the player's live-order limit
  *   progress?: { done: number }
  *
  * Returned events are intentionally data-only. The controller owns every scene
@@ -144,8 +115,6 @@ export function createRestaurantDirector({
   const safeLevel = Math.min(3, finiteInt(level, 1, 1));
   const tableCount = finiteInt(Array.isArray(tables) ? tables.length : tables, 1, 3);
   const customerTotal = finiteInt(total, 0, DEFAULT_TOTALS[safeLevel]);
-  const configuredLimit = LEVELS[safeLevel].liveOrderLimit;
-
   let serviceTime = 0;
   let currentPhase = PHASES.WARMUP;
   let phaseEventPending = null;
@@ -153,7 +122,6 @@ export function createRestaurantDirector({
   let done = 0;
   let completed = false;
   let lastReadyAt = Number.NEGATIVE_INFINITY;
-  let lastHandAt = Number.NEGATIVE_INFINITY;
 
   const tablePlans = [];
   let initialSeatAt = randomBetween(rng, 0.2, 0.55);
@@ -168,8 +136,6 @@ export function createRestaurantDirector({
     initialSeatAt += randomBetween(rng, 0.62, 1.05);
   }
 
-  const handAt = new Map();
-  const pendingHands = new Set();
   const pendingReady = new Set();
 
   function scheduleReplacement(plan) {
@@ -215,30 +181,9 @@ export function createRestaurantDirector({
       if (id === null || id === undefined) continue;
       present.add(id);
 
-      if (SETTLING_STATES.has(customer.state)) {
-        if (!handAt.has(id) && !pendingHands.has(id)) {
-          const finalPace = handedOut >= customerTotal;
-          const minimum = finalPace ? 0.8 : 1;
-          const maximum = finalPace ? 1.55 : 2.5;
-          handAt.set(id, serviceTime + randomBetween(rng, minimum, maximum));
-        }
-      } else {
-        handAt.delete(id);
-      }
-
-      // A reservation exists only until the controller reflects the emitted
-      // hand. Attentive players can advance orderCue -> preparing before the
-      // next director tick, so any non-settling state acknowledges it.
-      if (!SETTLING_STATES.has(customer.state)) pendingHands.delete(id);
       if (!isReadyCandidate(customer)) pendingReady.delete(id);
     }
 
-    for (const id of handAt.keys()) {
-      if (!present.has(id)) handAt.delete(id);
-    }
-    for (const id of pendingHands) {
-      if (!present.has(id)) pendingHands.delete(id);
-    }
     for (const id of pendingReady) {
       if (!present.has(id)) pendingReady.delete(id);
     }
@@ -256,18 +201,12 @@ export function createRestaurantDirector({
     }
   }
 
-  function applyIdleGuard(liveDemand, customers) {
+  function applyIdleGuard(liveDemand) {
     if (safeLevel === 1 || currentPhase !== PHASES.RUSH || liveDemand >= 2) return;
 
     for (const plan of tablePlans) {
       if (plan.availableLastFrame && plan.reservedCustomer === null && plan.seatAt !== null) {
         plan.seatAt = Math.min(plan.seatAt, serviceTime + randomBetween(rng, 0.18, 0.42));
-      }
-    }
-    for (const customer of customers) {
-      const id = customerId(customer);
-      if (SETTLING_STATES.has(customer?.state) && handAt.has(id)) {
-        handAt.set(id, Math.min(handAt.get(id), serviceTime + randomBetween(rng, 0.18, 0.42)));
       }
     }
   }
@@ -292,33 +231,6 @@ export function createRestaurantDirector({
     plan.reservedCustomer = customer;
     plan.seatAt = null;
     return { type: 'seat', table: selected, customer, food: pickFood(rng) };
-  }
-
-  function nextHandEvent(customers, liveDemand, rivalAvailable) {
-    // A saturated player must not freeze the whole room: while the Challenge
-    // rival can take a customer, one extra hand may rise above the player's limit.
-    const demandLimit = currentPhase === PHASES.WARMUP
-      ? Math.min(configuredLimit, 2)
-      : configuredLimit + (rivalAvailable ? 1 : 0);
-    if (liveDemand >= demandLimit || serviceTime - lastHandAt < HAND_SPACING_SECONDS) return null;
-
-    let selected = null;
-    let earliest = Number.POSITIVE_INFINITY;
-    for (const customer of customers) {
-      const id = customerId(customer);
-      const due = handAt.get(id);
-      if (!SETTLING_STATES.has(customer?.state) || pendingHands.has(id)) continue;
-      if (due <= serviceTime && due < earliest) {
-        selected = id;
-        earliest = due;
-      }
-    }
-    if (selected === null) return null;
-
-    handAt.delete(selected);
-    pendingHands.add(selected);
-    lastHandAt = serviceTime;
-    return { type: 'raiseHand', customer: selected };
   }
 
   function nextReadyEvent(customers) {
@@ -359,15 +271,12 @@ export function createRestaurantDirector({
       && focusReleasedAgo >= 0
       && focusReleasedAgo < POST_FOCUS_HOLD_SECONDS;
 
-    const liveDemand = countLiveOrders(view, customers) + pendingHands.size;
-    applyIdleGuard(liveDemand, customers);
+    const liveDemand = countLiveOrders(view, customers);
+    applyIdleGuard(liveDemand);
 
     if (!holdingEvents) {
       const seat = nextSeatEvent();
       if (seat) events.push(seat);
-
-      const hand = nextHandEvent(customers, liveDemand, view.rivalAvailable === true);
-      if (hand) events.push(hand);
 
       const ready = nextReadyEvent(customers);
       if (ready) events.push(ready);
@@ -394,9 +303,6 @@ export function createRestaurantDirector({
     },
     get handedOut() {
       return handedOut;
-    },
-    get liveOrderLimit() {
-      return configuredLimit;
     },
   };
 }

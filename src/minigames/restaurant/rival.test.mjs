@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RIVAL_SHARE_CAP,
+  RIVAL_LEVELS,
   RIVAL_SPEED,
   createCustomerClaimRegistry,
   createRestaurantRival,
@@ -57,7 +57,7 @@ function setupRival({
   const registry = createCustomerClaimRegistry();
   for (const customer of customers) {
     registry.registerCustomer(customer);
-    registry.raiseHand(customer.id);
+    registry.markSeated(customer.id);
   }
   const rival = createRestaurantRival({
     registry,
@@ -110,8 +110,12 @@ test('rival targets a matching dish only after noticing it for 0.6 service secon
   assert.equal(target.food, 'curry');
 });
 
-test('dish walk duration is distance divided by 4.25', () => {
-  const setup = setupRival({ customers: [makeCustomer(2)] });
+test('dish walk duration uses the instance speed', () => {
+  const speed = 2;
+  const setup = setupRival({
+    customers: [makeCustomer(2)],
+    options: { speed },
+  });
   reachWatchingBelt(setup);
   setup.conveyor.add({ id: 20, food: 'curry', x: 0 });
   advance(setup.rival, setup.view, setup.conveyor, 0.6);
@@ -119,7 +123,8 @@ test('dish walk duration is distance divided by 4.25', () => {
     .find((event) => event.type === 'targetDish');
 
   assert.equal(RIVAL_SPEED, 4.25);
-  assert.ok(Math.abs(target.duration - (4.4 / RIVAL_SPEED)) < 1e-10);
+  assert.ok(Math.abs(target.duration - (4.4 / speed)) < 1e-10);
+  assert.equal(target.speed, speed);
   assert.deepEqual(target.position, { x: 0, z: -4.4 });
 });
 
@@ -205,17 +210,25 @@ test('zero and invalid service dt fully freeze the model and belt access', () =>
   const registry = createCustomerClaimRegistry();
   const customer = makeCustomer(7);
   registry.registerCustomer(customer);
-  registry.raiseHand(7);
+  registry.markSeated(7);
   const rival = createRestaurantRival({
     registry, conveyor, rng: () => { samples += 1; return 0; },
   });
-  const before = { state: rival.state, position: rival.position, handAge: registry.getCustomer(7).handAge };
+  const before = {
+    state: rival.state,
+    position: rival.position,
+    seatedAge: registry.getCustomer(7).seatedAge,
+  };
 
   for (const dt of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.deepEqual(rival.advance(dt, { customers: [customer], focusReleasedAgo: 0 }), []);
   }
   assert.deepEqual(
-    { state: rival.state, position: rival.position, handAge: registry.getCustomer(7).handAge },
+    {
+      state: rival.state,
+      position: rival.position,
+      seatedAge: registry.getCustomer(7).seatedAge,
+    },
     before,
   );
   assert.equal(samples, 0);
@@ -223,31 +236,52 @@ test('zero and invalid service dt fully freeze the model and belt access', () =>
   assert.equal(conveyor.takeCalls, 0);
 });
 
-test('rival share cap allows exactly three claims and serves', () => {
-  const customers = [80, 81, 82, 83].map((id) => makeCustomer(id, 'pizza'));
-  const dishes = Array.from({ length: 6 }, (_, index) => ({
+test('Challenge claim limit is six of eleven and the rival keeps claiming past three', () => {
+  const customers = [80, 81, 82, 83, 84, 85, 86].map((id) => makeCustomer(id, 'pizza'));
+  const dishes = Array.from({ length: 8 }, (_, index) => ({
     id: 800 + index, food: 'pizza', x: index - 2,
   }));
   const setup = setupRival({ customers, conveyor: makeConveyor({ dishes }) });
-  const events = runFrames(setup, 800, 0.1);
+  const events = runFrames(setup, 1400, 0.1);
 
-  assert.equal(events.filter((event) => event.type === 'claimCustomer').length, RIVAL_SHARE_CAP);
-  assert.equal(events.filter((event) => event.type === 'servedCustomer').length, RIVAL_SHARE_CAP);
-  assert.equal(setup.rival.claims, RIVAL_SHARE_CAP);
-  assert.equal(setup.registry.getCustomer(83).owner, null);
-  assert.deepEqual(setup.rival.counts, { playerServed: 0, rivalServed: 3 });
+  assert.equal(RIVAL_LEVELS[3].share, 0.5);
+  assert.equal(setup.rival.claimLimit, 6);
+  assert.equal(events.filter((event) => event.type === 'claimCustomer').length, 6);
+  assert.equal(events.filter((event) => event.type === 'servedCustomer').length, 6);
+  assert.equal(setup.rival.claims, 6);
+  assert.equal(setup.registry.getCustomer(86).owner, null);
+  assert.deepEqual(setup.rival.counts, { playerServed: 0, rivalServed: 6 });
 });
 
-test('Easy and Normal create no active rival', () => {
-  for (const level of [1, 2]) {
+test('level 2 defaults to inert, as do level 1 and unknown levels', () => {
+  for (const level of [1, 2, 99]) {
     const registry = createCustomerClaimRegistry();
     const customer = makeCustomer(level);
     registry.registerCustomer(customer);
-    registry.raiseHand(level);
+    registry.markSeated(level);
     const rival = createRestaurantRival({ level, registry, rng: () => 0 });
     assert.equal(rival.enabled, false);
     assert.deepEqual(rival.advance(20, { customers: [customer] }), []);
     assert.equal(registry.getCustomer(level).owner, null);
     assert.equal(rival.state, 'idle');
   }
+});
+
+test('rival respects its configured minimum seated age', () => {
+  const setup = setupRival({
+    customers: [makeCustomer(90)],
+    options: {
+      minSeatedAge: 8,
+      hesitationMin: 0,
+      hesitationMax: 0,
+    },
+  });
+
+  advance(setup.rival, setup.view, setup.conveyor, 7.9);
+  const tooEarly = advance(setup.rival, setup.view, setup.conveyor, 0.09);
+  assert.equal(tooEarly.some((event) => event.type === 'targetCustomer'), false);
+
+  advance(setup.rival, setup.view, setup.conveyor, 0.01);
+  const eligible = advance(setup.rival, setup.view, setup.conveyor, 0.01);
+  assert.equal(eligible.some((event) => event.type === 'targetCustomer'), true);
 });

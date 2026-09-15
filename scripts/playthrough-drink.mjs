@@ -411,12 +411,12 @@ if (sectionEnabled('mic')) {
       Boolean(arrival.arrived) && startsWhileStanding === startsBeforeCorrect,
       JSON.stringify({ startsBeforeCorrect, startsWhileStanding, arrived: Boolean(arrival.arrived) }),
       Boolean(arrival.arrived));
-    await h.page.keyboard.press('Enter');
+    await h.page.keyboard.press('Space');
     const committed = await waitForDebug(
       h.page,
       'drinkStand',
       (debug) => debug?.question?.committed && debug.question.customer === correctCustomer.index,
-      { timeoutMs: 4000, label: 'correct-speech conversation to commit on one Enter press' },
+      { timeoutMs: 4000, label: 'correct-speech conversation to commit on one Space press' },
     );
     const accepted = await h.waitFor(
       (value) => value.debug?.customers.find((customer) => customer.index === correctCustomer.index)?.asked,
@@ -424,7 +424,7 @@ if (sectionEnabled('mic')) {
       'mocked correct question to be accepted',
     );
     const afterCorrect = await h.page.evaluate(() => window.__mockSpeech.getCounters());
-    check('one Enter press starts one session and the scripted question is accepted',
+    check('one Space press starts one session and the scripted question is accepted',
       Boolean(committed) && Boolean(accepted) && afterCorrect.starts === startsBeforeCorrect + 1,
       JSON.stringify({ committed: Boolean(committed), accepted: Boolean(accepted), afterCorrect, arrival }));
 

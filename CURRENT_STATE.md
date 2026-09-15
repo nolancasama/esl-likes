@@ -21,6 +21,16 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
   (stop + face + 1.2 s dwell starts a conversation; moving drops the target, and
   stopping again inside the radius while facing starts a fresh dwell),
   hold-to-talk fallback, `AUTO_TALK_ENABLED` in `src/config/interaction.js`.
+- **Restaurant open seating (2026-09-16, UNCOMMITTED, awaiting owner review of
+  screenshots A–D):** Talk is Space everywhere (speech consumes only handled
+  presses); any seated unclaimed customer can be asked (no raised hands,
+  `orderCue`, `?` cue, patience meter or owner badge); pure rules in
+  `customerState.js`; white `I like...` bubble = mine, black = rival's, none
+  when unasked or eating; patience internal (150/140/130 s) with a look-around
+  late warning; belt front (z ≤ -4.0) outranks Talk; rival claim share 0.5
+  (6 of 11), 4 s seated-age delay, white waist band; `RIVAL_LEVELS[2]` defined
+  but disabled. DESIGN_DECISIONS 2026-09-16. Lines below about hands, the
+  live-order limit, the 3-customer cap and the tray badge are superseded.
 - Restaurant (`src/minigames/restaurant/`): rush-hour shift run by pure
   `director.js`; tables 3/4/5, live-order limit 1/3/4 (a raised hand counts),
   food-owned prep times (`FOOD_PREP_SECONDS` in `scoring.js`), dishes matched by
@@ -98,6 +108,16 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+00. 2026-09-16 Restaurant open seating (Codex x3 via router + Claude visual
+    fixes; all reviewed). Verified: `npm test` 236/236, build OK, focused
+    Challenge browser check 25/25 (scratchpad `restaurant-accept.mjs`, not in
+    repo), Coloring 27/27, Sports 21/21. Owner asked for Restaurant-only
+    testing: Zoo run stopped; Drink Stand had already failed 2 checks
+    ("walking along the windows opens no prompt" saw the Talk prompt; turnaround
+    timed out) — NOT investigated, may predate today (harness not rerun since
+    press-to-talk). NEXT: owner reviews screenshots A–D; commit only with the
+    owner's OK; decide rival on Normal after a classroom playtest.
+    `scripts/playthrough.mjs` (Restaurant) is stale (raised hands) and untrusted.
 0. IN PROGRESS 2026-09-15: random belt + shared-dish rival + press-to-talk in
    every minigame (DESIGN_DECISIONS 2026-09-15, SPEC §3/§4 revised). Keep tests
    proportionate (owner feedback). PUSHED LIVE 2026-09-15 at the owner's request,

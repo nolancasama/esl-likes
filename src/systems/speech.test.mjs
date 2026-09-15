@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { PressToTalk, SPEECH_STATE, createSpeechSystem } from './speech.js';
+import { promptSpeech } from './speechPrompt.js';
 
 class FakeTarget {
   constructor() {
@@ -24,11 +25,15 @@ class FakeTarget {
     const event = {
       type,
       defaultPrevented: false,
+      immediatePropagationStopped: false,
       preventDefault() { this.defaultPrevented = true; },
-      stopImmediatePropagation() {},
+      stopImmediatePropagation() { this.immediatePropagationStopped = true; },
       ...properties,
     };
-    for (const listener of [...(this.listeners.get(type) || [])]) listener(event);
+    for (const listener of [...(this.listeners.get(type) || [])]) {
+      listener(event);
+      if (event.immediatePropagationStopped) break;
+    }
     return event;
   }
 }
@@ -136,7 +141,7 @@ test('pointer and key release events have no effect on a listening session', () 
 
   browser.button.dispatch('click', { button: 0 });
   for (const type of ['pointerup', 'keyup', 'pointerleave', 'lostpointercapture']) {
-    browser.button.dispatch(type, { pointerId: 7, key: 'Enter' });
+    browser.button.dispatch(type, { pointerId: 7, code: 'Space', key: ' ' });
   }
 
   assert.equal(press.active, true);
@@ -246,43 +251,117 @@ test('the safety cap finishes and judges after eight seconds', async () => {
   browser.restore();
 });
 
-test('Enter starts globally, repeat is ignored, Space and keyup do nothing', () => {
+test('Space starts globally, release does not stop, and a second press cancels', () => {
   const browser = installBrowser();
-  const press = new PressToTalk(browser.button);
+  let cancels = 0;
+  const press = new PressToTalk(browser.button, { onCancelled: () => { cancels += 1; } });
 
-  browser.window.dispatch('keydown', { key: ' ', repeat: false });
-  browser.window.dispatch('keydown', { key: 'Enter', repeat: true });
-  browser.window.dispatch('keyup', { key: 'Enter' });
+  const enter = browser.window.dispatch('keydown', { code: 'Enter', key: 'Enter', repeat: false });
+  assert.equal(enter.defaultPrevented, false);
   assert.equal(browser.counters.starts, 0);
 
-  const enter = browser.window.dispatch('keydown', { key: 'Enter', repeat: false });
-  assert.equal(enter.defaultPrevented, true);
+  const unconsumedRepeat = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: true });
+  const unconsumedKeyup = browser.window.dispatch('keyup', { code: 'Space', key: ' ' });
+  assert.equal(unconsumedRepeat.defaultPrevented, false);
+  assert.equal(unconsumedKeyup.defaultPrevented, false);
+
+  const firstPress = browser.window.dispatch('keydown', { key: ' ', repeat: false });
+  assert.equal(firstPress.defaultPrevented, true);
+  assert.equal(firstPress.immediatePropagationStopped, true);
   assert.equal(browser.counters.starts, 1);
   assert.equal(press.active, true);
 
-  browser.window.dispatch('keyup', { key: 'Enter' });
+  const activeEnter = browser.window.dispatch('keydown', { code: 'Enter', key: 'Enter', repeat: false });
+  assert.equal(activeEnter.defaultPrevented, false);
   assert.equal(press.active, true);
+  assert.equal(browser.counters.aborts, 0);
+
+  const repeat = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: true });
+  assert.equal(repeat.defaultPrevented, true);
+  assert.equal(browser.counters.starts, 1);
+  assert.equal(press.active, true);
+
+  const firstRelease = browser.window.dispatch('keyup', { code: 'Space', key: ' ' });
+  assert.equal(firstRelease.defaultPrevented, true);
+  assert.equal(press.active, true);
+  assert.equal(browser.counters.stops, 0);
+  assert.equal(browser.counters.aborts, 0);
+
+  const secondPress = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  assert.equal(secondPress.defaultPrevented, true);
+  assert.equal(browser.counters.aborts, 1);
+  assert.equal(cancels, 1);
+  assert.equal(press.active, false);
+  assert.equal(browser.window.dispatch('keyup', { code: 'Space', key: ' ' }).defaultPrevented, true);
 
   press.dispose();
   browser.restore();
 });
 
-test('a refused commit opens no recognition session', () => {
+test('Space passes through without a target, after acceptance, or when commit is refused', () => {
   const browser = installBrowser();
   const speech = createSpeechSystem();
   speech.bind(browser.button);
+
+  const noTarget = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  assert.equal(noTarget.defaultPrevented, false);
+
+  speech.setTarget(questionTarget());
+  speech.setEnabled(false);
+  const disabledTarget = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  assert.equal(disabledTarget.defaultPrevented, false);
+  speech.setEnabled(true);
+
+  const acceptedStart = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  browser.window.dispatch('keyup', { code: 'Space', key: ' ' });
+  browser.instances[0].result('What drink do you like?');
+  const acceptedTarget = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+  assert.equal(acceptedStart.defaultPrevented, true);
+  assert.equal(acceptedTarget.defaultPrevented, false);
+
   speech.setTarget(questionTarget({ onCommit: () => false }));
+  const refused = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
 
-  browser.button.dispatch('click', { button: 0 });
-
-  assert.equal(browser.counters.starts, 0);
+  assert.equal(refused.defaultPrevented, false);
+  assert.equal(browser.counters.starts, 1);
   assert.equal(speech.active, false);
 
   speech.dispose();
   browser.restore();
 });
 
-test('mic-free press commits and opens fallback without recognition', () => {
+test('promptSpeech returns a refused commit and rejects an inactive prompt', () => {
+  let target = null;
+  const ctx = {
+    hud: {
+      configureTalk() {},
+      show() {},
+      showFallback() {},
+      setTalkState() {},
+      recordFailure() {},
+    },
+    settings: { get: () => false },
+    speech: {
+      setEnabled() {},
+      setTarget(nextTarget) { target = nextTarget; },
+    },
+  };
+  let active = true;
+  promptSpeech(ctx, {
+    mode: 'question',
+    category: 'drink',
+    sentence: 'What drink do you like?',
+    isActive: () => active,
+    onCommit: () => false,
+    onAccepted() {},
+  });
+
+  assert.equal(target.onCommit(), false);
+  active = false;
+  assert.equal(target.onCommit(), false);
+});
+
+test('mic-free Space press commits, opens fallback, and is consumed', () => {
   const browser = installBrowser();
   let commits = 0;
   let fallbacks = 0;
@@ -294,13 +373,45 @@ test('mic-free press commits and opens fallback without recognition', () => {
     onFallback: () => { fallbacks += 1; },
   }));
 
-  browser.button.dispatch('click', { button: 0 });
+  const press = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
 
+  assert.equal(press.defaultPrevented, true);
   assert.equal(commits, 1);
   assert.equal(fallbacks, 1);
   assert.equal(browser.counters.starts, 0);
   assert.equal(speech.active, false);
 
   speech.dispose();
+  browser.restore();
+});
+
+test('consumed Space repeats and keyup stay consumed after the prompt is disabled', () => {
+  const browser = installBrowser();
+  const press = new PressToTalk(browser.button);
+
+  assert.equal(browser.window.dispatch('keydown', { code: 'Space', key: ' ' }).defaultPrevented, true);
+  press.setEnabled(false);
+  const repeat = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: true });
+  const release = browser.window.dispatch('keyup', { code: 'Space', key: ' ' });
+
+  assert.equal(repeat.defaultPrevented, true);
+  assert.equal(release.defaultPrevented, true);
+
+  press.dispose();
+  browser.restore();
+});
+
+test('an unavailable recognition start still consumes Space', () => {
+  const browser = installBrowser();
+  delete browser.window.SpeechRecognition;
+  const press = new PressToTalk(browser.button);
+
+  const event = browser.window.dispatch('keydown', { code: 'Space', key: ' ', repeat: false });
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(press.active, false);
+  assert.equal(browser.counters.starts, 0);
+
+  press.dispose();
   browser.restore();
 });

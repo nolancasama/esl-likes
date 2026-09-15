@@ -1,18 +1,33 @@
 import {
-  RIVAL_MIN_HAND_AGE,
+  RIVAL_MIN_SEATED_AGE,
   RESTAURANT_OWNERS,
   createCustomerClaimRegistry,
 } from './claims.js';
 
-export { RIVAL_MIN_HAND_AGE, createCustomerClaimRegistry } from './claims.js';
+export { RIVAL_MIN_SEATED_AGE, createCustomerClaimRegistry } from './claims.js';
 
-export const RIVAL_SHARE_CAP = 3;
-export const RIVAL_SPEED = 4.25;
+export const RIVAL_LEVELS = Object.freeze({
+  2: Object.freeze({
+    enabled: false,
+    speed: 3.4,
+    minSeatedAge: 8,
+    share: 0.3,
+    hesitationMin: 0.8,
+    hesitationMax: 1.6,
+  }),
+  3: Object.freeze({
+    enabled: true,
+    speed: 4.25,
+    minSeatedAge: 4,
+    share: 0.5,
+    hesitationMin: 0.3,
+    hesitationMax: 0.9,
+  }),
+});
+export const RIVAL_SPEED = RIVAL_LEVELS[3].speed;
 
 const POST_FOCUS_HOLD_SECONDS = 0.8;
 const TAKE_ORDER_SECONDS = 1.2;
-const HESITATION_MIN = 0.3;
-const HESITATION_MAX = 0.9;
 const ABANDON_MIN = 0.6;
 const ABANDON_MAX = 1.2;
 const DEFAULT_BELT_FRONT_Z = -4.4;
@@ -87,7 +102,7 @@ function secondsUntilInvisible(dishX, snapshot) {
 }
 
 // Finds the first interception after `delay`; predictX remains authoritative.
-function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay) {
+function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay, speed) {
   const exitAfter = secondsUntilInvisible(Number(dish.x), snapshot);
   if (exitAfter < delay) return null;
   const maxWalk = Number.isFinite(exitAfter) ? Math.max(0, exitAfter - delay) : 120;
@@ -98,7 +113,7 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay) {
     const position = { x, z: beltFrontZ };
     return {
       position,
-      difference: (distanceBetween(from, position) / RIVAL_SPEED) - walkSeconds,
+      difference: (distanceBetween(from, position) / speed) - walkSeconds,
     };
   }
 
@@ -141,7 +156,10 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay) {
  * Pure Challenge rival-waiter decision model. It owns no scene or DOM object.
  *
  * Options:
- * - `level` (default 3): Easy and Normal return an inert model.
+ * - `level` (default 3): level 1 and unknown levels return an inert model.
+ * - `total` (default 11): shift customer count used to calculate claim share.
+ * - `speed`, `minSeatedAge`, `share`, `hesitationMin`, `hesitationMax`, and
+ *   `enabled`: optional overrides for the selected level settings.
  * - `registry`: claim registry, advanced once per positive `advance` call.
  * - `conveyor`: shared belt exposing `take`, `snapshot`, and `predictX`.
  *   The option takes precedence over `view.conveyor`; otherwise the view belt
@@ -156,6 +174,13 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay) {
  */
 export function createRestaurantRival({
   level = 3,
+  total = 11,
+  speed: speedOverride,
+  minSeatedAge: minSeatedAgeOverride,
+  share: shareOverride,
+  hesitationMin: hesitationMinOverride,
+  hesitationMax: hesitationMaxOverride,
+  enabled: enabledOverride,
   registry = createCustomerClaimRegistry(),
   conveyor = null,
   initialPosition = { x: 5.5, z: -5.6 },
@@ -173,7 +198,31 @@ export function createRestaurantRival({
     throw new TypeError('conveyor must expose take, snapshot, and predictX');
   }
 
-  const enabled = Number(level) === 3;
+  const levelConfig = RIVAL_LEVELS[Number(level)] ?? null;
+  const settings = {
+    ...(levelConfig ?? { enabled: false }),
+    ...(speedOverride === undefined ? {} : { speed: speedOverride }),
+    ...(minSeatedAgeOverride === undefined ? {} : { minSeatedAge: minSeatedAgeOverride }),
+    ...(shareOverride === undefined ? {} : { share: shareOverride }),
+    ...(hesitationMinOverride === undefined ? {} : { hesitationMin: hesitationMinOverride }),
+    ...(hesitationMaxOverride === undefined ? {} : { hesitationMax: hesitationMaxOverride }),
+    ...(enabledOverride === undefined ? {} : { enabled: enabledOverride }),
+  };
+  const enabled = Boolean(levelConfig && settings.enabled);
+  const speed = nonNegativeOption(settings.speed, levelConfig?.speed ?? RIVAL_SPEED);
+  const minSeatedAge = nonNegativeOption(
+    settings.minSeatedAge, levelConfig?.minSeatedAge ?? RIVAL_MIN_SEATED_AGE,
+  );
+  const share = nonNegativeOption(settings.share, levelConfig?.share ?? 0);
+  const hesitationMin = nonNegativeOption(
+    settings.hesitationMin, levelConfig?.hesitationMin ?? 0,
+  );
+  const hesitationMax = Math.max(
+    hesitationMin,
+    nonNegativeOption(settings.hesitationMax, levelConfig?.hesitationMax ?? hesitationMin),
+  );
+  const customerTotal = nonNegativeOption(total, 11);
+  const claimLimit = Math.max(1, Math.round(customerTotal * share));
   const start = copyPosition(initialPosition, { x: 0, z: 0 });
   const frontZ = Number.isFinite(Number(beltFrontZ)) ? Number(beltFrontZ) : DEFAULT_BELT_FRONT_Z;
   const window = nonNegativeOption(pickupWindow, DEFAULT_PICKUP_WINDOW);
@@ -189,14 +238,14 @@ export function createRestaurantRival({
   let carriedDish = null;
 
   function hesitation() {
-    return randomBetween(rng, HESITATION_MIN, HESITATION_MAX);
+    return randomBetween(rng, hesitationMin, hesitationMax);
   }
 
   function walkData(target, delay = 0, duration = null) {
     const from = copyPosition(position);
     const destination = copyPosition(target);
-    const walkDuration = duration ?? (distanceBetween(from, destination) / RIVAL_SPEED);
-    return { from, position: destination, delay, duration: walkDuration, speed: RIVAL_SPEED };
+    const walkDuration = duration ?? (distanceBetween(from, destination) / speed);
+    return { from, position: destination, delay, duration: walkDuration, speed };
   }
 
   function beginChoosing(pause = hesitation()) {
@@ -227,12 +276,12 @@ export function createRestaurantRival({
   }
 
   function chooseNext(viewCustomers, events) {
-    if (claims >= RIVAL_SHARE_CAP) {
+    if (claims >= claimLimit) {
       state = 'idle';
       remaining = 0;
       return;
     }
-    const target = registry.longestWaitingUnclaimed(RIVAL_MIN_HAND_AGE);
+    const target = registry.longestWaitingUnclaimed(minSeatedAge);
     const viewCustomer = target ? findCustomer(viewCustomers, target.id) : null;
     const targetPosition = copyPosition(viewCustomer?.position, target?.position);
     if (!target || !targetPosition) {
@@ -276,7 +325,9 @@ export function createRestaurantRival({
     const delay = hesitation();
     let selected = null;
     for (const dish of matching) {
-      const intercept = solveInterception(activeConveyor, dish, snapshot, position, frontZ, delay);
+      const intercept = solveInterception(
+        activeConveyor, dish, snapshot, position, frontZ, delay, speed,
+      );
       if (!intercept) continue;
       const arrival = delay + intercept.duration;
       if (!selected || arrival < selected.arrival) selected = { dish, intercept, arrival };
@@ -340,7 +391,7 @@ export function createRestaurantRival({
     }
 
     if (state === 'idle') {
-      if (claims < RIVAL_SHARE_CAP) beginChoosing();
+      if (claims < claimLimit) beginChoosing();
       return events;
     }
 
@@ -362,7 +413,7 @@ export function createRestaurantRival({
       if (remaining > 0) return events;
       position = copyPosition(task.targetPosition);
       if (isPostFocusHold(view.focusReleasedAgo)) return events;
-      if (!registry.claimRival(task.customer)) {
+      if (!registry.claimRival(task.customer, { minSeatedAge })) {
         events.push({
           type: 'abandonTarget', customer: task.customer,
           reason: targetFailureReason(registry.getCustomer(task.customer)),
@@ -472,6 +523,7 @@ export function createRestaurantRival({
     advance,
     registry,
     get enabled() { return enabled; },
+    get claimLimit() { return claimLimit; },
     get state() { return state; },
     get position() { return copyPosition(position); },
     get targetCustomer() { return task?.customer ?? null; },

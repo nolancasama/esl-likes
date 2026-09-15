@@ -106,7 +106,7 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
   talkLabel.className = 'lesson-hud__talk-label';
   const talkKey = document.createElement('kbd');
   talkKey.className = 'lesson-hud__talk-key';
-  talkKey.textContent = 'Enter';
+  talkKey.textContent = 'Space';
   talkButton.append(talkIcon, talkLabel, talkKey);
 
   const fallbackWrap = document.createElement('div');

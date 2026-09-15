@@ -14,9 +14,9 @@ export function createInput(target = window) {
 
   const onKeyDown = (event) => {
     // Keys aimed at a text field or slider belong to it. On a focused button only
-    // Space and Enter belong to the button, so pressing it never also fires a world
-    // action; movement keys still walk, or a mouse-clicked button would freeze the
-    // avatar until the child clicked somewhere else.
+    // Space and Enter belong to a focused button. A handled global Space Talk
+    // press is stopped earlier in capture, before it can also fire a world action;
+    // movement keys still walk, or a mouse-clicked button would freeze the avatar.
     const element = event.target instanceof Element ? event.target : null;
     if (element?.closest('input, select, textarea, [contenteditable="true"]')) return;
     if ((event.code === 'Space' || event.code === 'Enter') && element?.closest('button, [role="button"]')) return;

@@ -1,0 +1,42 @@
+{
+  "id": "space-talk",
+  "task": "Change the global keyboard Talk shortcut from Enter to Space, with speech consuming the press so Space never also fires a world interact action.",
+  "requirements": [
+    "src/systems/speech.js PressToTalk: the keyboard shortcut is Space (event.code === 'Space' or event.key === ' '). Enter no longer starts, cancels or is consumed by speech.",
+    "Press once starts recognition; releasing Space does nothing to recognition; a second Space press while listening cancels (existing cancel({ notify: true }) path). Never hold-to-talk.",
+    "Consume (preventDefault + stopImmediatePropagation) a Space keydown ONLY when speech handled it: recognition started, an active session was cancelled, a start attempt failed into the unavailable/fallback path, or the mic-free fallback opened. A press refused by onPress (no target, target already accepted, game refused commit) must NOT be consumed, so the game's world interact (src/systems/input.js, window bubble listener) still receives it.",
+    "Contract: onPress may return false (refused, not handled), true (start recognition) or the string 'handled' (consumed without a microphone). createSpeechSystem's onPress returns 'handled' after target.onFallback() in mic-free mode. _press() returns whether the press was handled.",
+    "After a consumed Space keydown, also consume that key's auto-repeat keydowns and its keyup (PressToTalk adds a capture keyup listener on window; remove it in dispose). This swallowing continues until keyup even if the prompt is disabled mid-hold, so a held Space cannot reach input.js as a fresh press, and a focused button cannot synthesize a click from it.",
+    "Unconsumed repeats and keyups pass through untouched.",
+    "src/systems/speechPrompt.js promptSpeech: onCommit must return the caller's onCommit result (currently it drops it, so a Restaurant refusal still opens the mic). Keep the isActive guard: when inactive return false.",
+    "src/ui/hud.js: the talk key label shows 'Space' instead of 'Enter'.",
+    "src/systems/speech.test.mjs: replace the Enter test. Cover: Enter does not start speech; Space starts Talk and its keydown is defaultPrevented; Space keyup does not stop recognition; a second Space cancels an active session; a Space press with no enabled target / an accepted target / a refused commit is NOT defaultPrevented; repeat and keyup after a consumed press are defaultPrevented; mic-free fallback press is consumed. The FakeTarget helper may need a stopped flag on events.",
+    "Update comments mentioning Enter for Talk in speech.js and input.js. Update SPEC.md §2/§3 lines that say Talk is Enter (around lines 78-79, 132, 150-152, 621): Talk is Space; speech takes priority over the world interact only while a talk prompt is live and the press is handled.",
+    "scripts/playthrough-drink.mjs line ~414 presses Enter to commit a conversation: press Space instead. Around lines 521-526 the check holds Space down during an already-open read-along then releases it: keep the intent (releasing Space after speech does not start a dispenser) and keep it valid with Space as the Talk key. scripts/speech-states.mjs: update any Enter-based talk press to Space.",
+    "Do not edit DESIGN_DECISIONS.md or CURRENT_STATE.md; the controller records the decision."
+  ],
+  "constraints": [
+    "Do not touch src/minigames/** (a separate order is changing the Restaurant).",
+    "Do not change input.js key handling behaviour other than comments.",
+    "Do not add proximity/dwell auto-talk.",
+    "Edit files with structured edit tools, not shell rewrites with nested quoting."
+  ],
+  "startingPoints": [
+    "src/systems/speech.js",
+    "src/systems/speech.test.mjs",
+    "src/systems/speechPrompt.js",
+    "src/ui/hud.js",
+    "src/systems/input.js",
+    "scripts/playthrough-drink.mjs",
+    "scripts/speech-states.mjs",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": { "required": true, "owner": "controller", "commands": ["npm run playthrough:drink-stand", "npm run playthrough:coloring", "npm run playthrough:sports", "npm run playthrough:zoo"] },
+  "category": "logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

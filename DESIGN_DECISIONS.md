@@ -1097,3 +1097,44 @@ Challenge rival).
 - **Unchanged / deferred:** wrong delivery, dish return, temperature, score
   pill. The Restaurant harness trust work and the tub-over-delivery priority
   stay on the backburner at the owner's request.
+
+## 2026-09-16 — Space talks; any seated customer can be asked; bubbles show ownership
+
+Owner revision plan for the Restaurant, analysed and implemented with changes.
+
+- **Accepted — Talk is Space, in every minigame** (supersedes 2026-09-15
+  "Enter, not Space"). Press once, release does nothing, a second press cancels.
+- **Modified — speech consumes only presses it handles.** A Space press is
+  swallowed when it starts, cancels, falls back or fails into the read-along;
+  a refused press (no target, already accepted, reservation refused) still
+  reaches the world interact. Repeats and the keyup of a consumed press are
+  swallowed too, or a held Space would fire a pickup on auto-repeat.
+- **Added — the belt front outranks Talk.** The 2026-09-15 reason for Enter
+  still holds geometrically (the belt band lies inside the back tables' talk
+  radius), so standing at the belt (z ≤ -4.0) with a pickable dish and no
+  clicked/locked customer shows collect and sets no talk prompt. The talk spot
+  behind a back-table customer (z -3.7) still talks.
+- **Added — the nearest seated customer decides the context.** Unclaimed →
+  Talk (even carrying a dish); mine → Listen Again / Deliver. Otherwise a talk
+  prompt would make delivery unreachable by keyboard where two tables overlap.
+- **Accepted — raised hands, the `?` cue and `orderCue` are removed.** The
+  director paces population (arrivals, tables, phases), never permission. The
+  live-order limit goes with them. Rejected: keeping `orderCue` as hidden gating.
+- **Accepted — patience meters removed.** Patience stays internal and more
+  generous (150/140/130 s awaiting); unclaimed customers drain as slowly as
+  before (effectively never leave). Late warning below 30%: the customer looks
+  around. No icon, ring or countdown.
+- **Accepted — ownership bubbles replace the rival badge.** None = not asked;
+  white `I like...` with dark text = mine; near-black with white text =
+  rival's; none while eating. The full answer shows ~2.5 s and collapses; a
+  persistent bubble never names the food. Listen Again reopens it briefly.
+- **Modified — rival cap is a share, not 3.** Challenge: round(total × 0.5) = 6
+  of 11, 4 s seated-age reaction delay, speed 4.25. `RIVAL_LEVELS[2]` (speed
+  3.4, share 0.3, 8 s delay) exists but is **disabled**: whether a rival on
+  Normal is too much for Grade 3 needs a classroom playtest, not a harness.
+- **Fixed — `promptSpeech` dropped `onCommit`'s return value**, so a refused
+  Restaurant reservation still opened the microphone.
+- **Rejected — the plan's 32-item browser matrix and a full harness rewrite.**
+  Pure rules are unit-tested (`customerState`, claims, rival, director, speech
+  keys); one focused Challenge browser run and owner screenshots A–D cover the
+  scene. `scripts/playthrough.mjs` (Restaurant) stays stale and untrusted.
