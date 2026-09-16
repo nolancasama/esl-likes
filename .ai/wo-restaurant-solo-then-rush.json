@@ -1,0 +1,43 @@
+{
+  "id": "restaurant-solo-then-rush",
+  "task": "Restaurant: start every shift solo; on Normal and Challenge, the player's third correct delivery triggers a one-shot rush — the rival physically walks in, and the conveyor becomes denser and slightly faster.",
+  "notes": "Current design must be preserved (see SPEC.md §3/§4 and DESIGN_DECISIONS.md 2026-09-15 and 2026-09-16): Space single-press Talk, any seated unclaimed customer talkable, no meters/hands, white/black 'I like...' ownership bubbles, order-blind shuffled-bag belt shared by both waiters with first pickup winning. Today the rival exists from the start of Challenge only, starts at RIVAL_START_POSITION on the left wall, and RIVAL_LEVELS[2] is disabled. conveyor.js has fixed per-level speed/entryInterval (visible span 13.2 units; 1: 0.9/4.0, 2: 1.05/3.2, 3: 1.2/2.6). The director's warmup->rush switch is time-based (18 s). The claim registry is advanced ONLY by rival.advance, so while no rival exists the scene must advance it itself. Owner intent: the first three deliveries are an unlabelled tutorial; afterwards the room suddenly gets busy; density is the main pressure, speed secondary; the child must never face a twitch game.",
+  "requirements": [
+    "conveyor.js: CONVEYOR_CONFIG per level gains a rush rate. Solo (start) rates: 1 = speed 0.9, entryInterval 4.9; 2 = speed 1.0, entryInterval 4.4; 3 = speed 1.05, entryInterval 4.2 (about 3 visible dishes). Rush rates: 1 = none; 2 = speed 1.08, entryInterval 2.75 (about 4-5 visible); 3 = speed 1.18, entryInterval 2.0 (about 5-6 visible). Export MIN_DISH_SPACING = 1.9 (belt units between consecutive dishes); the effective interval is never below MIN_DISH_SPACING / speed. Keep the options overrides for speed/entryInterval working for the solo rate.",
+    "conveyor.js: add startRush() — returns false (no change) when the level has no rush rate or rush already started; otherwise switches speed and interval, reschedules the next entry to max(now, lastEntryTime + newEffectiveInterval) if that is sooner than the pending entry (so the belt fills without a gap and never violates spacing), and returns true. snapshot() adds entryInterval (effective) and mode ('solo' | 'rush'). predictX/take/nearestPickable use the current speed. Food order stays the shuffled bag: the sequence of foods for a given rng must be identical whether or not rush starts. Zero/negative dt still freezes everything.",
+    "conveyor.test.mjs: add tests — solo steady state averages roughly 2.5-3.5 visible dishes per level; Normal rush roughly 4-5 and Challenge rush roughly 5-6.5; consecutive on-belt dishes are always at least MIN_DISH_SPACING apart across the rush switch; rush speed is at most 15% above solo; startRush returns false on Easy and on a second call; food sequence identical with and without rush; entries keep coming without any orders in both modes (no gap longer than one solo interval at the switch); config defaults stay frozen.",
+    "director.js: option manualRush (default false). When true, warmup never advances to rush by time; startRush() (exposed on the director) switches warmup -> rush once, queues the same 'phase' event as today, and returns true only the first time. Final push and everything else unchanged. Tests: manualRush stays in warmup past 18 s; startRush emits one rush phase event and is one-shot; default (manualRush false) behaviour unchanged.",
+    "rival.js: RIVAL_LEVELS[2] = { enabled: true, speed: 3.6, minSeatedAge: 7, share: 0.35, hesitationMin: 0.8, hesitationMax: 1.5, dishNoticeSeconds: 1.0 }; RIVAL_LEVELS[3] = { enabled: true, speed: 4.4, minSeatedAge: 3.5, share: 0.5, hesitationMin: 0.3, hesitationMax: 0.8, dishNoticeSeconds: 0.6 }. dishNoticeSeconds comes from the level config unless the option is passed. Update rival tests whose expectations change (Normal is now enabled; claim limits follow total*share).",
+    "New pure module src/minigames/restaurant/rushTrigger.js + rushTrigger.test.mjs: export RUSH_PLAYER_DELIVERIES = 3; createRushTrigger({ enabled }) returns { recordPlayerDelivery(): boolean, get playerDeliveries, get triggered }. recordPlayerDelivery counts and returns true exactly once, on the third call, only when enabled. Tests: disabled (Easy) never triggers; first and second deliveries do not trigger; third triggers; fourth and later do not trigger again.",
+    "index.js DIFFICULTY totals: Easy 5, Normal 9, Challenge 13 (so the rush phase has customers left to compete for). The claim registry is created for every level whose RIVAL_LEVELS entry is enabled (Normal and Challenge) at enter; the rival model and rival character are NOT created at enter. While rival is null, call claimRegistry.advance(serviceDt) each service update. Director created with manualRush: true for rival-enabled levels.",
+    "index.js trigger: only a correct player delivery in deliver() calls rushTrigger.recordPlayerDelivery(). Wrong deliveries, customers leaving, Listen Again, taking orders and rival serves never count. When it returns true, start a 0.9 s service-time beat (the delivery's normal success dialogue/notice/sfx play first). When the beat ends, beginRush(): conveyor.startRush(); serviceDirector.startRush(); show the phase pill with a new string UI.restaurant.rivalArrives = 'ランチラッシュ！ ウェイターが きたよ！' (add to src/config/lesson.js) for about 2.2 s; show the score pill; play the existing phase sfx; create the rival character (same model, tint, scale, white apron front panel and waist band as today) at RIVAL_ENTRANCE_START { x: -2.1, z: 6.6 } facing into the room, walk it (service time, walk animation) along the clear aisle to RIVAL_ENTRANCE_END { x: -2.1, z: 2.4 } at about 4 units/s, then play emote-yes for 0.6 s, then create the rival model with createRestaurantRival({ level, registry: claimRegistry, conveyor, total: max(1, shiftTotal - claimRegistry.progress.done), initialPosition: RIVAL_ENTRANCE_END, beltFrontZ, pickupWindow, rng }) and run the existing rival AI from there. Speech focus freezes the beat, the entrance walk and the emote exactly like the rest of service. The entrance can never run twice. Remove RIVAL_START_POSITION and the start-of-shift lunch-rush pill / score pill for these levels. Easy: no trigger, no rival, conveyor stays solo.",
+    "Debug hook additions (keep all existing fields): rush: { enabled, triggered, beatRemaining, entering (boolean), deliveriesToRush: RUSH_PLAYER_DELIVERIES, playerDeliveries }; rival stays null until the rival model exists, and add rivalCharacter: { visible, entering, position } or null; conveyor adds entryInterval, mode, visibleCount (dishes with |x| <= visibleHalfWidth).",
+    "SPEC.md §4 Restaurant: document solo start, the third-correct-delivery one-shot rush (Normal/Challenge), the rival's walk-in entrance, solo/rush belt rates with the spacing floor, Normal rival enabled with its settings, and the new shift totals. Remove statements that the rival is present from the start or that Normal has no rival."
+  ],
+  "constraints": [
+    "Do not change Space/Talk handling, customerState.js rules, ownership bubbles, claims.js semantics, scoring, or the order-blind shuffled-bag food choice.",
+    "No teleporting or instant claims: after entering, the rival uses only the existing rival state machine.",
+    "No new permanent labels, meters or icons.",
+    "Do not edit DESIGN_DECISIONS.md or CURRENT_STATE.md (controller records decisions), src/systems/**, src/ui/**, or scripts/**.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/conveyor.js",
+    "src/minigames/restaurant/conveyor.test.mjs",
+    "src/minigames/restaurant/director.js",
+    "src/minigames/restaurant/director.test.mjs",
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/index.js",
+    "src/config/lesson.js",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": { "required": true, "owner": "controller", "commands": ["npm run build"] },
+  "category": "logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

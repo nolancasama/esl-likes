@@ -11,8 +11,14 @@ function seededRng(seed = 0x5eed1234) {
   };
 }
 
-function makeSimulation({ level = 2, tables = 4, total = 7, rng = seededRng() } = {}) {
-  const director = createRestaurantDirector({ level, tables, total, rng });
+function makeSimulation({
+  level = 2,
+  tables = 4,
+  total = 7,
+  manualRush = false,
+  rng = seededRng(),
+} = {}) {
+  const director = createRestaurantDirector({ level, tables, total, manualRush, rng });
   const state = {
     tables: Array.from({ length: tables }, () => ({ occupied: false, customer: null })),
     customers: [],
@@ -165,6 +171,51 @@ test('advance(0) freezes all scheduling', () => {
   for (let frame = 0; frame < 100; frame += 1) assert.deepEqual(director.advance(0, view), []);
   assert.equal(director.handedOut, 0);
   assert.equal(director.phase, 'warmup');
+});
+
+test('manual rush stays in warm-up past the timed rush threshold', () => {
+  const director = createRestaurantDirector({
+    level: 2,
+    tables: 4,
+    total: 9,
+    manualRush: true,
+    rng: () => 0,
+  });
+  const view = {
+    tables: Array.from({ length: 4 }, () => ({ occupied: true })),
+    customers: [],
+    liveOrders: 0,
+    focusReleasedAgo: Infinity,
+  };
+
+  assert.deepEqual(director.advance(30, view), []);
+  assert.equal(director.phase, 'warmup');
+});
+
+test('startRush emits one rush phase event and is one-shot', () => {
+  const director = createRestaurantDirector({
+    level: 2,
+    tables: 4,
+    total: 9,
+    manualRush: true,
+    rng: () => 0,
+  });
+  const view = {
+    tables: Array.from({ length: 4 }, () => ({ occupied: true })),
+    customers: [],
+    liveOrders: 0,
+    focusReleasedAgo: Infinity,
+  };
+
+  assert.equal(director.startRush(), true);
+  assert.equal(director.startRush(), false);
+  assert.equal(director.phase, 'rush');
+  assert.deepEqual(director.advance(0.1, view), [{ type: 'phase', phase: 'rush' }]);
+  assert.equal(director.startRush(), false);
+  assert.equal(
+    director.advance(0.1, view).some((event) => event.type === 'phase' && event.phase === 'rush'),
+    false,
+  );
 });
 
 test('seat and ready events wait through the post-focus hold', () => {

@@ -8,20 +8,22 @@ export { RIVAL_MIN_SEATED_AGE, createCustomerClaimRegistry } from './claims.js';
 
 export const RIVAL_LEVELS = Object.freeze({
   2: Object.freeze({
-    enabled: false,
-    speed: 3.4,
-    minSeatedAge: 8,
-    share: 0.3,
+    enabled: true,
+    speed: 3.6,
+    minSeatedAge: 7,
+    share: 0.35,
     hesitationMin: 0.8,
-    hesitationMax: 1.6,
+    hesitationMax: 1.5,
+    dishNoticeSeconds: 1.0,
   }),
   3: Object.freeze({
     enabled: true,
-    speed: 4.25,
-    minSeatedAge: 4,
+    speed: 4.4,
+    minSeatedAge: 3.5,
     share: 0.5,
     hesitationMin: 0.3,
-    hesitationMax: 0.9,
+    hesitationMax: 0.8,
+    dishNoticeSeconds: 0.6,
   }),
 });
 export const RIVAL_SPEED = RIVAL_LEVELS[3].speed;
@@ -165,7 +167,8 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay, sp
  *   The option takes precedence over `view.conveyor`; otherwise the view belt
  *   is used for that update.
  * - `initialPosition`, `beltFrontZ` (default -4.4), `pickupWindow` (default
- *   1.4), and `dishNoticeSeconds` (default 0.6) are plain model values.
+ *   1.4), and `dishNoticeSeconds` (defaults to the level setting) are plain
+ *   model values.
  * - `rng`: injected random source used only for hesitations and abandon pauses.
  *
  * `view` is `{ customers, focusReleasedAgo, conveyor? }`. Invalid, negative,
@@ -186,7 +189,7 @@ export function createRestaurantRival({
   initialPosition = { x: 5.5, z: -5.6 },
   beltFrontZ = DEFAULT_BELT_FRONT_Z,
   pickupWindow = DEFAULT_PICKUP_WINDOW,
-  dishNoticeSeconds = DEFAULT_DISH_NOTICE_SECONDS,
+  dishNoticeSeconds,
   rng = Math.random,
 } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
@@ -226,7 +229,10 @@ export function createRestaurantRival({
   const start = copyPosition(initialPosition, { x: 0, z: 0 });
   const frontZ = Number.isFinite(Number(beltFrontZ)) ? Number(beltFrontZ) : DEFAULT_BELT_FRONT_Z;
   const window = nonNegativeOption(pickupWindow, DEFAULT_PICKUP_WINDOW);
-  const noticeSeconds = nonNegativeOption(dishNoticeSeconds, DEFAULT_DISH_NOTICE_SECONDS);
+  const noticeSeconds = nonNegativeOption(
+    dishNoticeSeconds,
+    levelConfig?.dishNoticeSeconds ?? DEFAULT_DISH_NOTICE_SECONDS,
+  );
   const firstSeenAt = new Map();
 
   let state = 'idle';

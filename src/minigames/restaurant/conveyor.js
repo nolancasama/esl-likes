@@ -5,15 +5,23 @@ const SHARED_CONFIG = Object.freeze({
   visibleHalfWidth: 6.6,
 });
 const SCHEDULER_EPSILON = 1e-10;
+export const MIN_DISH_SPACING = 1.9;
 
-function difficultyConfig(speed, entryInterval) {
-  return Object.freeze({ ...SHARED_CONFIG, speed, entryInterval });
+function difficultyConfig(speed, entryInterval, rush) {
+  return Object.freeze({
+    ...SHARED_CONFIG,
+    speed,
+    entryInterval,
+    rush: rush ? Object.freeze(rush) : null,
+  });
 }
 
 export const CONVEYOR_CONFIG = Object.freeze({
-  1: difficultyConfig(0.9, 4.0),
-  2: difficultyConfig(1.05, 3.2),
-  3: difficultyConfig(1.2, 2.6),
+  // Visible span 13.2: solo ≈ 3.7 dishes; rush ≈ 5.1 (Normal) and 6.6 (Challenge).
+  // Pickups by both waiters keep the on-screen count about one lower.
+  1: difficultyConfig(0.9, 4.0, null),
+  2: difficultyConfig(1.0, 3.6, { speed: 1.08, entryInterval: 2.4 }),
+  3: difficultyConfig(1.05, 3.4, { speed: 1.18, entryInterval: 1.7 }),
 });
 
 function sample(rng) {
@@ -47,17 +55,19 @@ export function createConveyor(options = {}) {
     config[field] = Object.hasOwn(options, field) ? options[field] : defaults[field];
   }
 
-  const speed = Number(config.speed);
+  let speed = Number(config.speed);
   const direction = Number(config.direction);
   const entryX = Number(config.entryX);
   const exitX = Number(config.exitX);
   const visibleHalfWidth = Number(config.visibleHalfWidth);
-  const entryInterval = Number(config.entryInterval);
+  let entryInterval = Math.max(Number(config.entryInterval), MIN_DISH_SPACING / speed);
+  let mode = 'solo';
 
   let serviceTime = 0;
   let beltTravel = 0;
   let nextId = 1;
   let nextEntryTime = 0.5;
+  let lastEntryTime = nextEntryTime - entryInterval;
   let lastFood = null;
   let bag = [];
   const dishes = [];
@@ -119,7 +129,19 @@ export function createConveyor(options = {}) {
     nextId += 1;
     dishes.push(dish);
     events.push({ type: 'enter', dish: copyDish(dish) });
+    lastEntryTime = serviceTime;
     nextEntryTime += entryInterval;
+  }
+
+  function startRush() {
+    const rush = defaults.rush;
+    if (!rush || mode === 'rush') return false;
+    speed = Number(rush.speed);
+    entryInterval = Math.max(Number(rush.entryInterval), MIN_DISH_SPACING / speed);
+    const acceleratedEntryTime = Math.max(serviceTime, lastEntryTime + entryInterval);
+    if (acceleratedEntryTime < nextEntryTime) nextEntryTime = stableNumber(acceleratedEntryTime);
+    mode = 'rush';
+    return true;
   }
 
   function advance(serviceDt, view = {}) { // view remains accepted but intentionally unused.
@@ -182,6 +204,8 @@ export function createConveyor(options = {}) {
       entryX,
       exitX,
       visibleHalfWidth,
+      entryInterval,
+      mode,
       beltTravel,
       dishes: dishes.map(copyDish),
       pending: [],
@@ -189,5 +213,5 @@ export function createConveyor(options = {}) {
     };
   }
 
-  return { advance, take, nearestPickable, predictX, snapshot };
+  return { advance, startRush, take, nearestPickable, predictX, snapshot };
 }

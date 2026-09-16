@@ -122,7 +122,7 @@ test('dish walk duration uses the instance speed', () => {
   const target = advance(setup.rival, setup.view, setup.conveyor, 0.01)
     .find((event) => event.type === 'targetDish');
 
-  assert.equal(RIVAL_SPEED, 4.25);
+  assert.equal(RIVAL_SPEED, 4.4);
   assert.ok(Math.abs(target.duration - (4.4 / speed)) < 1e-10);
   assert.equal(target.speed, speed);
   assert.deepEqual(target.position, { x: 0, z: -4.4 });
@@ -236,25 +236,29 @@ test('zero and invalid service dt fully freeze the model and belt access', () =>
   assert.equal(conveyor.takeCalls, 0);
 });
 
-test('Challenge claim limit is six of eleven and the rival keeps claiming past three', () => {
+test('Challenge claim limit follows its share and the rival keeps claiming past three', () => {
   const customers = [80, 81, 82, 83, 84, 85, 86].map((id) => makeCustomer(id, 'pizza'));
   const dishes = Array.from({ length: 8 }, (_, index) => ({
     id: 800 + index, food: 'pizza', x: index - 2,
   }));
-  const setup = setupRival({ customers, conveyor: makeConveyor({ dishes }) });
+  const setup = setupRival({
+    customers,
+    conveyor: makeConveyor({ dishes }),
+    options: { total: 13 },
+  });
   const events = runFrames(setup, 1400, 0.1);
 
   assert.equal(RIVAL_LEVELS[3].share, 0.5);
-  assert.equal(setup.rival.claimLimit, 6);
-  assert.equal(events.filter((event) => event.type === 'claimCustomer').length, 6);
-  assert.equal(events.filter((event) => event.type === 'servedCustomer').length, 6);
-  assert.equal(setup.rival.claims, 6);
-  assert.equal(setup.registry.getCustomer(86).owner, null);
-  assert.deepEqual(setup.rival.counts, { playerServed: 0, rivalServed: 6 });
+  assert.equal(setup.rival.claimLimit, 7);
+  assert.equal(events.filter((event) => event.type === 'claimCustomer').length, 7);
+  assert.equal(events.filter((event) => event.type === 'servedCustomer').length, 7);
+  assert.equal(setup.rival.claims, 7);
+  assert.equal(setup.registry.getCustomer(86), null);
+  assert.deepEqual(setup.rival.counts, { playerServed: 0, rivalServed: 7 });
 });
 
-test('level 2 defaults to inert, as do level 1 and unknown levels', () => {
-  for (const level of [1, 2, 99]) {
+test('level 1 and unknown levels default to inert', () => {
+  for (const level of [1, 99]) {
     const registry = createCustomerClaimRegistry();
     const customer = makeCustomer(level);
     registry.registerCustomer(customer);
@@ -265,6 +269,67 @@ test('level 2 defaults to inert, as do level 1 and unknown levels', () => {
     assert.equal(registry.getCustomer(level).owner, null);
     assert.equal(rival.state, 'idle');
   }
+});
+
+test('Normal is enabled with a claim limit based on its configured share', () => {
+  const registry = createCustomerClaimRegistry();
+  const rival = createRestaurantRival({ level: 2, total: 9, registry, rng: () => 0 });
+
+  assert.equal(rival.enabled, true);
+  assert.deepEqual(RIVAL_LEVELS[2], {
+    enabled: true,
+    speed: 3.6,
+    minSeatedAge: 7,
+    share: 0.35,
+    hesitationMin: 0.8,
+    hesitationMax: 1.5,
+    dishNoticeSeconds: 1,
+  });
+  assert.equal(rival.claimLimit, 3);
+});
+
+test('dish notice time comes from the level unless explicitly overridden', () => {
+  const normal = setupRival({
+    customers: [makeCustomer(91)],
+    options: { level: 2, minSeatedAge: 0, hesitationMin: 0, hesitationMax: 0 },
+  });
+  reachWatchingBelt(normal);
+  normal.conveyor.add({ id: 910, food: 'curry', x: 0 });
+  advance(normal.rival, normal.view, normal.conveyor, 0.99);
+  assert.equal(
+    advance(normal.rival, normal.view, normal.conveyor, 0.001)
+      .some((event) => event.type === 'targetDish'),
+    false,
+  );
+  assert.equal(
+    advance(normal.rival, normal.view, normal.conveyor, 0.01)
+      .some((event) => event.type === 'targetDish'),
+    false,
+  );
+  assert.equal(
+    advance(normal.rival, normal.view, normal.conveyor, 0.001)
+      .some((event) => event.type === 'targetDish'),
+    true,
+  );
+
+  const overridden = setupRival({
+    customers: [makeCustomer(92)],
+    options: {
+      level: 2,
+      dishNoticeSeconds: 0.2,
+      minSeatedAge: 0,
+      hesitationMin: 0,
+      hesitationMax: 0,
+    },
+  });
+  reachWatchingBelt(overridden);
+  overridden.conveyor.add({ id: 920, food: 'curry', x: 0 });
+  advance(overridden.rival, overridden.view, overridden.conveyor, 0.2);
+  assert.equal(
+    advance(overridden.rival, overridden.view, overridden.conveyor, 0.001)
+      .some((event) => event.type === 'targetDish'),
+    true,
+  );
 });
 
 test('rival respects its configured minimum seated age', () => {

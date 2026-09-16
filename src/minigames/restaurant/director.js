@@ -108,6 +108,7 @@ export function createRestaurantDirector({
   level = 1,
   tables = 3,
   total,
+  manualRush = false,
   rng = Math.random,
 } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
@@ -190,15 +191,24 @@ export function createRestaurantDirector({
   }
 
   function updatePhase() {
-    if (currentPhase === PHASES.WARMUP && serviceTime >= WARMUP_SECONDS) {
+    if (!manualRush && currentPhase === PHASES.WARMUP && serviceTime >= WARMUP_SECONDS) {
       currentPhase = PHASES.RUSH;
       phaseEventPending = PHASES.RUSH;
       return;
     }
-    if (currentPhase === PHASES.RUSH && handedOut >= customerTotal) {
+    if (currentPhase === PHASES.RUSH
+      && phaseEventPending !== PHASES.RUSH
+      && handedOut >= customerTotal) {
       currentPhase = PHASES.FINAL_PUSH;
       phaseEventPending = PHASES.FINAL_PUSH;
     }
+  }
+
+  function startRush() {
+    if (currentPhase !== PHASES.WARMUP) return false;
+    currentPhase = PHASES.RUSH;
+    phaseEventPending = PHASES.RUSH;
+    return true;
   }
 
   function applyIdleGuard(liveDemand) {
@@ -295,6 +305,7 @@ export function createRestaurantDirector({
 
   return {
     advance,
+    startRush,
     get phase() {
       return currentPhase;
     },

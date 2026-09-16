@@ -1138,3 +1138,42 @@ Owner revision plan for the Restaurant, analysed and implemented with changes.
   Pure rules are unit-tested (`customerState`, claims, rival, director, speech
   keys); one focused Challenge browser run and owner screenshots A–D cover the
   scene. `scripts/playthrough.mjs` (Restaurant) stays stale and untrusted.
+
+## 2026-09-16 — Restaurant shifts start solo; the third correct delivery brings the rush
+
+Owner plan, analysed and implemented with changes.
+
+- **Accepted — solo start, one-shot rush on the player's third correct
+  delivery** (Normal and Challenge; Easy stays solo). Only a correct player
+  delivery counts. A 1.6 s service-time beat lets the success land first (0.9 s
+  stacked the rush pill on the thanks, temperature and combo pops);
+  then the belt goes to rush, the director's rush phase starts (manual, no
+  18 s timer on these levels), the pill reads `ランチラッシュ！ ウェイターが きたよ！`,
+  and the rival walks in up the front-left aisle (x -2.1, z 6.6 → 2.4), turns
+  to the room and waves (0.6 s) before its AI starts. No permanent label. The
+  score pill appears only once the rush starts.
+- **Modified — belt density by spacing, not the plan's counts.** The visible
+  belt is 13.2 units; the old rates already showed ~3.7–4.2 dishes. Solo ≈ 3.7
+  visible on every level; rush Normal ≈ 5.1 (interval 2.4, speed +8%),
+  Challenge ≈ 6.6 (interval 1.7, spacing 2.0, speed +12%). The first tuning
+  (solo 3, rush 4.4/5.6) measured only 1–2 solo and ~3.6/~4 in rush in the
+  browser, because both waiters keep taking plates off the belt. `MIN_DISH_SPACING` 1.9 floors every interval so
+  plates never overlap. The food order stays the shuffled bag either way.
+- **Modified — shift totals 5/9/13** (were 5/7/11). With the rival arriving after
+  three deliveries, a 7-customer Normal left almost nothing to compete for. The
+  rival's claim limit is a share of the customers left when it enters.
+- **Changed — rival on Normal enabled** (supersedes "disabled pending playtest"
+  above, at the owner's request): speed 3.6, 7 s seated delay, share 0.35,
+  hesitation 0.8–1.5 s, notices dishes after 1.0 s. Challenge: speed 4.4, 3.5 s,
+  share 0.5, 0.3–0.8 s, 0.6 s.
+- **Rejected — the plan's 20-test matrix and regression runs of other
+  minigames** (owner: Restaurant-only testing). Pure modules are unit-tested;
+  one focused browser run per level with three real deliveries.
+- **Accepted (second pass, same day) — a temporary `ウェイター` tag during the
+  entrance only.** The screenshots showed the entering rival from behind as a
+  dark figure with a thin white band, easy to take for a customer. The tag uses
+  the rival's dark bubble style, so the dark-bubble = other-waiter pairing
+  carries into play; it disappears when the rival's AI starts. Rejected: a
+  permanent label, and re-routing the entrance (the belt wall rules out walking
+  in toward the camera). Pushed live at the owner's request before the owner
+  reviewed screenshots A–D.

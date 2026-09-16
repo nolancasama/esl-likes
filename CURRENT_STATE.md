@@ -4,9 +4,9 @@
 
 All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
-`.github/workflows/pages.yml` (unit tests gate the deploy). Live = the Restaurant
-conveyor revision, pushed 2026-09-15 at the owner's explicit request, together
-with the Zoo wrong-photo rule (`ca1c246`) and Zoo harness (`f7186e9`).
+`.github/workflows/pages.yml` (unit tests gate the deploy). Live = Restaurant
+solo-then-rush (pushed 2026-09-16 at the owner's request, on top of open seating
+`583e07d`); earlier the conveyor revision, Zoo wrong-photo rule and Zoo harness.
 
 Pushed with known gaps (owner informed): `npm test` 239/239 and build passed,
 but Drink Stand/Coloring/Sports/Zoo playthroughs were not rerun after the
@@ -21,7 +21,14 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
   (stop + face + 1.2 s dwell starts a conversation; moving drops the target, and
   stopping again inside the radius while facing starts a fresh dwell),
   hold-to-talk fallback, `AUTO_TALK_ENABLED` in `src/config/interaction.js`.
-- **Restaurant open seating (2026-09-16, UNCOMMITTED, awaiting owner review of
+- **Restaurant solo-then-rush (2026-09-16, LIVE):** every
+  shift starts solo; on Normal/Challenge the player's third correct delivery
+  (pure `rushTrigger.js`) starts a one-shot rush after a 1.6 s beat — conveyor
+  `startRush()` (solo ≈ 3.7 visible dishes, rush ≈ 5.1 Normal / 6.6 Challenge,
+  speed +8% / +12%, `MIN_DISH_SPACING` 1.9), director `manualRush`, and the rival
+  walks in up the front-left aisle under a temporary `ウェイター` tag and waves before its AI starts. Normal rival
+  enabled. Totals 5/9/13. DESIGN_DECISIONS 2026-09-16 "shifts start solo".
+- **Restaurant open seating (2026-09-16, LIVE `583e07d`; owner has not marked
   screenshots A–D):** Talk is Space everywhere (speech consumes only handled
   presses); any seated unclaimed customer can be asked (no raised hands,
   `orderCue`, `?` cue, patience meter or owner badge); pure rules in
@@ -108,6 +115,15 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+000. 2026-09-16 Restaurant solo-then-rush — PUSHED LIVE at the owner's request
+     (owner has NOT reviewed screenshots A–D). Second pass added a temporary
+     `ウェイター` tag over the rival during its entrance only (debug
+     `rivalCharacter.entranceLabelVisible`). Verified: `npm test` 248/248, build
+     OK, focused browser check (session scratchpad `restaurant-rush.mjs`, not in
+     repo) 17/17 Normal and 17/17 Challenge; visible dishes solo 2–3, rush Normal
+     3–5, Challenge 4–6. Other minigames not rerun (only `lesson.js` strings
+     touched). NEXT: owner reviews live A (solo), B (entrance + tag), C (Normal
+     rush), D (Challenge rush); classroom playtest of Normal rival.
 00. 2026-09-16 Restaurant open seating (Codex x3 via router + Claude visual
     fixes; all reviewed). Verified: `npm test` 236/236, build OK, focused
     Challenge browser check 25/25 (scratchpad `restaurant-accept.mjs`, not in

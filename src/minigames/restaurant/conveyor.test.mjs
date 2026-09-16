@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CONVEYOR_CONFIG, createConveyor } from './conveyor.js';
+import { CONVEYOR_CONFIG, MIN_DISH_SPACING, createConveyor } from './conveyor.js';
 
 const FOODS = ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'];
 
@@ -58,7 +58,7 @@ test('view never affects the stream', () => {
 });
 
 test('entries continue without orders at the configured cadence', () => {
-  for (const [difficulty, interval] of [[1, 4], [2, 3.2], [3, 2.6]]) {
+  for (const [difficulty, interval] of [[1, 4.0], [2, 3.6], [3, 3.4]]) {
     const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(difficulty) });
     const stream = entries(conveyor, 4, undefined, 0.1);
     assert.deepEqual(stream.map((event) => event.dish.id), [1, 2, 3, 4]);
@@ -69,13 +69,14 @@ test('entries continue without orders at the configured cadence', () => {
 test('large advances match small advances, including mid-step entry travel', () => {
   const large = createConveyor({ difficulty: 2, foods: FOODS, rng: seededRng(15) });
   const small = createConveyor({ difficulty: 2, foods: FOODS, rng: seededRng(15) });
-  const largeEvents = large.advance(15);
+  const largeEvents = large.advance(22);
   const smallEvents = [];
-  for (let index = 0; index < 150; index += 1) smallEvents.push(...small.advance(0.1));
+  for (let index = 0; index < 220; index += 1) smallEvents.push(...small.advance(0.1));
   assert.deepEqual(largeEvents, smallEvents);
   assert.deepEqual(large.snapshot(), small.snapshot());
   const fifth = large.snapshot().dishes.find((dish) => dish.id === 5);
-  assert.equal(fifth.x, 7.2 - (1.05 * 1.7));
+  // Entered at 0.5 + 4 × 3.6 = 14.9 s; 7.2 − 1.0 × (22 − 14.9).
+  assert.equal(fifth.x, 0.1);
 });
 
 test('zero, invalid, and negative dt freeze positions without sampling rng', () => {
@@ -92,6 +93,8 @@ test('zero, invalid, and negative dt freeze positions without sampling rng', () 
 test('dishes leave the belt with exit events', () => {
   const conveyor = createConveyor({ difficulty: 1, foods: ['pizza'], rng: seededRng(20) });
   const events = conveyor.advance(20);
+  // Dish 1 needs 14.4 / 0.9 = 16 s, so it exits at 16.5 s: the same instant dish 5
+  // enters, and exits are removed before entries are added.
   assert.deepEqual(events.map((event) => event.type), ['enter', 'enter', 'enter', 'enter', 'exit', 'enter']);
   assert.deepEqual(events[4], { type: 'exit', dish: { id: 1, food: 'pizza', filler: false } });
 });
@@ -111,4 +114,108 @@ test('take observes the pickup bounds and is atomic', () => {
 test('config defaults remain frozen', () => {
   assert.equal(Object.isFrozen(CONVEYOR_CONFIG), true);
   assert.equal(Object.isFrozen(CONVEYOR_CONFIG[1]), true);
+  assert.equal(Object.isFrozen(CONVEYOR_CONFIG[2].rush), true);
+  assert.equal(Object.isFrozen(CONVEYOR_CONFIG[3].rush), true);
+});
+
+function averageVisible(conveyor, duration = 120, dt = 0.1) {
+  let total = 0;
+  let samples = 0;
+  for (let elapsed = 0; elapsed < duration; elapsed += dt) {
+    conveyor.advance(dt);
+    const snapshot = conveyor.snapshot();
+    total += snapshot.dishes.filter((dish) => Math.abs(dish.x) <= snapshot.visibleHalfWidth).length;
+    samples += 1;
+  }
+  return total / samples;
+}
+
+test('solo and rush steady-state density stays in the intended ranges', () => {
+  for (const difficulty of [1, 2, 3]) {
+    const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(30 + difficulty) });
+    conveyor.advance(30);
+    const average = averageVisible(conveyor);
+    assert.ok(average >= 3 && average <= 4, `difficulty ${difficulty} solo average ${average}`);
+  }
+
+  for (const [difficulty, minimum, maximum] of [[2, 4.5, 5.5], [3, 6, 7]]) {
+    const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(40 + difficulty) });
+    conveyor.advance(12);
+    assert.equal(conveyor.startRush(), true);
+    conveyor.advance(30);
+    const average = averageVisible(conveyor);
+    assert.ok(average >= minimum && average <= maximum, `difficulty ${difficulty} rush average ${average}`);
+  }
+});
+
+test('consecutive dishes keep the spacing floor across a rush switch', () => {
+  for (const difficulty of [2, 3]) {
+    const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(50 + difficulty) });
+    for (let step = 0; step < 500; step += 1) {
+      if (step === 73) assert.equal(conveyor.startRush(), true);
+      conveyor.advance(0.1);
+      const positions = conveyor.snapshot().dishes.map((dish) => dish.x).sort((left, right) => left - right);
+      for (let index = 1; index < positions.length; index += 1) {
+        assert.ok(positions[index] - positions[index - 1] >= MIN_DISH_SPACING - 1e-9);
+      }
+    }
+  }
+});
+
+test('rush speed stays secondary and startRush is one-shot', () => {
+  const easy = createConveyor({ difficulty: 1, foods: FOODS, rng: seededRng(61) });
+  assert.equal(easy.startRush(), false);
+  assert.equal(easy.snapshot().mode, 'solo');
+
+  for (const difficulty of [2, 3]) {
+    const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(60 + difficulty) });
+    const soloSpeed = conveyor.snapshot().speed;
+    assert.equal(conveyor.startRush(), true);
+    assert.equal(conveyor.snapshot().mode, 'rush');
+    assert.ok(conveyor.snapshot().speed <= soloSpeed * 1.15);
+    assert.equal(conveyor.startRush(), false);
+  }
+});
+
+test('rush timing does not change the shuffled food sequence', () => {
+  const solo = createConveyor({ difficulty: 3, foods: FOODS, rng: seededRng(70) });
+  const rushed = createConveyor({ difficulty: 3, foods: FOODS, rng: seededRng(70) });
+  const soloFoods = entries(solo, 60).map((event) => event.dish.food);
+  rushed.advance(7.3);
+  assert.equal(rushed.startRush(), true);
+  const rushedFoods = [];
+  for (const dish of rushed.snapshot().dishes) rushedFoods.push(dish.food);
+  while (rushedFoods.length < 60) {
+    for (const event of rushed.advance(0.1)) {
+      if (event.type === 'enter') rushedFoods.push(event.dish.food);
+    }
+  }
+  assert.deepEqual(rushedFoods.slice(0, 60), soloFoods);
+});
+
+test('rush pulls the next entry forward without an entry gap', () => {
+  for (const difficulty of [2, 3]) {
+    const conveyor = createConveyor({ difficulty, foods: FOODS, rng: seededRng(80 + difficulty) });
+    let lastEntryTime = null;
+    while (lastEntryTime === null) {
+      if (conveyor.advance(0.05).some((event) => event.type === 'enter')) lastEntryTime = conveyor.snapshot().serviceTime;
+    }
+    conveyor.advance(1.1);
+    assert.equal(conveyor.startRush(), true);
+    let nextEntryTime = null;
+    while (nextEntryTime === null) {
+      if (conveyor.advance(0.05).some((event) => event.type === 'enter')) nextEntryTime = conveyor.snapshot().serviceTime;
+    }
+    assert.ok(nextEntryTime - lastEntryTime <= CONVEYOR_CONFIG[difficulty].entryInterval + 0.051);
+    assert.ok(entries(conveyor, 3).length === 3);
+  }
+});
+
+test('snapshot reports effective solo overrides and rush state', () => {
+  const conveyor = createConveyor({ difficulty: 2, foods: FOODS, speed: 2, entryInterval: 0.1 });
+  assert.equal(conveyor.snapshot().entryInterval, MIN_DISH_SPACING / 2);
+  assert.equal(conveyor.snapshot().mode, 'solo');
+  assert.equal(conveyor.startRush(), true);
+  assert.equal(conveyor.snapshot().entryInterval, 2.4);
+  assert.equal(conveyor.snapshot().mode, 'rush');
 });

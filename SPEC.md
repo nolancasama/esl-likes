@@ -319,19 +319,27 @@ The belt surface moves from service time whenever service is active, including
 when it carries nothing. Speech focus, pause, or another global freeze stops it;
 when that ends it resumes with every dish where it was.
 
-**Supply (revised 2026-09-15).** The belt is kitchen output, not an order queue.
+**Supply (revised 2026-09-16).** The belt is kitchen output, not an order queue.
 Food enters from a shuffled bag holding each of the five foods once; when the
 bag empties it is reshuffled, and a new bag never starts with the food that
-ended the last one. Dishes enter at a steady per-difficulty interval of service
-time (Easy 4.0 s, Normal 3.2 s, Challenge 2.6 s) from the start of service —
+ended the last one. Dishes enter at a steady rate from the start of service —
 with no orders open, with every order served, and between waves. Nothing about
 orders, either waiter or a carried dish affects which food comes next, so a
-pizza never appears *because* someone asked for pizza. The bag bounds any
-food's absence to eight dishes; no hidden demand bias is added. A dish that
-reaches the far wall is simply gone. Dishes carry no owner: a pizza is a pizza,
-for whoever takes it, and any dish of a food satisfies any customer who wants
-that food. Missing a dish costs time, never the order. Belt speed stays moderate
-on every level.
+pizza never appears *because* someone asked for pizza. Starting the rush changes
+only the rate, never the shuffled-bag food sequence. The bag bounds any food's
+absence to eight dishes; no hidden demand bias is added. A dish that reaches the
+far wall is simply gone. Dishes carry no owner: a pizza is a pizza, for whoever
+takes it, and any dish of a food satisfies any customer who wants that food.
+Missing a dish costs time, never the order.
+
+Every shift starts solo at these belt rates (speed in belt units per service
+second / entry interval): Easy 0.9 / 4.9 s, Normal 1.0 / 4.4 s, and Challenge
+1.05 / 4.2 s. Easy stays at that rate for the whole shift. Normal's rush rate is
+1.08 / 2.75 s; Challenge's is 1.18 / 2.0 s. Consecutive dishes must remain at
+least 1.9 belt units apart, so the effective entry interval is never less than
+`1.9 / speed`, including across the instant the rush begins. Density is the
+main increase in pressure; the smaller speed increase must never turn the belt
+into a twitch game.
 
 **Picking up.** Keyboard interaction, click or tap on a dish, and click-to-walk
 all work, with a forgiving pickup window along the belt front; a click leads the
@@ -416,19 +424,37 @@ rule fails at the easiest level, where it matters most.
 - **L1** — warm-up shift: 3 tables, 5 customers in total, very generous
   patience. Every unclaimed seated customer may be asked, so the answer must
   still be remembered among several possible recipients.
-- **L2** — rush: 4 tables, 7 customers in total, several unresolved orders at
-  once, matching dishes arriving in no set order. Rival parameters are defined
-  for this level but disabled pending playtest.
-- **L3** — rush hour: 5 tables, 11 customers in total; the player may ask any
+- **L2** — rush: 4 tables, 9 customers in total, several unresolved orders at
+  once, matching dishes arriving in no set order, and a rival who arrives after
+  the player's third correct delivery.
+- **L3** — rush hour: 5 tables, 13 customers in total; the player may ask any
   unclaimed seated customer while carrying food, a rival waiter shares the
-  belt, and patience is moderate but still forgiving.
+  belt after the player's third correct delivery, and patience is moderate but
+  still forgiving.
 
-### Challenge rival waiter (added 2026-09-13, revised 2026-09-16)
+### Rush and rival waiter (added 2026-09-13, revised 2026-09-16)
 
-Challenge enables a rival waiter. Easy has none; Normal's rival configuration
-is defined but remains disabled pending playtest. Challenge resolves 11
-customers rather than 8, so the rival does not reduce the child's number of
-English askings.
+Every shift starts with the player as the only waiter. Easy has no rival and no
+rate change. On Normal and Challenge, the player's third **correct delivery**
+triggers the rush exactly once. Wrong deliveries, customers leaving, Listen
+Again, taking orders and rival service do not count. The completed delivery's
+normal feedback plays first, followed by a 0.9-second service-time beat. Then
+the belt switches to its rush rate, the director enters rush, and a brief
+`ランチラッシュ！ ウェイターが きたよ！` phase cue and score pill appear.
+
+The rival physically enters at `(-2.1, 6.6)`, walks down the clear aisle to
+`(-2.1, 2.4)` at about 4 units per service second, then plays `emote-yes` for
+0.6 seconds. Only after that entrance does its existing state machine begin;
+it never teleports into a claim or starts with a customer. The beat, walk and
+emote all freeze under speech focus like every other source of service
+pressure, and the entrance can never run twice.
+
+Normal's rival has speed 3.6, waits until a customer has been seated for 7
+seconds, may claim 0.35 of the shift total, hesitates 0.8–1.5 seconds, and
+notices a dish after 1.0 second. Challenge's rival has speed 4.4, waits 3.5
+seconds, may claim 0.5 of the shift total, hesitates 0.3–0.8 seconds, and
+notices a dish after 0.6 seconds. The longer 9- and 13-customer shifts leave
+customers to compete for after the tutorial-like first three deliveries.
 
 Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
 A newly seated customer is unclaimed and immediately talkable. Pressing Talk on
@@ -461,20 +487,18 @@ The rival is a pure, one-customer-at-a-time state machine (revised 2026-09-15):
     idle → choosing → walkingToCustomer → takingOrder → watchingBelt
          → walkingToDish → carrying → delivering → idle
 
-It chooses the longest-seated unclaimed, unreserved customer, but only after
-that customer has been seated for 4 seconds of service time.
-Taking an order lasts about 1.2 seconds. It then watches the same belt as the
-player for its customer's food. A dish becomes an option only after it has been
-visible for 0.6 seconds (no instant knowledge) and only if the rival can reach
-the belt front before it leaves. The rival walks to where that dish will be,
-facing its path, and takes it only if the dish is still on the belt within the
-pickup window when it arrives; otherwise it drops that target and looks again.
-Walking time is distance divided by `RIVAL_SPEED` 4.25 — 85% of the player's
-keyboard speed of 5 — with small random 0.3–0.9 second hesitations, so an
-attentive child can usually beat it to a dish and sometimes will not. Walk
-targets are exposed as positions so the controller can animate them; its path
-and facing are how a child reads "the waiter is going for that pizza". No
-floating marker is added.
+It chooses the longest-seated unclaimed, unreserved customer, subject to the
+level's minimum seated age. Taking an order lasts about 1.2 seconds. It then
+watches the same belt as the player for its customer's food. A dish becomes an
+option only after the level's dish-notice delay (no instant knowledge) and only
+if the rival can reach the belt front before it leaves. The rival walks to where
+that dish will be, facing its path, and takes it only if the dish is still on
+the belt within the pickup window when it arrives; otherwise it drops that
+target and looks again. Walking time is distance divided by the level's rival
+speed, with the level's random hesitation, so an attentive child can usually
+beat it to a dish and sometimes will not. Walk targets are exposed as positions
+so the controller can animate them; its path and facing are how a child reads
+"the waiter is going for that pizza". No floating marker is added.
 
 **Dishes are shared; customers are not (revised 2026-09-15).** Both waiters take
 food from the one belt, and either may take the dish the other wanted. The first
@@ -488,11 +512,12 @@ across both waiters and repeats are allowed. Customer patience still applies
 after a rival claim; if that customer leaves, the rival discards any dish it
 carries and abandons the task.
 
-The rival's claim share is 0.5 of the shift total. After reaching that limit it
-only finishes its current task. The shift ends when all customers have been
-served by either waiter or have left. Progress counts all resolved customers.
-Pure comparison data separately tracks `playerServed` and `rivalServed`; the
-player's stars and scoring never depend on `rivalServed`.
+The rival's claim limit follows the level's share of the customers remaining
+when the rival becomes active. After reaching that limit it only finishes its
+current task. The shift ends when all customers have been served by either
+waiter or have left. Progress counts all resolved customers. Pure comparison
+data separately tracks `playerServed` and `rivalServed`; the player's stars and
+scoring never depend on `rivalServed`.
 
 The registry and rival read only service delta. Zero service delta freezes
 seated age, walking, claiming, hesitation, order-taking, dish targeting,
@@ -510,10 +535,13 @@ random food; a table never predicts a food. The shift ends when its customer
 total has been resolved (served or left), so the room stays busy until the
 last few customers.
 
-A small service director, driven only by the service clock, shapes the shift:
+A small service director, driven only by the service clock, shapes the shift.
+On Normal and Challenge its warm-up is manual: it cannot advance to rush by
+elapsed time and changes phase only when the third correct player delivery
+starts the one-shot rush. Easy has no gameplay rush and its conveyor remains at
+the solo rate.
 
-- **Warm-up** — about the first 18 seconds of service time, with staggered
-  arrivals and gentler delays.
+- **Warm-up** — the solo opening, with staggered arrivals and gentler delays.
 - **Rush** — arrivals, open seating, claimed customers and moving dishes
   overlap; idle stretches are cut short.
 - **Final push** — once the last customers are seated: shorter replacement

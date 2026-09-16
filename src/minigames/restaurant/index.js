@@ -13,6 +13,7 @@ import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { RESTAURANT_OWNERS, createCustomerClaimRegistry } from './claims.js';
 import { RIVAL_LEVELS, RIVAL_SPEED, createRestaurantRival } from './rival.js';
+import { RUSH_PLAYER_DELIVERIES, createRushTrigger } from './rushTrigger.js';
 import { OWNERSHIP_BUBBLE_TEXT, isTalkable, ownershipBubble } from './customerState.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
@@ -40,8 +41,12 @@ const CUSTOMER_WALK_SPEED = 10;
 // Click-to-walk steers past any table lying across its straight line.
 const STEER_RADIUS = 1.45;
 const STEER_CLEARANCE = 1.75;
-// The rival starts beside the left wall; it has no hatch and shares the belt.
-const RIVAL_START_POSITION = Object.freeze({ x: -5.95, z: 1.45 });
+const RIVAL_ENTRANCE_START = Object.freeze({ x: -2.1, z: 6.6 });
+const RIVAL_ENTRANCE_END = Object.freeze({ x: -2.1, z: 2.4 });
+const RIVAL_ENTRANCE_SPEED = 4;
+const RIVAL_ENTRANCE_EMOTE_SECONDS = 0.6;
+// Long enough for the delivery's thanks, temperature and combo to land first.
+const RUSH_BEAT_SECONDS = 1.6;
 const RIVAL_MIN_SPEED = RIVAL_SPEED * 0.7;
 const RIVAL_MAX_SPEED = RIVAL_SPEED * 1.3;
 
@@ -55,8 +60,8 @@ const TABLES = Object.freeze([
 
 const DIFFICULTY = Object.freeze({
   1: Object.freeze({ count: 3, total: 5, prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
-  2: Object.freeze({ count: 4, total: 7, prepScale: 0.85, patience: 140, preOrderDrain: 0.12 }),
-  3: Object.freeze({ count: 5, total: 11, prepScale: 1.3, patience: 130, preOrderDrain: 0.2 }),
+  2: Object.freeze({ count: 4, total: 9, prepScale: 0.85, patience: 140, preOrderDrain: 0.12 }),
+  3: Object.freeze({ count: 5, total: 13, prepScale: 1.3, patience: 130, preOrderDrain: 0.2 }),
 });
 
 const CUSTOMER_TINTS = Object.freeze([0xff7d63, 0x54b8ff, 0xb36bff, 0x4bd596, 0xffcf45]);
@@ -112,6 +117,12 @@ export function createRestaurant(ctx) {
   let serviceDirector = null;
   let claimRegistry = null;
   let rival = null;
+  let rushTrigger = null;
+  let rushBeatRemaining = 0;
+  let rivalEntrance = 'idle';
+  let rivalEntranceEmoteRemaining = 0;
+  let rivalEntranceLabel = null;
+  let createRivalCharacter = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
   let focusReleasedAgo = Infinity;
@@ -169,8 +180,8 @@ export function createRestaurant(ctx) {
     active: false,
     delayRemaining: 0,
     durationRemaining: 0,
-    targetX: RIVAL_START_POSITION.x,
-    targetZ: RIVAL_START_POSITION.z,
+    targetX: RIVAL_ENTRANCE_END.x,
+    targetZ: RIVAL_ENTRANCE_END.z,
   };
   let sharedDish = null;
   let customerVisuals = null;
@@ -517,9 +528,10 @@ export function createRestaurant(ctx) {
     host.rotation.y = 0;
     host.scale.setScalar(0.82);
 
-    if (RIVAL_LEVELS[difficulty]?.enabled) {
+    createRivalCharacter = (position) => {
+      if (rivalCharacter) return rivalCharacter;
       rivalCharacter = characters.create({ model: 'r', tint: 0x4b78c5 });
-      rivalCharacter.position.set(RIVAL_START_POSITION.x, 0, RIVAL_START_POSITION.z);
+      rivalCharacter.position.set(position.x, 0, position.z);
       rivalCharacter.rotation.y = Math.PI;
       rivalCharacter.scale.setScalar(0.78);
       // A bright apron is readable even when the textured character ignores
@@ -534,11 +546,12 @@ export function createRestaurant(ctx) {
       rivalCarryAnchor.position.set(0, 1.42, 0.58);
       rivalCharacter.add(rivalCarryAnchor);
       world.add(rivalCharacter);
-    }
+      return rivalCharacter;
+    };
 
     const hitGeometry = ownGeometry(new THREE.BoxGeometry(1.2, 2.1, 0.8));
     const hitMaterial = makeMaterial(0xffffff, { transparent: true, opacity: 0, depthWrite: false });
-    function createOwnershipMaterial({ fill, text, outline }) {
+    function createOwnershipMaterial({ fill, text, outline, label = OWNERSHIP_BUBBLE_TEXT, fontSize = 92 }) {
       const bubbleCanvas = document.createElement('canvas');
       bubbleCanvas.width = 512;
       bubbleCanvas.height = 256;
@@ -556,10 +569,10 @@ export function createRestaurant(ctx) {
       context.fill();
       context.stroke();
       context.fillStyle = text;
-      context.font = '900 92px system-ui, sans-serif';
+      context.font = `900 ${fontSize}px system-ui, sans-serif`;
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.fillText(OWNERSHIP_BUBBLE_TEXT, 256, 112);
+      context.fillText(label, 256, 112);
       const texture = ownTexture(new THREE.CanvasTexture(bubbleCanvas));
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = 4;
@@ -580,6 +593,15 @@ export function createRestaurant(ctx) {
     const rivalBubbleMaterial = createOwnershipMaterial({
       fill: '#1b2233', text: '#ffffff', outline: '#ffffff',
     });
+    // Entrance-only tag: from behind, the walking rival read as a dark customer.
+    // Same dark style as the rival's bubbles, so the pairing carries into play.
+    rivalEntranceLabel = new THREE.Sprite(createOwnershipMaterial({
+      fill: '#1b2233', text: '#ffffff', outline: '#ffffff', label: STRINGS.rivalLabel, fontSize: 84,
+    }));
+    rivalEntranceLabel.scale.set(2.0, 1.0, 1);
+    rivalEntranceLabel.visible = false;
+    rivalEntranceLabel.renderOrder = 1000;
+    world.add(rivalEntranceLabel);
     customerVisuals = {
       hitGeometry,
       hitMaterial,
@@ -687,9 +709,9 @@ export function createRestaurant(ctx) {
     return customer;
   }
 
-  function showPhaseCue(nextPhase) {
+  function showPhaseCue(nextPhase, label = null) {
     if (!phasePill || nextPhase === 'warmup') return;
-    phasePill.textContent = nextPhase === 'rush' ? STRINGS.rush : STRINGS.finalPush;
+    phasePill.textContent = label ?? (nextPhase === 'rush' ? STRINGS.rush : STRINGS.finalPush);
     phasePill.hidden = false;
     phasePillRemaining = 2.2;
     audio.playSfx('restaurant-phase', { frequency: 620, endFrequency: 920, duration: 0.16, gain: 0.1 });
@@ -701,7 +723,8 @@ export function createRestaurant(ctx) {
   }
 
   function updateChallengeScore() {
-    if (!scoreText || !claimRegistry) return;
+    // The solo stretch has no competitor, so no "waiter 0" score before the rush.
+    if (!scoreText || !claimRegistry || rivalEntrance === 'idle') return;
     const counts = claimRegistry.counts;
     scoreText.textContent = formatUi(STRINGS.rivalScore, {
       player: counts.playerServed,
@@ -1016,6 +1039,7 @@ export function createRestaurant(ctx) {
     hideAction();
     updateProgress();
     updateChallengeScore();
+    if (rushTrigger?.recordPlayerDelivery()) rushBeatRemaining = RUSH_BEAT_SECONDS;
   }
 
   function leaveCustomer(customer) {
@@ -1129,7 +1153,7 @@ export function createRestaurant(ctx) {
       }
       else if (event.type === 'phase') {
         directorPhase = event.phase;
-        showPhaseCue(event.phase);
+        if (!(event.phase === 'rush' && rushTrigger?.triggered)) showPhaseCue(event.phase);
       }
     }
     directorPhase = serviceDirector.phase;
@@ -1139,6 +1163,79 @@ export function createRestaurant(ctx) {
     if (!rivalCharacter || rivalAnimation === next) return;
     rivalAnimation = next;
     rivalCharacter.playAnimation?.(next, instant ? { fade: 0 } : undefined);
+  }
+
+  function activateRivalModel() {
+    if (rival || !claimRegistry || !conveyor) return;
+    rival = createRestaurantRival({
+      level: difficulty,
+      registry: claimRegistry,
+      conveyor,
+      total: Math.max(1, shiftTotal - claimRegistry.progress.done),
+      initialPosition: RIVAL_ENTRANCE_END,
+      beltFrontZ: BELT_FRONT_Z,
+      pickupWindow: BELT_PICKUP_WINDOW,
+      rng: Math.random,
+    });
+  }
+
+  function beginRush() {
+    if (rivalEntrance !== 'idle') return false;
+    rivalEntrance = 'walking';
+    conveyor.startRush();
+    serviceDirector.startRush();
+    directorPhase = serviceDirector.phase;
+    showPhaseCue('rush', STRINGS.rivalArrives);
+    updateChallengeScore();
+    createRivalCharacter?.(RIVAL_ENTRANCE_START);
+    setRivalAnimation('walk', true);
+    updateRivalEntranceLabel();
+    return true;
+  }
+
+  function updateRushSequence(serviceDt) {
+    if (serviceDt <= 0 || !rushTrigger?.triggered) return;
+    if (rushBeatRemaining > 0) {
+      rushBeatRemaining = Math.max(0, rushBeatRemaining - serviceDt);
+      if (rushBeatRemaining === 0) beginRush();
+      return;
+    }
+    if (rivalEntrance === 'walking' && rivalCharacter) {
+      const dx = RIVAL_ENTRANCE_END.x - rivalCharacter.position.x;
+      const dz = RIVAL_ENTRANCE_END.z - rivalCharacter.position.z;
+      const distance = Math.hypot(dx, dz);
+      const step = Math.min(distance, RIVAL_ENTRANCE_SPEED * serviceDt);
+      if (distance > 1e-6) {
+        rivalCharacter.position.x += dx / distance * step;
+        rivalCharacter.position.z += dz / distance * step;
+        rivalCharacter.rotation.y = Math.atan2(dx, dz);
+      }
+      if (step >= distance - 1e-6) {
+        rivalCharacter.position.set(RIVAL_ENTRANCE_END.x, 0, RIVAL_ENTRANCE_END.z);
+        // Wave to the room: the walk in shows only the rival's back to the camera.
+        rivalCharacter.rotation.y = 0;
+        rivalEntrance = 'emote';
+        rivalEntranceEmoteRemaining = RIVAL_ENTRANCE_EMOTE_SECONDS;
+        setRivalAnimation('emote-yes');
+      }
+    } else if (rivalEntrance === 'emote') {
+      rivalEntranceEmoteRemaining = Math.max(0, rivalEntranceEmoteRemaining - serviceDt);
+      if (rivalEntranceEmoteRemaining === 0) {
+        rivalEntrance = 'active';
+        setRivalAnimation('idle');
+        activateRivalModel();
+      }
+    }
+    updateRivalEntranceLabel();
+  }
+
+  function updateRivalEntranceLabel() {
+    if (!rivalEntranceLabel) return;
+    const entering = (rivalEntrance === 'walking' || rivalEntrance === 'emote') && Boolean(rivalCharacter);
+    rivalEntranceLabel.visible = entering;
+    if (!entering) return;
+    rivalEntranceLabel.position.copy(rivalCharacter.position);
+    rivalEntranceLabel.position.y += 2.35;
   }
 
   function beginRivalWalk(event) {
@@ -1702,6 +1799,8 @@ export function createRestaurant(ctx) {
       exitX: 0,
       visibleHalfWidth: 0,
       speed: 0,
+      entryInterval: 0,
+      mode: 'solo',
       beltTravel: 0,
       dishes: [],
       pending: [],
@@ -1717,6 +1816,14 @@ export function createRestaurant(ctx) {
       directorPhase,
       progress: { done: claimRegistry?.progress.done ?? records.length, total: shiftTotal },
       level: difficulty,
+      rush: {
+        enabled: Boolean(RIVAL_LEVELS[difficulty]?.enabled),
+        triggered: rushTrigger?.triggered ?? false,
+        beatRemaining: rushBeatRemaining,
+        entering: rivalEntrance === 'walking' || rivalEntrance === 'emote',
+        deliveriesToRush: RUSH_PLAYER_DELIVERIES,
+        playerDeliveries: rushTrigger?.playerDeliveries ?? 0,
+      },
       customers: customers.map((customer) => ({
         id: customer.id,
         index: customer.index,
@@ -1741,6 +1848,11 @@ export function createRestaurant(ctx) {
         exitX: conveyorState.exitX,
         visibleHalfWidth: conveyorState.visibleHalfWidth,
         speed: conveyorState.speed,
+        entryInterval: conveyorState.entryInterval,
+        mode: conveyorState.mode,
+        visibleCount: conveyorState.dishes.filter(
+          (snapshotDish) => Math.abs(snapshotDish.x) <= conveyorState.visibleHalfWidth,
+        ).length,
         beltTravel: conveyorState.beltTravel,
         dishes: conveyorState.dishes.map((snapshotDish) => {
           const dish = beltDishFor(snapshotDish.id);
@@ -1785,6 +1897,12 @@ export function createRestaurant(ctx) {
           ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
           : rival.position,
         carryingFood,
+      } : null,
+      rivalCharacter: rivalCharacter ? {
+        visible: rivalCharacter.parent === world && rivalCharacter.visible,
+        entering: rivalEntrance === 'walking' || rivalEntrance === 'emote',
+        entranceLabelVisible: Boolean(rivalEntranceLabel?.visible),
+        position: { x: rivalCharacter.position.x, z: rivalCharacter.position.z },
       } : null,
       playerServed: counts.playerServed,
       rivalServed: counts.rivalServed,
@@ -1899,28 +2017,21 @@ export function createRestaurant(ctx) {
     serviceElapsed = 0;
     const configured = DIFFICULTY[difficulty];
     shiftTotal = configured.total;
-    claimRegistry = RIVAL_LEVELS[difficulty]?.enabled ? createCustomerClaimRegistry() : null;
+    const rivalEnabled = Boolean(RIVAL_LEVELS[difficulty]?.enabled);
+    claimRegistry = rivalEnabled ? createCustomerClaimRegistry() : null;
+    rushTrigger = createRushTrigger({ enabled: rivalEnabled });
     conveyor = createConveyor({
       difficulty,
       foods: LESSON.vocabulary.map((food) => food.id),
       rng: Math.random,
     });
-    // The rival races the player for the same physical dishes on this belt.
-    rival = claimRegistry ? createRestaurantRival({
-      level: difficulty,
-      total: shiftTotal,
-      registry: claimRegistry,
-      conveyor,
-      initialPosition: RIVAL_START_POSITION,
-      beltFrontZ: BELT_FRONT_Z,
-      pickupWindow: BELT_PICKUP_WINDOW,
-      rng: Math.random,
-    }) : null;
+    rival = null;
     serviceDirector = createRestaurantDirector({
       level: difficulty,
       tables: configured.count,
       total: shiftTotal,
       rng: Math.random,
+      manualRush: rivalEnabled,
     });
     directorPhase = serviceDirector.phase;
     focusReleasedAgo = Infinity;
@@ -1944,6 +2055,10 @@ export function createRestaurant(ctx) {
     phasePillRemaining = 0;
     clickQuestionCustomer = null;
     questionCommitted = false;
+    rushBeatRemaining = 0;
+    rivalEntrance = 'idle';
+    rivalEntranceEmoteRemaining = 0;
+    if (rivalEntranceLabel) rivalEntranceLabel.visible = false;
     autoTarget = null;
     cancelFocus();
     records.length = 0;
@@ -1958,12 +2073,6 @@ export function createRestaurant(ctx) {
     rivalAnimation = '';
     createOverlay();
     buildWorld();
-    if (claimRegistry) {
-      updateChallengeScore();
-      phasePill.textContent = STRINGS.lunchRush;
-      phasePill.hidden = false;
-      phasePillRemaining = 2.2;
-    }
     canvas = document.querySelector('#game-canvas');
     canvas?.addEventListener('pointerdown', onCanvasPointer);
     installDebugHook();
@@ -2009,6 +2118,7 @@ export function createRestaurant(ctx) {
 
     if (phase === 'service') {
       updateMovement(safeDt);
+      updateRushSequence(serviceDt);
       updateRivalWalk(serviceDt);
       updateCustomers(serviceDt, safeDt);
       applyDirectorEvents(serviceDt);
@@ -2018,9 +2128,12 @@ export function createRestaurant(ctx) {
       // First contact wins, and within one update the player's pickup resolves
       // before the rival's (SPEC §4): the player acts, then the rival advances.
       if (actionType && input.consumeInteract()) performAction();
-      applyRivalEvents(serviceDt);
+      if (rival) applyRivalEvents(serviceDt);
+      else claimRegistry?.advance(serviceDt);
       if (rivalCharacter) {
         if (focus.active) setRivalAnimation('idle', true);
+        else if (rivalEntrance === 'walking') setRivalAnimation('walk');
+        else if (rivalEntrance === 'emote') setRivalAnimation('emote-yes');
         else if (rivalWalk.active && rivalWalk.delayRemaining <= 0) setRivalAnimation('walk');
         else setRivalAnimation('idle');
       }
@@ -2094,6 +2207,12 @@ export function createRestaurant(ctx) {
     dialogueCustomer = null;
     serviceDirector = null;
     claimRegistry = null;
+    rushTrigger = null;
+    rushBeatRemaining = 0;
+    rivalEntrance = 'idle';
+    rivalEntranceEmoteRemaining = 0;
+    rivalEntranceLabel = null;
+    createRivalCharacter = null;
     rival = null;
     rivalCharacter = null;
     rivalCarryAnchor = null;
