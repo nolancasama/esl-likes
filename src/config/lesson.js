@@ -258,6 +258,10 @@ export const UI = Object.freeze({
     rush: 'ラッシュ！',
     lunchRush: 'ランチラッシュ！',
     rivalTitle: 'ライバル ウェイター！',
+    // The rival's challenge on arrival. {kanji|reading} renders as furigana;
+    // \n is the line break in the dialogue box. Every reply has the same outcome.
+    rivalChallenge: '{勝負|しょうぶ}しよう！\nどっちがたくさん{料理|りょうり}を{運|はこ}べるかな？',
+    rivalChallengeReplies: Object.freeze(['いいよ！{勝負|しょうぶ}だ！', '{負|ま}けないよ！', 'がんばるぞ！']),
     // End-of-shift head-to-head result; friendly wording whoever wins.
     resultPlayer: 'きみの かち！',
     resultRival: 'ウェイターの かち！',

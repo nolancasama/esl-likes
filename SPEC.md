@@ -448,21 +448,34 @@ Again, taking orders and rival service do not count. The completed delivery's
 normal feedback plays first, followed by a 0.9-second service-time beat. Then
 the rival intro starts (revised 2026-09-17), never while Talk is open.
 
-The intro lasts about two seconds and freezes play: player movement and
-actions, every patience, customer timers, the director, carried-dish
-temperature and the rival's AI. Only the belt keeps running, already switched
-to its rush rate so the denser stream is visible. The camera eases toward the
-front-left aisle, a short rising sting plays, and a large
-`ライバル ウェイター！` title shows. The rival physically enters at
-`(-2.1, 6.6)` under a temporary `ウェイター` tag, walks to `(-2.1, 2.4)` at about
-4 units per second, then plays `emote-yes` for 0.9 seconds; the score pill
-(`きみ 0 ・ ウェイター 0`) appears as it waves. The pill is head to head: it counts
-only deliveries after the served totals captured once when the intro starts.
-The solo deliveries still count for progress and stars. Then the title goes, the camera
-eases back to the whole room, a `ランチラッシュ！` cue appears under the score,
-and the rival's state machine begins. The HUD's upper centre is a stack: score
-(persistent, hidden during the solo stretch), phase cue, then notices. The
-entrance can never run twice.
+The intro is a short challenge scene (revised 2026-09-17, pure
+`rivalChallenge.js`) and freezes play for as long as it lasts, including the
+wait for a reply: player movement, actions and click-to-walk, the belt, every
+patience, customer timers, the director, carried-dish temperature and the
+rival's AI. Only the rival's walk, the camera, the dialogue and cosmetic
+animation run. The camera eases toward the front-left aisle, a short rising
+sting plays, and a large `ライバル ウェイター！` title shows. The rival
+physically enters at `(-2.1, 6.6)` under a temporary `ウェイター` tag, walks to
+`(-2.1, 2.4)` at about 4 units per second, turns to face the room and plays
+`emote-yes` for 0.9 seconds. On arrival the title goes and an RPG-style box
+along the bottom (name tab `ウェイター`, rival kept in view above it) shows
+`勝負しよう！／どっちがたくさん料理を運べるかな？` with furigana, no TTS. After
+0.45 seconds (so a press still queued from the delivery cannot answer) three
+large replies appear: `いいよ！勝負だ！`, `負けないよ！`, `がんばるぞ！` (about
+1.5 seconds from the walk starting). The game waits indefinitely. Replies are
+ordinary buttons: click/tap, arrow keys move focus (also after a click into the
+room), Enter or Space activates the focused reply; the microphone is never
+used. Every reply has the same result, with no bonus or hidden effect. On a
+reply the box closes, a short confirmation sting plays and the rival plays
+`emote-yes` for 0.55 seconds. Then, together: the belt switches to its rush
+rate, the director enters the rush, the camera eases back to the whole room,
+the score pill (`きみ 0 ・ ウェイター 0`) appears with a `ランチラッシュ！` cue
+under it, and the rival's state machine begins, as the same character. The pill
+is head to head: it counts only deliveries after the served totals captured
+once when the scene starts. The solo deliveries still count for progress and
+stars. The HUD's upper centre is a stack: score (persistent, hidden until the
+challenge is accepted), phase cue, then notices. The challenge can never run
+twice.
 
 **Result moment (added 2026-09-17).** When every customer of a shift that had
 a rival is resolved, the round-end pause becomes a 1.9-second result moment

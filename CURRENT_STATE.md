@@ -29,7 +29,9 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
   (pure `rushTrigger.js`) starts a one-shot rush after a 1.6 s beat — conveyor
   `startRush()` (solo ≈ 3.7 visible dishes, rush ≈ 5.1 Normal / 6.6 Challenge,
   speed +8% / +12%, `MIN_DISH_SPACING` 1.9), director `manualRush`, and the rival
-  walks in up the front-left aisle under a temporary `ウェイター` tag and waves before its AI starts. Normal rival
+  walks in up the front-left aisle under a temporary `ウェイター` tag and waves before its AI starts
+  (superseded by the challenge scene, live 2026-09-17, Next Steps 000000: the
+  belt and director now switch only after the player's reply). Normal rival
   enabled. Totals 5/9/13. DESIGN_DECISIONS 2026-09-16 "shifts start solo".
 - **Restaurant open seating (2026-09-16, LIVE `583e07d`; owner has not marked
   screenshots A–D):** Talk is Space everywhere (speech consumes only handled
@@ -118,6 +120,20 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+000000. 2026-09-17 Restaurant rival challenge scene (Claude directly; SPEC §4
+     "Rush and rival waiter" and DESIGN_DECISIONS fifth pass). PUSHED LIVE
+     2026-09-17 at the owner's request. The rival walks in, challenges in Japanese (furigana), and the player
+     picks one of three replies (click, or arrows + Enter/Space; no mic). Everything,
+     belt included, is frozen until the reply; then a 0.55 s nod, and after it the rush,
+     0–0 score and `ランチラッシュ！`. Pure `rivalChallenge.js` + 9 unit tests;
+     debug `rivalChallenge {active, phase, awaitingResponse, lineVisible,
+     choicesVisible, choices, selectedResponse}` and top-level `elapsed`. Verified:
+     `npm test` 264/264, build OK, focused Normal browser check 34/34 twice
+     (session scratchpad `restaurant-challenge.mjs`, UNTRUSTED — no known-bad
+     run), layout probe at 1366/1024/412 px, Claude viewed renders. NOT run: Easy
+     and Challenge in the browser (Easy is unit-tested; Challenge uses the same
+     path). NEXT: owner plays Normal and judges whether a child reads "another
+     waiter, now we compete".
 00000. 2026-09-17 Restaurant ending (PUSHED LIVE with 0000 below at the owner's
      request, 2026-09-17; DESIGN_DECISIONS third and
      fourth passes): 1.9 s win/loss/draw result moment in `round-end` (pure

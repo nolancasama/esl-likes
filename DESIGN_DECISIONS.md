@@ -1281,3 +1281,49 @@ existed and was kept as is).
 - **Tests.** One real full Easy shift and one real full Normal shift in the
   browser through to the answer. Challenge uses the same rival path and was
   not run separately.
+
+## 2026-09-17 (fifth pass) — Restaurant: the rival's arrival is a challenge the player answers
+
+Owner plan: turn the rival's entrance into a short interactive challenge scene.
+Implemented by Claude directly (one scene file plus a small pure module).
+
+- **Accepted — challenge dialogue and three replies.** The rival walks in,
+  says `勝負しよう！どっちがたくさん料理を運べるかな？`, and the player picks one
+  of `いいよ！勝負だ！` / `負けないよ！` / `がんばるぞ！`. Role-play only: every reply
+  has the same outcome. Pure `rivalChallenge.js` (idle → entering → awaiting →
+  reacting → done, one shot).
+- **Accepted — the whole scene is a full pause, including the belt.** This
+  reverses the 2026-09-16 "belt keeps running so the rush density is seen":
+  with an open-ended wait for a reply, a running belt would not be a pause. The
+  belt, director and rival AI switch to the rush together only after the reply.
+- **Accepted — score and `ランチラッシュ！` only after the reply**, 0–0.
+- **Modified — kept the existing Japanese score and cue** (`きみ 0 ・ ウェイター 0`,
+  `ランチラッシュ！`) rather than the plan's English `YOU 0 — WAITER 0` /
+  `LUNCH RUSH!`: the HUD is Japanese throughout.
+- **Modified — the rival faces the room, not the player.** The player can be
+  anywhere, often behind the rival, and facing them would show the camera the
+  rival's back while it speaks.
+- **Modified — one box along the bottom, not a bubble over the rival.** The
+  line and replies sit together (RPG style) under the rival, so neither the
+  existing `ウェイター` tag nor the rival is covered. The replies are in one row
+  at Chromebook widths and stack at phone width.
+- **Added — furigana on the kanji.** The rest of the game's Japanese is kana
+  for young readers; the plan's kanji (勝負, 料理, 運, 負) get readings rather
+  than being rewritten.
+- **Added — 0.45 s before the replies appear**, so a Space press or click still
+  queued from the third delivery cannot answer by accident. Brings the time
+  before a reply is possible to about 1.5 s, inside the plan's 1.5–2 s.
+- **Added — arrow keys work on the window while the replies show**, so a child
+  who clicked into the room can still reach them by keyboard. Clicks into the
+  room are ignored during the scene, so they can't queue a walk for afterwards.
+- **Rejected — TTS for the rival's line.** The speech voice is set up for
+  English; no Japanese voice is guaranteed on Chromebooks.
+- **Kept — Easy unchanged** (no rival, no challenge).
+- **Tests.** 9 unit tests for the challenge (trigger, Easy, pause, delayed
+  replies, same outcome for every reply, one shot, strings). One focused
+  browser run on Normal (34/34, then again after the style fixes): pause holds
+  for 3.5 s with keys held and a room click, belt, patience and position
+  unchanged, arrow + Enter reply, no mic start, rush and 0–0 after the reply,
+  no second trigger. Timings are measured in game time (new read-only debug
+  `elapsed`): the software renderer runs below 20 fps, so the wall clock
+  overstates them.

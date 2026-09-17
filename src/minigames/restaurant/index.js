@@ -19,6 +19,7 @@ import {
   createCompetitionScore,
   createRushTrigger,
 } from './rushTrigger.js';
+import { RIVAL_CHALLENGE_REACTION_SECONDS, createRivalChallenge } from './rivalChallenge.js';
 import { OWNERSHIP_BUBBLE_TEXT, isTalkable, ownershipBubble } from './customerState.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
@@ -55,8 +56,9 @@ const STEER_CLEARANCE = 1.75;
 const RIVAL_ENTRANCE_START = Object.freeze({ x: -2.1, z: 6.6 });
 const RIVAL_ENTRANCE_END = Object.freeze({ x: -2.1, z: 2.4 });
 const RIVAL_ENTRANCE_SPEED = 4;
-// Walk (~1.05 s) plus wave: the whole frozen intro stays near two seconds.
-const RIVAL_ENTRANCE_EMOTE_SECONDS = 0.9;
+// Walk (~1.05 s), then a wave while the challenge line shows; the replies
+// follow the line by RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS.
+const RIVAL_ARRIVAL_WAVE_SECONDS = 0.9;
 const ROOM_CAMERA = Object.freeze({ position: [0, 11.5, 12], lookAt: [0, 0.8, 0.6], damping: 5 });
 // A modest eased move toward the front-left aisle the rival walks in along.
 const ENTRANCE_CAMERA = Object.freeze({ position: [-0.8, 6.4, 9.6], lookAt: [-2.1, 1.1, 3.3], damping: 5 });
@@ -102,6 +104,22 @@ const RESTAURANT_SIGN_TEXT = 'MATSUBARA RESTAURANT';
 // Two lines: compared at 1366x768 against one line, whose letters were too
 // small to read from the fixed camera (DESIGN_DECISIONS 2026-09-17).
 const RESTAURANT_SIGN_LINES = Object.freeze(['MATSUBARA', 'RESTAURANT']);
+
+// Renders '{漢字|かんじ}' segments as <ruby> furigana, everything else as text.
+function appendFurigana(element, text) {
+  const pattern = /\{([^|}]+)\|([^}]+)\}/g;
+  let last = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > last) element.append(text.slice(last, match.index));
+    const ruby = document.createElement('ruby');
+    const reading = document.createElement('rt');
+    reading.textContent = match[2];
+    ruby.append(match[1], reading);
+    element.append(ruby);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) element.append(text.slice(last));
+}
 
 /** Restaurant minigame controller for the frozen shell interface. */
 export function createRestaurant(ctx) {
@@ -163,9 +181,11 @@ export function createRestaurant(ctx) {
   let rushTrigger = null;
   let competitionScore = null;
   let rushBeatRemaining = 0;
-  let rivalEntrance = 'idle';
-  let rivalEntranceEmoteRemaining = 0;
+  let rivalChallenge = null;
+  let rivalEmoteRemaining = 0;
   let rivalEntranceLabel = null;
+  let challengePanel = null;
+  let challengeReplies = null;
   let createRivalCharacter = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
@@ -337,6 +357,36 @@ export function createRestaurant(ctx) {
         filter: drop-shadow(0 .32rem 0 #1b2233); }
       .restaurant-ui__result[data-outcome="draw"] { color: #fff; -webkit-text-stroke-color: #315d92;
         filter: drop-shadow(0 .32rem 0 #315d92); }
+      /* The rival's challenge: an RPG-style box along the bottom, below the rival. */
+      .restaurant-ui__challenge { position: absolute; left: 50%; bottom: 1rem; transform: translateX(-50%);
+        box-sizing: border-box; width: min(94vw, 52rem); padding: 1.25rem 1.3rem 1.1rem;
+        border: .28rem solid #273858; border-radius: 1.5rem; background: #fff; color: #1b2940;
+        box-shadow: 0 .45rem 0 rgb(28 48 78 / .28); animation: restaurant-challenge-in .22s ease-out; }
+      @keyframes restaurant-challenge-in { from { transform: translateX(-50%) translateY(1.2rem); opacity: 0; } }
+      .restaurant-ui__challenge-name { position: absolute; left: 1.2rem; top: 0; transform: translateY(-60%);
+        padding: .22rem .9rem; border: .2rem solid #fff; border-radius: 999px; background: #1b2233; color: #fff;
+        font: 900 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .restaurant-ui__challenge-line { margin: 0; white-space: pre-line; text-align: center; line-height: 1.5;
+        font: 900 calc(clamp(1.35rem, 3.3vw, 1.9rem) * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .restaurant-ui__challenge rt { font-size: .5em; font-weight: 700; color: #4d5b73; }
+      .restaurant-ui__challenge-replies { display: flex; flex-wrap: wrap; justify-content: center; gap: .7rem;
+        margin-top: .9rem; }
+      .restaurant-ui__challenge-replies[hidden] { display: none; }
+      /* #ui-layer: the global "#ui-layer button { font: inherit }" outranks a class alone.
+         nowrap: when space runs out a whole reply moves to the next row instead. */
+      #ui-layer .restaurant-ui__challenge-reply { flex: 1 1 12rem; min-height: 4.4rem; padding: .5rem .9rem;
+        white-space: nowrap; pointer-events: auto;
+        border: .25rem solid #fff; border-radius: 1.3rem; background: #ef8a17; color: #fff;
+        cursor: pointer; box-shadow: 0 .38rem 0 rgb(32 49 75 / .3);
+        font: 900 calc(clamp(1.25rem, 2.8vw, 1.6rem) * var(--ui-scale, 1)) / 1.3 system-ui, sans-serif;
+        animation: restaurant-challenge-reply-in .2s ease-out backwards; }
+      @keyframes restaurant-challenge-reply-in { from { transform: translateY(.8rem); opacity: 0; } }
+      .restaurant-ui__challenge-reply rt { color: #fff3dd; }
+      .restaurant-ui__challenge-reply:nth-child(2) { animation-delay: .05s; }
+      .restaurant-ui__challenge-reply:nth-child(3) { animation-delay: .1s; }
+      #ui-layer .restaurant-ui__challenge-reply:hover { background: #f59a2c; }
+      #ui-layer .restaurant-ui__challenge-reply:active { transform: translateY(.2rem); box-shadow: 0 .18rem 0 rgb(32 49 75 / .3); }
+      .restaurant-ui__challenge-reply:focus-visible { outline: .32rem solid #ffcf33; outline-offset: .2rem; }
       @media (max-width: 44rem) { .restaurant-ui__temperature { right: 50%; bottom: 5.9rem; transform: translateX(50%); } }
     `;
     document.head.append(style);
@@ -353,6 +403,11 @@ export function createRestaurant(ctx) {
       <div class="restaurant-ui__score" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__title" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__result" role="status" aria-live="polite" hidden></div>
+      <section class="restaurant-ui__challenge" role="dialog" aria-live="polite" hidden>
+        <div class="restaurant-ui__challenge-name"></div>
+        <p class="restaurant-ui__challenge-line"></p>
+        <div class="restaurant-ui__challenge-replies" hidden></div>
+      </section>
       <button class="restaurant-ui__action" type="button" hidden></button>
       <div class="restaurant-ui__temperature" role="status" hidden></div>
     `;
@@ -367,6 +422,20 @@ export function createRestaurant(ctx) {
     rivalTitle = overlay.querySelector('.restaurant-ui__title');
     rivalTitle.textContent = STRINGS.rivalTitle;
     resultLabel = overlay.querySelector('.restaurant-ui__result');
+    challengePanel = overlay.querySelector('.restaurant-ui__challenge');
+    challengePanel.querySelector('.restaurant-ui__challenge-name').textContent = STRINGS.rivalLabel;
+    appendFurigana(challengePanel.querySelector('.restaurant-ui__challenge-line'), STRINGS.rivalChallenge);
+    challengeReplies = challengePanel.querySelector('.restaurant-ui__challenge-replies');
+    STRINGS.rivalChallengeReplies.forEach((reply, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'restaurant-ui__challenge-reply';
+      button.dataset.reply = String(index);
+      appendFurigana(button, reply);
+      challengeReplies.append(button);
+    });
+    challengeReplies.addEventListener('click', onChallengeReply);
+    window.addEventListener('keydown', onChallengeKey, true);
     temperature = overlay.querySelector('.restaurant-ui__temperature');
     actionButton.addEventListener('click', performAction);
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
@@ -870,10 +939,9 @@ export function createRestaurant(ctx) {
   }
 
   function updateChallengeScore() {
-    // The solo stretch has no competitor, so no "waiter 0" score before the
-    // rival has arrived; it appears as the rival waves.
-    // Head to head from the rival's arrival: the solo deliveries are not in it.
-    if (!scoreText || !claimRegistry || rivalEntrance === 'idle' || rivalEntrance === 'walking') return;
+    // No score before the player has accepted the rival's challenge; it then
+    // starts 0–0 (the solo deliveries are not in it).
+    if (!scoreText || !claimRegistry || !rivalArrived()) return;
     const score = competitionScore?.score(claimRegistry.counts);
     if (!score) return;
     scoreText.textContent = formatUi(STRINGS.rivalScore, score);
@@ -1333,23 +1401,24 @@ export function createRestaurant(ctx) {
     });
   }
 
+  // The whole challenge scene (walk in, line, replies, reaction) pauses service.
   function rivalIntroActive() {
-    return rivalEntrance === 'walking' || rivalEntrance === 'emote';
+    return Boolean(rivalChallenge?.paused);
   }
 
-  function beginRush() {
-    if (rivalEntrance !== 'idle') return false;
-    rivalEntrance = 'walking';
-    // The intro freezes play, so no half-targeted conversation survives it.
+  function rivalArrived() {
+    return rivalChallenge?.phase === 'done';
+  }
+
+  function beginRivalChallenge() {
+    if (!rivalChallenge?.start()) return false;
+    // The scene freezes play, so no half-targeted conversation survives it.
     clearQuestion();
     clickQuestionCustomer = null;
+    autoTarget = null;
     hideAction();
     setListenTarget(null);
     if (claimRegistry) competitionScore?.capture(claimRegistry.counts);
-    // The belt changes now, so the denser stream is already arriving on return.
-    conveyor.startRush();
-    serviceDirector.startRush();
-    directorPhase = serviceDirector.phase;
     cameraRig.setPreset('fixed', ENTRANCE_CAMERA);
     if (rivalTitle) rivalTitle.hidden = false;
     audio.playSfx('restaurant-rival-sting', { frequency: 280, endFrequency: 1180, duration: 0.32, gain: 0.12 });
@@ -1359,15 +1428,77 @@ export function createRestaurant(ctx) {
     return true;
   }
 
+  function showChallengeLine() {
+    // The third delivery's thanks bubble must not sit over the scene.
+    dialogue.hide();
+    dialogueCustomer = null;
+    dialogueRemaining = 0;
+    if (rivalTitle) rivalTitle.hidden = true;
+    if (!challengePanel) return;
+    challengeReplies.hidden = true;
+    challengePanel.hidden = false;
+  }
+
+  function showChallengeReplies() {
+    if (!challengeReplies) return;
+    challengeReplies.hidden = false;
+    // Keyboard players land on a reply; a mouse click works regardless.
+    challengeReplies.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  function hideChallengePanel() {
+    if (!challengePanel) return;
+    if (challengePanel.contains(document.activeElement)) document.activeElement.blur();
+    challengePanel.hidden = true;
+    challengeReplies.hidden = true;
+  }
+
+  function onChallengeReply(event) {
+    const button = event.target instanceof Element ? event.target.closest('button[data-reply]') : null;
+    if (!button || !active || !rivalChallenge?.choose(Number(button.dataset.reply))) return;
+    // Role-play only: every reply leads to the same nod and the same rush.
+    hideChallengePanel();
+    rivalEmoteRemaining = RIVAL_CHALLENGE_REACTION_SECONDS;
+    if (rivalCharacter) rivalCharacter.rotation.y = 0;
+    audio.playSfx('restaurant-challenge-accept', { frequency: 660, endFrequency: 1320, duration: 0.2, gain: 0.12 });
+  }
+
+  // On the window, so the arrows still reach the replies after a click into the room.
+  function onChallengeKey(event) {
+    const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.code];
+    if (!step || !rivalChallenge?.choicesVisible || !challengeReplies) return;
+    // Arrows move between replies here; they must not also walk the avatar.
+    event.preventDefault();
+    event.stopPropagation();
+    const buttons = [...challengeReplies.querySelectorAll('button')];
+    const current = buttons.indexOf(document.activeElement);
+    const next = current < 0 ? (step > 0 ? 0 : buttons.length - 1) : (current + step + buttons.length) % buttons.length;
+    buttons[next]?.focus({ preventScroll: true });
+  }
+
+  function beginRushGameplay() {
+    // The belt, director and rival AI all switch together, only now.
+    conveyor.startRush();
+    serviceDirector.startRush();
+    directorPhase = serviceDirector.phase;
+    cameraRig.setPreset('fixed', ROOM_CAMERA);
+    showPhaseCue('rush', STRINGS.lunchRush);
+    rivalEmoteRemaining = 0;
+    setRivalAnimation('idle');
+    activateRivalModel();
+    updateChallengeScore();
+  }
+
   function updateRushSequence(serviceDt) {
-    if (serviceDt <= 0 || !rushTrigger?.triggered) return;
-    if (rivalEntrance === 'idle') {
+    if (serviceDt <= 0 || !rushTrigger?.triggered || !rivalChallenge) return;
+    rivalEmoteRemaining = Math.max(0, rivalEmoteRemaining - serviceDt);
+    if (rivalChallenge.phase === 'idle') {
       rushBeatRemaining = Math.max(0, rushBeatRemaining - serviceDt);
       // Never cut into a conversation: wait until Talk has finished.
-      if (rushBeatRemaining === 0 && !questionCommitted && !focus.active) beginRush();
+      if (rushBeatRemaining === 0 && !questionCommitted && !focus.active) beginRivalChallenge();
       return;
     }
-    if (rivalEntrance === 'walking' && rivalCharacter) {
+    if (rivalChallenge.phase === 'entering' && rivalCharacter) {
       const dx = RIVAL_ENTRANCE_END.x - rivalCharacter.position.x;
       const dz = RIVAL_ENTRANCE_END.z - rivalCharacter.position.z;
       const distance = Math.hypot(dx, dz);
@@ -1379,30 +1510,24 @@ export function createRestaurant(ctx) {
       }
       if (step >= distance - 1e-6) {
         rivalCharacter.position.set(RIVAL_ENTRANCE_END.x, 0, RIVAL_ENTRANCE_END.z);
-        // Wave to the room: the walk in shows only the rival's back to the camera.
+        // Face the room (the player's view) to challenge: the walk in shows
+        // only the rival's back, and the player may be anywhere behind it.
         rivalCharacter.rotation.y = 0;
-        rivalEntrance = 'emote';
-        rivalEntranceEmoteRemaining = RIVAL_ENTRANCE_EMOTE_SECONDS;
-        setRivalAnimation('emote-yes');
-        updateChallengeScore();
+        rivalChallenge.arrive();
+        rivalEmoteRemaining = RIVAL_ARRIVAL_WAVE_SECONDS;
+        showChallengeLine();
       }
-    } else if (rivalEntrance === 'emote') {
-      rivalEntranceEmoteRemaining = Math.max(0, rivalEntranceEmoteRemaining - serviceDt);
-      if (rivalEntranceEmoteRemaining === 0) {
-        rivalEntrance = 'active';
-        if (rivalTitle) rivalTitle.hidden = true;
-        cameraRig.setPreset('fixed', ROOM_CAMERA);
-        showPhaseCue('rush', STRINGS.lunchRush);
-        setRivalAnimation('idle');
-        activateRivalModel();
-      }
+    } else {
+      const event = rivalChallenge.advance(serviceDt);
+      if (event === 'choices-shown') showChallengeReplies();
+      else if (event === 'rush') beginRushGameplay();
     }
     updateRivalEntranceLabel();
   }
 
   function updateRivalEntranceLabel() {
     if (!rivalEntranceLabel) return;
-    const entering = (rivalEntrance === 'walking' || rivalEntrance === 'emote') && Boolean(rivalCharacter);
+    const entering = rivalIntroActive() && Boolean(rivalCharacter);
     rivalEntranceLabel.visible = entering;
     if (!entering) return;
     rivalEntranceLabel.position.copy(rivalCharacter.position);
@@ -1706,7 +1831,7 @@ export function createRestaurant(ctx) {
           }
           // With no rival to ask the final question, the shift's last diner
           // stays at the table to ask it instead of walking out.
-          if (rivalEntrance !== 'active' && isLastInRoom(customer)) {
+          if (!rivalArrived() && isLastInRoom(customer)) {
             customer.state = 'delivered';
             customer.stayedForTurnaround = true;
             customer.character.playAnimation?.('idle');
@@ -1885,7 +2010,8 @@ export function createRestaurant(ctx) {
   }
 
   function onCanvasPointer(event) {
-    if (!active || phase !== 'service') return;
+    // A click into the room during the challenge must not queue a walk for later.
+    if (!active || phase !== 'service' || rivalIntroActive()) return;
     const rect = canvas.getBoundingClientRect();
     pointer.set(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -1995,6 +2121,8 @@ export function createRestaurant(ctx) {
       directorPhase,
       progress: { done: claimRegistry?.progress.done ?? records.length, total: shiftTotal },
       level: difficulty,
+      // Game time (frame-clamped), for timing checks independent of frame rate.
+      elapsed,
       rush: {
         enabled: Boolean(RIVAL_LEVELS[difficulty]?.enabled),
         triggered: rushTrigger?.triggered ?? false,
@@ -2003,6 +2131,20 @@ export function createRestaurant(ctx) {
         titleVisible: Boolean(rivalTitle && !rivalTitle.hidden),
         deliveriesToRush: RUSH_PLAYER_DELIVERIES,
         playerDeliveries: rushTrigger?.playerDeliveries ?? 0,
+      },
+      rivalChallenge: {
+        active: rivalIntroActive(),
+        phase: rivalChallenge?.phase ?? 'idle',
+        awaitingResponse: rivalChallenge?.phase === 'awaiting',
+        lineVisible: Boolean(challengePanel && !challengePanel.hidden),
+        choicesVisible: Boolean(challengePanel && !challengePanel.hidden && challengeReplies && !challengeReplies.hidden),
+        // Base text only; furigana readings are left out.
+        choices: challengeReplies
+          ? [...challengeReplies.querySelectorAll('button')].map((button) => [...button.childNodes]
+            .map((node) => (node.nodeName === 'RUBY' ? node.firstChild.textContent : node.textContent))
+            .join(''))
+          : [],
+        selectedResponse: rivalChallenge?.selectedResponse ?? null,
       },
       customers: customers.map((customer) => ({
         id: customer.id,
@@ -2087,7 +2229,7 @@ export function createRestaurant(ctx) {
       rivalCharacter: rivalCharacter ? {
         visible: rivalCharacter.parent === world && rivalCharacter.visible,
         uuid: rivalCharacter.uuid,
-        entering: rivalEntrance === 'walking' || rivalEntrance === 'emote',
+        entering: rivalIntroActive(),
         entranceLabelVisible: Boolean(rivalEntranceLabel?.visible),
         position: { x: rivalCharacter.position.x, z: rivalCharacter.position.z },
       } : null,
@@ -2147,7 +2289,7 @@ export function createRestaurant(ctx) {
   }
 
   function chooseTurnaroundPartner() {
-    if (rivalEntrance === 'active' && rivalCharacter) return { type: 'rival', character: rivalCharacter, customer: null };
+    if (rivalArrived() && rivalCharacter) return { type: 'rival', character: rivalCharacter, customer: null };
     const stayed = customers.find((customer) => customer.stayedForTurnaround);
     if (stayed) return { type: 'customer', character: stayed.character, customer: stayed };
     // The final resolution was a walk-out: the last diner served walks back in.
@@ -2309,7 +2451,7 @@ export function createRestaurant(ctx) {
     if (dialogueCustomer) dialogueRemaining = Math.min(dialogueRemaining, 1.1);
     // Only a shift that had a rival gets the result moment (never Easy, never a
     // shift that ended before the rush).
-    if (rivalEntrance === 'active' && claimRegistry) {
+    if (rivalArrived() && claimRegistry) {
       const outcome = competitionOutcome(competitionScore?.score(claimRegistry.counts));
       if (outcome) beginResultCeremony(outcome);
     }
@@ -2444,8 +2586,8 @@ export function createRestaurant(ctx) {
     clickQuestionCustomer = null;
     questionCommitted = false;
     rushBeatRemaining = 0;
-    rivalEntrance = 'idle';
-    rivalEntranceEmoteRemaining = 0;
+    rivalChallenge = createRivalChallenge({ enabled: rivalEnabled });
+    rivalEmoteRemaining = 0;
     if (rivalEntranceLabel) rivalEntranceLabel.visible = false;
     if (rivalTitle) rivalTitle.hidden = true;
     turnaroundPartner = null;
@@ -2513,9 +2655,10 @@ export function createRestaurant(ctx) {
     }
 
     if (phase === 'service') {
-      // The rival's intro freezes everything that can cost the player: movement,
-      // patience, customer timers, the director and carried-dish temperature.
-      // Only the belt keeps running, so its switch to rush density is seen.
+      // The rival's challenge scene freezes everything that can cost the player,
+      // however long the reply takes: movement, the belt, patience, customer
+      // timers, the director and carried-dish temperature. Only the rival's
+      // walk, the camera, the dialogue and cosmetic animation run.
       const intro = rivalIntroActive();
       const playDt = intro ? 0 : serviceDt;
       if (intro) player.playAnimation?.('idle');
@@ -2524,7 +2667,7 @@ export function createRestaurant(ctx) {
       updateRivalWalk(playDt);
       updateCustomers(playDt, safeDt);
       applyDirectorEvents(playDt);
-      updateConveyor(serviceDt);
+      updateConveyor(playDt);
       updateCarried(playDt);
       if (intro) input.consumeInteract();
       else {
@@ -2537,8 +2680,8 @@ export function createRestaurant(ctx) {
       else claimRegistry?.advance(playDt);
       if (rivalCharacter) {
         if (focus.active) setRivalAnimation('idle', true);
-        else if (rivalEntrance === 'walking') setRivalAnimation('walk');
-        else if (rivalEntrance === 'emote') setRivalAnimation('emote-yes');
+        else if (rivalChallenge?.phase === 'entering') setRivalAnimation('walk');
+        else if (rivalIntroActive() && rivalEmoteRemaining > 0) setRivalAnimation('emote-yes');
         else if (rivalWalk.active && rivalWalk.delayRemaining <= 0) setRivalAnimation('walk');
         else setRivalAnimation('idle');
       }
@@ -2587,6 +2730,7 @@ export function createRestaurant(ctx) {
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
     removeDebugHook();
     actionButton?.removeEventListener('click', performAction);
+    window.removeEventListener('keydown', onChallengeKey, true);
     listenAgain?.dispose();
     listenAgain = null;
     listenCustomer = null;
@@ -2625,9 +2769,11 @@ export function createRestaurant(ctx) {
     rushTrigger = null;
     competitionScore = null;
     rushBeatRemaining = 0;
-    rivalEntrance = 'idle';
-    rivalEntranceEmoteRemaining = 0;
+    rivalChallenge = null;
+    rivalEmoteRemaining = 0;
     rivalEntranceLabel = null;
+    challengePanel = null;
+    challengeReplies = null;
     createRivalCharacter = null;
     rival = null;
     rivalCharacter = null;
