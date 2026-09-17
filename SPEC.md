@@ -285,8 +285,12 @@ difficulty is therefore memory load and competing demands, never faster speech.
 ### Environment
 
 A compact 3D dining room: several tables, wide clear pathways, and a back wall
-composed as one piece — **MATSUBARA RESTAURANT** as a mounted wall sign on top,
-a moving conveyor below it, kitchen openings in the two side walls. Small enough
+composed as one piece — **MATSUBARA / RESTAURANT** on a two-line wall-mounted
+board on top (dark wood frame, cream face, brick-red lettering, brass trim and
+picture light), a moving conveyor below it, kitchen openings in the two side
+walls. The conveyor reads as restaurant cabinetry (revised 2026-09-17): dark
+charcoal belt for food contrast, cream enamel housing, brushed stainless rails,
+a wood lower cabinet and one thin teal stripe. Small enough
 that crossing it is quick and readable. There is no bell and no one standing at
 a pass (revised 2026-09-14).
 
@@ -296,9 +300,10 @@ a pass (revised 2026-09-14).
    can be asked; there is no raised hand, question mark or other order cue.
 2. Player walks over and presses Talk once: "What food do you like?"
 3. NPC answers "I like curry." — spoken, plus a full speech bubble for about
-   2.5 seconds. It then collapses to a persistent ownership bubble that says
-   only "I like...": white means the player's customer and black means the
-   rival's. No bubble means the seated customer has not yet been asked, and no
+   2.5 seconds. It then collapses to a persistent waiting bubble that says
+   only `まってる…` (Japanese = game state; English = what to remember) with a
+   thin patience strip along its bottom: white means the player's customer and
+   black means the rival's (revised 2026-09-17). No bubble means the seated customer has not yet been asked, and no
    ownership bubble is shown while a customer eats or leaves. Speech focus
    holds all service pressure while the full answer is showing.
 4. The kitchen never cooks to order (revised 2026-09-15): a continuous random
@@ -390,11 +395,13 @@ binding each plate to one person.
   forfeits that customer's memory bonus without breaking the combo.
 - Food temperature: the dish cools after it is picked up from the belt.
   Hot 3 stars / Warm 2 / Cold 1.
-- Customer patience stays internal and forgiving. Unclaimed seated customers
-  effectively never leave; once claimed, patience drains at one point per
-  service second from a starting 150 / 140 / 130 on Easy / Normal / Challenge.
-  Below 30%, a seated customer looks around gently as the only late warning —
-  no meter, bar, ring, countdown or icon is shown.
+- Customer patience (revised 2026-09-17). Unclaimed seated customers have no
+  patience drain and no strip. Once claimed (by either waiter), patience drains
+  at one point per service second from 150 / 120 / 100 on Easy / Normal /
+  Challenge, shown only as a thin green → amber (< 60%) → red (< 30%) strip
+  inside that customer's waiting bubble. There is no cap on held orders: taking
+  many at once means many strips draining. Below 30% the customer also looks
+  around gently. A wrong delivery never resets patience.
 
 Cold food never fails, and no order is ever permanently lost.
 
@@ -439,15 +446,48 @@ rate change. On Normal and Challenge, the player's third **correct delivery**
 triggers the rush exactly once. Wrong deliveries, customers leaving, Listen
 Again, taking orders and rival service do not count. The completed delivery's
 normal feedback plays first, followed by a 0.9-second service-time beat. Then
-the belt switches to its rush rate, the director enters rush, and a brief
-`ランチラッシュ！ ウェイターが きたよ！` phase cue and score pill appear.
+the rival intro starts (revised 2026-09-17), never while Talk is open.
 
-The rival physically enters at `(-2.1, 6.6)`, walks down the clear aisle to
-`(-2.1, 2.4)` at about 4 units per service second, then plays `emote-yes` for
-0.6 seconds. Only after that entrance does its existing state machine begin;
-it never teleports into a claim or starts with a customer. The beat, walk and
-emote all freeze under speech focus like every other source of service
-pressure, and the entrance can never run twice.
+The intro lasts about two seconds and freezes play: player movement and
+actions, every patience, customer timers, the director, carried-dish
+temperature and the rival's AI. Only the belt keeps running, already switched
+to its rush rate so the denser stream is visible. The camera eases toward the
+front-left aisle, a short rising sting plays, and a large
+`ライバル ウェイター！` title shows. The rival physically enters at
+`(-2.1, 6.6)` under a temporary `ウェイター` tag, walks to `(-2.1, 2.4)` at about
+4 units per second, then plays `emote-yes` for 0.9 seconds; the score pill
+(`きみ 0 ・ ウェイター 0`) appears as it waves. The pill is head to head: it counts
+only deliveries after the served totals captured once when the intro starts.
+The solo deliveries still count for progress and stars. Then the title goes, the camera
+eases back to the whole room, a `ランチラッシュ！` cue appears under the score,
+and the rival's state machine begins. The HUD's upper centre is a stack: score
+(persistent, hidden during the solo stretch), phase cue, then notices. The
+entrance can never run twice.
+
+**Result moment (added 2026-09-17).** When every customer of a shift that had
+a rival is resolved, the round-end pause becomes a 1.9-second result moment
+instead of the plain 1.3 seconds. Round end already stops every service system
+(belt, customers, patience, director, rival AI, player input). The score pill
+enlarges, and under it `きみの かち！`, `ウェイターの かち！` or `ひきわけ！` appears,
+decided by the head-to-head score only (a tie is a draw). Both waiters turn to
+the room. The winner hops twice and plays `emote-yes`, and the other plays
+`emote-no` with a slight forward droop. In a draw both play `emote-yes` with small hops.
+A short triangle-wave note sting plays: rising for a player win, falling for a
+rival win, two notes for a draw. Then the turnaround starts on its own.
+
+**Turnaround partner (revised 2026-09-17).** No extra NPC appears for the final
+question. If the rival has arrived, the same rival character steers around the
+tables to open floor beside the player (a walk of about 1.1 s, 4–8 units per
+second), turns to the player and nods (`emote-yes`, 0.7 s). Otherwise (Easy, or
+a shift that ended before the rush), a served customer asks: the shift's last
+diner stays seated at their table instead of walking out, or, if the final
+resolution was a walk-out, the most recently served customer walks back in
+through the door. The close-up camera then targets that character, who turns to face the camera
+(the child's view) and asks
+"What food do you like?". The answer flow, matching, completion and stars are
+unchanged. Stars,
+records and progress are untouched. Easy, and any shift that ended before the
+rush, keep the plain pause.
 
 Normal's rival has speed 3.6, waits until a customer has been seated for 7
 seconds, may claim 0.35 of the shift total, hesitates 0.8–1.5 seconds, and
@@ -472,7 +512,8 @@ player-owned awaiting customers accept the player's delivery; rival-owned,
 unclaimed, eating and leaving customers are never delivery targets. The full
 answer bubble is visible for about 2.5 seconds after a successful question or
 Listen Again, hiding the ownership bubble during that time. It then returns as
-a white player or black rival "I like..." bubble. It never contains the food.
+a white player or black rival `まってる…` bubble with its patience strip. It
+never contains the food.
 There is no separate owner badge. Listen Again remains available only for
 player-owned awaiting customers and forfeits only that customer's memory bonus.
 

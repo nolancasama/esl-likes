@@ -1177,3 +1177,107 @@ Owner plan, analysed and implemented with changes.
   permanent label, and re-routing the entrance (the belt wall rules out walking
   in toward the camera). Pushed live at the owner's request before the owner
   reviewed screenshots A–D.
+
+## 2026-09-17 — Restaurant: まってる… bubbles, visible claimed patience, frozen rival intro
+
+Owner plan reviewed against the live solo-then-rush tree (much of it — rush
+trigger, denser belt, shared dishes, no order cap, physical entrance — already
+existed and was kept as is).
+
+- **Accepted — `まってる…` replaces `I like...`** in the persistent bubble. English
+  is what the child must remember and appears only as the ~2.5 s answer or Listen
+  Again; Japanese is game state. `I like...` read as a half-finished English hint.
+- **Accepted — visible patience for claimed customers only**, as a thin strip
+  inside the waiting bubble (green / amber < 60% / red < 30%), not a floating bar.
+  Reason: with patience hidden, claiming every customer at once had no cost.
+  Unclaimed customers no longer drain at all (`preOrderDrain` 0 on every level).
+- **Modified — patience tuned 150 / 120 / 100** (was 150 / 140 / 130) so holding
+  four or five orders becomes risky. Not playtested; one table in `index.js`.
+- **Accepted — frozen ~2 s rival intro**: eased camera move toward the aisle,
+  `ライバル ウェイター！` title, rising sting, score appears as the rival waves,
+  `ランチラッシュ！` under the score as the camera returns. The intro waits until
+  any open Talk ends.
+- **Modified — the belt keeps running during the intro** (the plan froze it). The
+  player and rival cannot take dishes then, so nothing is lost, and the switch to
+  rush density is actually seen.
+- **Modified — Japanese titles**, not `RIVAL WAITER!` / `LUNCH RUSH!` / `YOU 3 —
+  WAITER 0`: the plan's own rule makes these game state, and every other
+  Restaurant cue is Japanese.
+- **Accepted — score moves to upper centre**, hidden until the rival waves; the
+  phase cue sits below it and generic notices below that. The back-wall sign
+  moved down (y 3.62 → 2.85) because the centred pill covered it.
+- **Rejected — rival urgency prioritisation.** The rival holds one order at a
+  time (state machine claim → belt → deliver), so it never has competing orders
+  to rank. Its customers already drain patience like the player's.
+- **Rejected — pausing patience while the answer shows / on Listen Again.**
+  Speech focus already freezes everything during Talk; the 2.5 s display is
+  negligible, and pausing on Listen Again would let replays stop the clock.
+- **Kept — the entrance-only `ウェイター` tag** alongside the new title; the
+  rival is still seen from behind while walking in.
+- **Rejected — the 43-test matrix.** Unit tests for the pure bubble/patience
+  rules plus one focused Normal browser run (owner: minimum testing).
+
+## 2026-09-17 (second pass) — Restaurant: 0–0 head-to-head score, real sign, restaurant conveyor
+
+- **Accepted — head-to-head score starts 0–0.** Pure `createCompetitionScore()` in
+  `rushTrigger.js` captures the served totals once at intro start and displays
+  the difference; progress, stars and the real totals are untouched. Debug
+  exposes `playerServed`/`rivalServed` and `competition.{baseline,score}`.
+- **Accepted — physical wall sign; two lines chosen after an A/B render** at
+  1366x768. One line (6.2 x 0.92 board) made the letters too small to read from
+  the fixed camera; two lines (3.7 x 1.36) read clearly and look like a shop
+  sign. Serif brick-red lettering on cream, dark wood frame, brass inner line,
+  small steam-over-bowl mark, brass picture light, faint warm emissive. Placed
+  at y 2.45 so it clears the score pill above and the belt below.
+- **Accepted — conveyor recoloured as cabinetry**: charcoal belt `#283238`, cream
+  housing `#E6D7BC`, stainless rails `#B8C3C1`, wood cabinet with panel seams
+  (replacing the dark metal legs), one thin teal stripe. Boxes only; no new assets.
+- **Modified — tests.** Unit tests for the pure baseline (hidden before capture,
+  0–0 start, captured once, real counts not a fixed 3); the focused browser run
+  covers solo totals, 0–0 reveal and a post-rush delivery. **Rejected — running
+  `scripts/playthrough.mjs`**: it is stale (raised hands) and untrusted.
+- **Open** — the temporary `ランチラッシュ！` cue and delivery notices sit over the
+  sign for ~2 s; moving them lower would cover the belt, which matters more.
+
+## 2026-09-17 (third pass) — Restaurant: end-of-shift result moment
+
+- **Accepted — a 1.9 s win/loss/draw moment** replacing the 1.3 s round-end pause
+  when the shift had a rival. It lives in the existing `round-end` phase, which
+  already freezes every service system, so no new freeze path was needed.
+  Outcome from pure `competitionOutcome()` over the head-to-head score.
+- **Modified — Japanese labels** `きみの かち！` / `ウェイターの かち！` / `ひきわけ！`
+  instead of `YOU WIN!` etc. (game-state text is Japanese); no failure wording,
+  and the rival-win label uses the rival's dark style, never red.
+- **Modified — reactions built from existing clips.** The models have
+  `emote-yes` (nod) and `emote-no` (head shake), no jump, cheer or sad clip.
+  Winner: `emote-yes` plus two procedural hops; other waiter: `emote-no` plus a
+  0.16 rad droop ("aw, almost"); draw: both `emote-yes` with smaller hops. No
+  new assets.
+- **Rejected — camera zoom.** The fixed whole-room framing already keeps both
+  waiters and the score in view wherever they stand; a zoom could crop one.
+- **Kept — no ceremony on Easy or before the rush** (there is no competition).
+- **Tests.** Unit tests for the outcome (win/loss/draw, uses the competition
+  score not solo totals); two real full Normal shifts in the browser, one
+  player win and one rival win. A draw is unit-tested only, because it can't be
+  set up reliably in a real shift.
+
+## 2026-09-17 (fourth pass) — Restaurant: the final question comes from someone in the story
+
+- **Accepted — no unrelated host.** The police-officer host (model `j`) is
+  removed from the Restaurant. Debug `host` is replaced by
+  `turnaroundPartner {type, customerId, walking, uuid, cameraTarget}`.
+- **Accepted — the rival asks on Normal/Challenge**, as the same character
+  (same object, no clone): the result moment ends, the rival steers around the
+  tables to open floor beside the player (~1.1 s), turns to the player, nods,
+  and then the close-up and question start.
+- **Modified — partner rule is "rival if it arrived, else a customer"**, so a
+  Normal shift that ended before the rush also gets a customer, not an empty ending.
+- **Modified — Easy's customer stays rather than returning.** When the last
+  resolution is a served diner finishing their meal, they stay seated at their
+  table and ask from there. If the final resolution was a walk-out, the most
+  recently served diner walks back in through the door (physically; never teleported).
+- **Rejected — a dedicated wave clip.** None exists; `emote-yes` is the friendly
+  gesture, as elsewhere.
+- **Tests.** One real full Easy shift and one real full Normal shift in the
+  browser through to the answer. Challenge uses the same rival path and was
+  not run separately.

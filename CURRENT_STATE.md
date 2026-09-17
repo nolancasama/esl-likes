@@ -5,8 +5,11 @@
 All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
 `.github/workflows/pages.yml` (unit tests gate the deploy). Live = Restaurant
-solo-then-rush (pushed 2026-09-16 at the owner's request, on top of open seating
-`583e07d`); earlier the conveyor revision, Zoo wrong-photo rule and Zoo harness.
+2026-09-17 passes (まってる… bubbles, patience strip, rival intro, 0–0 score,
+sign/conveyor, result moment, rival/customer turnaround partner; pushed
+2026-09-17 at the owner's request, `npm test` 255/255 + build, Challenge not run,
+owner has not reviewed renders) on top of solo-then-rush (2026-09-16) and open
+seating `583e07d`; earlier the conveyor revision, Zoo wrong-photo rule and Zoo harness.
 
 Pushed with known gaps (owner informed): `npm test` 239/239 and build passed,
 but Drink Stand/Coloring/Sports/Zoo playthroughs were not rerun after the
@@ -115,6 +118,32 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+00000. 2026-09-17 Restaurant ending (PUSHED LIVE with 0000 below at the owner's
+     request, 2026-09-17; DESIGN_DECISIONS third and
+     fourth passes): 1.9 s win/loss/draw result moment in `round-end` (pure
+     `competitionOutcome`), then the final question comes from the same rival
+     character after a short walk, or on Easy from the last served diner still at
+     their table. The police-officer host is removed. Verified: `npm test`
+     255/255, build OK; real full Normal shifts, one player win 10/10 and one
+     rival win 9/10 (the label overlapped the score; fixed and passed on the
+     rerun); Easy through the answer 9/9; Normal through the answer 14/14.
+     A draw is unit-tested only; Challenge not run. Scratchpad script
+     `restaurant-result.mjs` (untrusted, no known-bad run).
+0000. 2026-09-17 Restaurant `まってる…` bubbles + claimed-patience strip + frozen
+     camera rival intro + upper-centre score (Claude directly; DESIGN_DECISIONS
+     2026-09-17). PUSHED LIVE 2026-09-17. Verified: `npm test` 250/250, build
+     OK, focused Normal browser check 28/28 (session scratchpad
+     `restaurant-wait.mjs`, untrusted — no known-bad run). Claude viewed renders:
+     bubble/strip, intro and rush read well. The score pill covered the back-wall
+     sign → sign lowered to y 2.85 AFTER the run, NOT yet seen rendered. Challenge
+     not run. NEXT: owner reviews; patience 150/120/100 needs a classroom check.
+     Second pass same day (pushed): head-to-head score starts 0–0
+     (`createCompetitionScore`), two-line wood/cream wall sign at y 2.45 (A/B
+     rendered; supersedes the y 2.85 note above), conveyor recoloured
+     cream/wood/stainless. `npm test` 253/253, build OK, focused Normal run
+     30/30; Claude viewed rush renders. Open: rush/notice cues overlap the sign
+     for ~2 s.
+     Supersedes the "I like..." bubble and "patience internal, no meter" lines below.
 000. 2026-09-16 Restaurant solo-then-rush — PUSHED LIVE at the owner's request
      (owner has NOT reviewed screenshots A–D). Second pass added a temporary
      `ウェイター` tag over the rival during its entrance only (debug

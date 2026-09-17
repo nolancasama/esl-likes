@@ -257,7 +257,11 @@ export const UI = Object.freeze({
     // Shift phases and progress: small cues, never a countdown.
     rush: 'ラッシュ！',
     lunchRush: 'ランチラッシュ！',
-    rivalArrives: 'ランチラッシュ！ ウェイターが きたよ！',
+    rivalTitle: 'ライバル ウェイター！',
+    // End-of-shift head-to-head result; friendly wording whoever wins.
+    resultPlayer: 'きみの かち！',
+    resultRival: 'ウェイターの かち！',
+    resultDraw: 'ひきわけ！',
     rivalLabel: 'ウェイター',
     finalPush: 'ラストスパート！',
     progress: 'おきゃくさん {done}/{total}',
