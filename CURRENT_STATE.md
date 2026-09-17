@@ -120,6 +120,20 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+0000000. 2026-09-17 Restaurant faster patience + modal challenge + hint-only HUD
+     (Claude directly; DESIGN_DECISIONS sixth pass, SPEC §3 patience and director
+     paragraphs). PUSHED LIVE 2026-09-17 at the owner's request. Patience 48/38/28 s (`PATIENCE_SECONDS`,
+     supersedes the 150/120/100 lines below), green/amber/red at 50%/20%, thicker
+     strip, red pulse. Challenge overlap root cause fixed (same-frame context
+     update re-showed Talk) + modal class + Talk forced hidden + bubbles hidden.
+     Upper-left is a compact hint only; no title, no progress (debug `progress`
+     and new `hud {hintVisible, hintText, modal, talkVisible, talkEnabled,
+     actionVisible, listenAgainVisible, scoreVisible}`). Verified: `npm test`
+     269/269, build OK, Normal browser run 30/31 (the failure was in the check
+     itself) + solo section rerun 12/12 + strip renders
+     (session scratchpad `restaurant-hud.mjs`, UNTRUSTED). NOT run in the browser:
+     Easy/Challenge, result-moment and turnaround hint hiding. NEXT: owner
+     playtest of patience pressure (2–3 orders manageable?).
 000000. 2026-09-17 Restaurant rival challenge scene (Claude directly; SPEC §4
      "Rush and rival waiter" and DESIGN_DECISIONS fifth pass). PUSHED LIVE
      2026-09-17 at the owner's request. The rival walks in, challenges in Japanese (furigana), and the player

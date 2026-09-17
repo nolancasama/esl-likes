@@ -322,7 +322,7 @@ async function openPage(label, options = {}) {
       combo: text(selectors.combo),
       score: text('.restaurant-ui__score'),
       phasePill: text('.restaurant-ui__phase'),
-      instruction: q('.restaurant-ui .scene-card p')?.textContent.trim() ?? null,
+      instruction: q('.restaurant-ui .restaurant-ui__hint')?.textContent.trim() ?? null,
       bubble: text('.npc-dialogue__line'),
       listen: visible(q('.listen-again')),
       fallback: [...document.querySelectorAll('.lesson-hud__fallback')]

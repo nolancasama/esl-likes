@@ -395,13 +395,19 @@ binding each plate to one person.
   forfeits that customer's memory bonus without breaking the combo.
 - Food temperature: the dish cools after it is picked up from the belt.
   Hot 3 stars / Warm 2 / Cold 1.
-- Customer patience (revised 2026-09-17). Unclaimed seated customers have no
-  patience drain and no strip. Once claimed (by either waiter), patience drains
-  at one point per service second from 150 / 120 / 100 on Easy / Normal /
-  Challenge, shown only as a thin green → amber (< 60%) → red (< 30%) strip
-  inside that customer's waiting bubble. There is no cap on held orders: taking
-  many at once means many strips draining. Below 30% the customer also looks
-  around gently. A wrong delivery never resets patience.
+- Customer patience (revised 2026-09-17, sixth pass). Unclaimed seated
+  customers have no patience drain and no strip. Once claimed (by either
+  waiter), patience drains at one point per service second from 48 / 38 / 28 on
+  Easy / Normal / Challenge (`PATIENCE_SECONDS`; one or two held orders
+  comfortable, three need attention, claiming nearly everyone is risky). It
+  shows only as a strip inside that customer's waiting bubble, in three clear
+  steps with no blend: green down to 50%, amber below 50%, red below 20%. In red
+  the bubble also pulses gently and the customer looks around. There is no cap
+  on held orders: taking many at once means many strips draining. Only correct
+  service resolves the wait: nothing refills patience, including a colour step,
+  the player approaching, or a wrong delivery. Speech focus freezes it. The
+  waiting bubbles are hidden during the rival's challenge scene, when patience
+  is frozen anyway.
 
 Cold food never fails, and no order is ever permanently lost.
 
@@ -604,8 +610,18 @@ the solo rate.
 The director schedules arrivals and replacements, briefly holds new events
 after speech focus ends so the child is not ambushed the instant they finish
 speaking, and keeps enough randomness that shifts do not feel scripted. Because
-it reads only the service clock, speech focus freezes it entirely. A small
-progress counter is allowed; a large countdown is not. Nothing is ever a game
+it reads only the service clock, speech focus freezes it entirely. No shift
+progress is displayed (revised 2026-09-17: it stays internal for completion,
+the director and debug) and there is never a countdown. The upper-left HUD is a
+compact action hint only (`おきゃくさんに ちかづこう`, `コンベアに ちかづこう`,
+`おきゃくさんに とどけよう`, `スペースで おさらを もどす`, …), sized to its text.
+It shows no room name (the wall sign carries it) and is hidden during the rival
+challenge, the result moment and the walk to the turnaround. The turnaround
+close-up keeps its `こんどは きみの ばん！` hint, because the child's role
+changes there. The rival challenge is modal: the Talk/mic HUD, Listen Again, the
+action button, notices and the carried-dish temperature are hidden and Talk
+cannot start until normal play resumes after `ランチラッシュ！`. The head-to-head
+score stays in the upper centre throughout the rush. Nothing is ever a game
 over: a shift always ends, because patience eventually resolves every claimed
 customer while unclaimed seated customers remain available to ask.
 

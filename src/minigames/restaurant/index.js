@@ -20,7 +20,14 @@ import {
   createRushTrigger,
 } from './rushTrigger.js';
 import { RIVAL_CHALLENGE_REACTION_SECONDS, createRivalChallenge } from './rivalChallenge.js';
-import { OWNERSHIP_BUBBLE_TEXT, isTalkable, ownershipBubble } from './customerState.js';
+import {
+  OWNERSHIP_BUBBLE_TEXT,
+  PATIENCE_LOW,
+  PATIENCE_SECONDS,
+  drainPatience,
+  isTalkable,
+  ownershipBubble,
+} from './customerState.js';
 
 const LESSON = LESSON_BY_ID.restaurant;
 const STRINGS = UI.restaurant;
@@ -62,10 +69,14 @@ const RIVAL_ARRIVAL_WAVE_SECONDS = 0.9;
 const ROOM_CAMERA = Object.freeze({ position: [0, 11.5, 12], lookAt: [0, 0.8, 0.6], damping: 5 });
 // A modest eased move toward the front-left aisle the rival walks in along.
 const ENTRANCE_CAMERA = Object.freeze({ position: [-0.8, 6.4, 9.6], lookAt: [-2.1, 1.1, 3.3], damping: 5 });
-// Patience strip inside the waiting bubble, in bubble-sprite units (2.0 x 1.0).
-const PATIENCE_FILL_WIDTH = 1.36;
-const PATIENCE_FILL_HEIGHT = 0.075;
-const PATIENCE_FILL_Y = -0.14;
+// Patience strip inside the waiting bubble, in bubble-sprite units (2.0 x 1.0;
+// 256 texture px per unit). Thick enough that green/amber/red reads from the
+// fixed room camera; it sits inside the track drawn at y 144–188 px.
+const PATIENCE_FILL_WIDTH = 1.42;
+const PATIENCE_FILL_HEIGHT = 0.13;
+const PATIENCE_FILL_Y = -0.148;
+// Red strip: the bubble pulses gently so "almost gone" is noticed.
+const PATIENCE_URGENT_PULSE = 0.07;
 // Long enough for the delivery's thanks, temperature and combo to land first.
 const RUSH_BEAT_SECONDS = 1.6;
 // End-of-shift result moment; replaces the plain 1.3 s round-end pause
@@ -90,12 +101,12 @@ const TABLES = Object.freeze([
 ]);
 
 const DIFFICULTY = Object.freeze({
-  // Patience drains only once claimed. Normal/Challenge are tuned so two or
-  // three held orders are comfortable and four or five get risky (not yet
-  // playtested in class; tune here).
-  1: Object.freeze({ count: 3, total: 5, prepScale: 0.55, patience: 150, preOrderDrain: 0 }),
-  2: Object.freeze({ count: 4, total: 9, prepScale: 0.85, patience: 120, preOrderDrain: 0 }),
-  3: Object.freeze({ count: 5, total: 13, prepScale: 1.3, patience: 100, preOrderDrain: 0 }),
+  // Patience drains only once claimed (PATIENCE_SECONDS in customerState.js):
+  // one or two held orders comfortable, three needs attention, claiming almost
+  // everyone is risky (not yet playtested in class; tune there).
+  1: Object.freeze({ count: 3, total: 5, prepScale: 0.55, patience: PATIENCE_SECONDS[1], preOrderDrain: 0 }),
+  2: Object.freeze({ count: 4, total: 9, prepScale: 0.85, patience: PATIENCE_SECONDS[2], preOrderDrain: 0 }),
+  3: Object.freeze({ count: 5, total: 13, prepScale: 1.3, patience: PATIENCE_SECONDS[3], preOrderDrain: 0 }),
 });
 
 const CUSTOMER_TINTS = Object.freeze([0xff7d63, 0x54b8ff, 0xb36bff, 0x4bd596, 0xffcf45]);
@@ -158,7 +169,6 @@ export function createRestaurant(ctx) {
   let temperature = null;
   let comboPop = null;
   let phasePill = null;
-  let progressText = null;
   let scoreText = null;
   let rivalTitle = null;
   let resultLabel = null;
@@ -282,6 +292,24 @@ export function createRestaurant(ctx) {
     if (!instruction || instructionText === text) return;
     instructionText = text;
     instruction.textContent = text;
+    syncHud();
+  }
+
+  // Cinematic moments keep the upper-left hint out of the picture. The
+  // turnaround close-up keeps its "your turn" hint: the child's role flips there.
+  function hintSuppressed() {
+    return rivalIntroActive()
+      || phase === 'round-end' || phase === 'turnaround-approach' || phase === 'finishing';
+  }
+
+  function syncHud() {
+    if (!instruction || !overlay) return;
+    instruction.hidden = !instructionText || hintSuppressed();
+    const modal = rivalIntroActive();
+    overlay.classList.toggle('restaurant-ui--modal', modal);
+    // The challenge is answered with buttons, never the microphone: the Talk HUD
+    // (outside this overlay) stays hidden however something tries to show it.
+    if (modal && !hud.element.hidden) hud.hide();
   }
 
   function setNotice(text, seconds = 1.8) {
@@ -330,9 +358,17 @@ export function createRestaurant(ctx) {
         padding: .38rem .85rem; border: .16rem solid #fff; border-radius: 999px;
         background: #ef8a17; color: #fff; box-shadow: 0 .22rem 0 rgb(35 49 71 / .24);
         font: 900 calc(.92rem * var(--ui-scale, 1)) system-ui, sans-serif; }
-      .restaurant-ui__progress { display: inline-block; margin-top: .38rem; padding: .28rem .62rem;
-        border-radius: 999px; background: #273858; color: #fff;
-        font: 800 calc(.88rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      /* Upper left: the current action hint only, sized to its text. The room
+         name is on the wall sign; shift progress is not shown. */
+      .restaurant-ui__hint { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px;
+        box-sizing: border-box; max-width: min(46vw, 22rem); margin: 0; padding: .5rem .9rem;
+        border-radius: 1rem; background: rgb(255 255 255 / 92%); color: #1b2940;
+        box-shadow: 0 6px 18px rgb(28 71 102 / 20%); line-height: 1.35;
+        font: 800 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      /* Modal states (rival challenge): ordinary controls and notices step aside. */
+      .restaurant-ui--modal .restaurant-ui__hint, .restaurant-ui--modal .restaurant-ui__action,
+      .restaurant-ui--modal .restaurant-ui__notice, .restaurant-ui--modal .restaurant-ui__combo,
+      .restaurant-ui--modal .restaurant-ui__temperature, .restaurant-ui--modal .listen-again { display: none; }
       .restaurant-ui__score { position: absolute; left: 50%; top: 1rem; transform: translateX(-50%);
         white-space: nowrap; padding: .48rem .8rem;
         border: .18rem solid #fff; border-radius: 999px; background: #315d92; color: #fff;
@@ -358,7 +394,8 @@ export function createRestaurant(ctx) {
       .restaurant-ui__result[data-outcome="draw"] { color: #fff; -webkit-text-stroke-color: #315d92;
         filter: drop-shadow(0 .32rem 0 #315d92); }
       /* The rival's challenge: an RPG-style box along the bottom, below the rival. */
-      .restaurant-ui__challenge { position: absolute; left: 50%; bottom: 1rem; transform: translateX(-50%);
+      /* z-index above the Talk HUD (20), Listen Again (21) and dialogue bubbles (18). */
+      .restaurant-ui__challenge { position: absolute; z-index: 40; left: 50%; bottom: 1rem; transform: translateX(-50%);
         box-sizing: border-box; width: min(94vw, 52rem); padding: 1.25rem 1.3rem 1.1rem;
         border: .28rem solid #273858; border-radius: 1.5rem; background: #fff; color: #1b2940;
         box-shadow: 0 .45rem 0 rgb(28 48 78 / .28); animation: restaurant-challenge-in .22s ease-out; }
@@ -394,9 +431,7 @@ export function createRestaurant(ctx) {
     overlay = document.createElement('div');
     overlay.className = 'restaurant-ui';
     overlay.innerHTML = `
-      <div class="top-bar">
-        <section class="scene-card"><h1></h1><p></p><div class="restaurant-ui__progress" role="status"></div></section>
-      </div>
+      <p class="restaurant-ui__hint" role="status" aria-live="polite" hidden></p>
       <div class="restaurant-ui__notice" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__combo" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__phase" role="status" aria-live="polite" hidden></div>
@@ -411,13 +446,11 @@ export function createRestaurant(ctx) {
       <button class="restaurant-ui__action" type="button" hidden></button>
       <div class="restaurant-ui__temperature" role="status" hidden></div>
     `;
-    overlay.querySelector('h1').textContent = STRINGS.roomName;
-    instruction = overlay.querySelector('p');
+    instruction = overlay.querySelector('.restaurant-ui__hint');
     actionButton = overlay.querySelector('.restaurant-ui__action');
     notice = overlay.querySelector('.restaurant-ui__notice');
     comboPop = overlay.querySelector('.restaurant-ui__combo');
     phasePill = overlay.querySelector('.restaurant-ui__phase');
-    progressText = overlay.querySelector('.restaurant-ui__progress');
     scoreText = overlay.querySelector('.restaurant-ui__score');
     rivalTitle = overlay.querySelector('.restaurant-ui__title');
     rivalTitle.textContent = STRINGS.rivalTitle;
@@ -441,7 +474,6 @@ export function createRestaurant(ctx) {
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
     document.querySelector('#ui-layer').append(overlay);
     setInstruction(STRINGS.walkToCustomer);
-    progressText.textContent = formatUi(STRINGS.progress, { done: 0, total: shiftTotal });
   }
 
   function createDish(food, shared) {
@@ -769,7 +801,7 @@ export function createRestaurant(ctx) {
       if (track) {
         context.fillStyle = track;
         context.beginPath();
-        context.roundRect(76, 151, 360, 26, 13);
+        context.roundRect(68, 144, 376, 44, 22);
         context.fill();
       }
       const texture = ownTexture(new THREE.CanvasTexture(bubbleCanvas));
@@ -933,11 +965,6 @@ export function createRestaurant(ctx) {
     audio.playSfx('restaurant-phase', { frequency: 620, endFrequency: 920, duration: 0.16, gain: 0.1 });
   }
 
-  function updateProgress() {
-    const done = claimRegistry?.progress.done ?? records.length;
-    if (progressText) progressText.textContent = formatUi(STRINGS.progress, { done, total: shiftTotal });
-  }
-
   function updateChallengeScore() {
     // No score before the player has accepted the rival's challenge; it then
     // starts 0–0 (the solo deliveries are not in it).
@@ -997,8 +1024,14 @@ export function createRestaurant(ctx) {
     const bubble = ownershipBubble(customer, {
       dialogueOnCustomer: dialogueCustomer === customer && dialogueRemaining > 0,
     });
-    customer.ownership.visible = customer.character.visible && bubble !== null;
-    if (!bubble) return;
+    // Hidden during the challenge scene: patience is frozen, and the bubbles
+    // would compete with the rival's dialogue (one sat over the settings button).
+    customer.ownership.visible = customer.character.visible && bubble !== null && !rivalIntroActive();
+    if (!customer.ownership.visible) return;
+    const pulse = bubble.patienceLevel === 'low'
+      ? 1 + PATIENCE_URGENT_PULSE * (0.5 + 0.5 * Math.sin(elapsed * 9))
+      : 1;
+    customer.ownership.scale.set(2.0 * pulse, 1.0 * pulse, 1);
     customer.ownership.material = bubble.kind === RESTAURANT_OWNERS.PLAYER
       ? customerVisuals.playerBubbleMaterial
       : customerVisuals.rivalBubbleMaterial;
@@ -1259,7 +1292,6 @@ export function createRestaurant(ctx) {
       }
     }
     hideAction();
-    updateProgress();
     updateChallengeScore();
     if (rushTrigger?.recordPlayerDelivery()) rushBeatRemaining = RUSH_BEAT_SECONDS;
   }
@@ -1291,7 +1323,6 @@ export function createRestaurant(ctx) {
     dialogueRemaining = 1.8;
     dialogue.show({ text: STRINGS.patientLeave, anchor: customer.character, offsetY: 1.65, speak: false });
     audio.playSfx('retry');
-    updateProgress();
     updateChallengeScore();
   }
 
@@ -1412,12 +1443,21 @@ export function createRestaurant(ctx) {
 
   function beginRivalChallenge() {
     if (!rivalChallenge?.start()) return false;
-    // The scene freezes play, so no half-targeted conversation survives it.
+    // The scene is modal and freezes play, so no half-targeted conversation,
+    // Talk control, action or notice survives it.
     clearQuestion();
     clickQuestionCustomer = null;
     autoTarget = null;
+    speech.cancel();
+    speech.clearTarget();
+    hud.hide();
     hideAction();
     setListenTarget(null);
+    noticeRemaining = 0;
+    if (notice) notice.hidden = true;
+    comboRemaining = 0;
+    if (comboPop) comboPop.hidden = true;
+    syncHud();
     if (claimRegistry) competitionScore?.capture(claimRegistry.counts);
     cameraRig.setPreset('fixed', ENTRANCE_CAMERA);
     if (rivalTitle) rivalTitle.hidden = false;
@@ -1703,7 +1743,6 @@ export function createRestaurant(ctx) {
         customer.eatingRemaining = EATING_SECONDS;
         customer.character.playAnimation?.('emote-yes');
         rivalCarriedDish = null;
-        updateProgress();
         updateChallengeScore();
       } else if (event.type === 'abandonTask') {
         rivalWalk.active = false;
@@ -1843,17 +1882,16 @@ export function createRestaurant(ctx) {
         }
       }
 
-      const patienceDrain = customer.state === 'awaiting'
-        ? 1
-        : (customer.state === 'seated' ? configured.preOrderDrain : 0);
-      if (patienceDrain > 0) {
-        customer.patience = Math.max(0, customer.patience - serviceDt * patienceDrain);
+      const nextPatience = drainPatience(customer, serviceDt, { preOrderDrain: configured.preOrderDrain });
+      if (nextPatience !== customer.patience) {
+        customer.patience = nextPatience;
         if (customer.patience <= 0) leaveCustomer(customer);
       }
 
       if (customer.state === 'seated' || customer.state === 'awaiting') {
+        // The look-around starts with the red strip.
         const late = customer.state === 'awaiting'
-          && customer.patience / customer.patienceMax < 0.3;
+          && customer.patience / customer.patienceMax < PATIENCE_LOW;
         customer.character.rotation.y = late
           ? Math.sin(serviceElapsed * 2.2 + customer.index) * 0.35
           : 0;
@@ -2131,6 +2169,18 @@ export function createRestaurant(ctx) {
         titleVisible: Boolean(rivalTitle && !rivalTitle.hidden),
         deliveriesToRush: RUSH_PLAYER_DELIVERIES,
         playerDeliveries: rushTrigger?.playerDeliveries ?? 0,
+      },
+      // What the child can see. Shift progress is data only (`progress`), never shown.
+      hud: {
+        hintVisible: Boolean(instruction && !instruction.hidden),
+        hintText: instructionText,
+        modal: Boolean(overlay?.classList.contains('restaurant-ui--modal')),
+        talkVisible: Boolean(!hud.element.hidden && !hud.talkButton.hidden),
+        talkEnabled: Boolean(!hud.element.hidden && !hud.talkButton.hidden && !hud.talkButton.disabled),
+        actionVisible: Boolean(actionButton && !actionButton.hidden && actionButton.offsetParent),
+        listenAgainVisible: Boolean(listenAgain?.element && !listenAgain.element.hidden
+          && listenAgain.element.offsetParent),
+        scoreVisible: Boolean(scoreText && !scoreText.hidden),
       },
       rivalChallenge: {
         active: rivalIntroActive(),
@@ -2618,6 +2668,8 @@ export function createRestaurant(ctx) {
       if (!active) return;
       hud.setMicFree(next.micFree);
       hud.setTextSize(next.textSize);
+      // setMicFree re-shows Talk; a settings change must not bring it over the challenge.
+      syncHud();
     });
   }
 
@@ -2659,11 +2711,14 @@ export function createRestaurant(ctx) {
       // however long the reply takes: movement, the belt, patience, customer
       // timers, the director and carried-dish temperature. Only the rival's
       // walk, the camera, the dialogue and cosmetic animation run.
+      const introBefore = rivalIntroActive();
+      if (introBefore) player.playAnimation?.('idle');
+      else updateMovement(safeDt);
+      updateRushSequence(introBefore ? safeDt : serviceDt);
+      // Re-read after the sequence: on the frame the challenge starts, the
+      // context update below must not re-target a customer and re-show Talk.
       const intro = rivalIntroActive();
       const playDt = intro ? 0 : serviceDt;
-      if (intro) player.playAnimation?.('idle');
-      else updateMovement(safeDt);
-      updateRushSequence(intro ? safeDt : serviceDt);
       updateRivalWalk(playDt);
       updateCustomers(playDt, safeDt);
       applyDirectorEvents(playDt);
@@ -2714,6 +2769,7 @@ export function createRestaurant(ctx) {
       turnaroundPartner.character.updateAnimation?.(safeDt);
     }
     rivalCharacter?.updateAnimation?.(focus.active ? 0 : safeDt);
+    syncHud();
   }
 
   function exit() {
@@ -2744,7 +2800,6 @@ export function createRestaurant(ctx) {
     temperature = null;
     comboPop = null;
     phasePill = null;
-    progressText = null;
     scoreText = null;
     rivalTitle = null;
     resultLabel = null;

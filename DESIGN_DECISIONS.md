@@ -1327,3 +1327,55 @@ Implemented by Claude directly (one scene file plus a small pure module).
   no second trigger. Timings are measured in game time (new read-only debug
   `elapsed`): the software renderer runs below 20 fps, so the wall clock
   overstates them.
+
+## 2026-09-17 (sixth pass) — Restaurant: faster patience, modal challenge, hint-only HUD
+
+Owner plan: faster patience with clear colour steps, a truly modal rival
+challenge (the mic button covered the replies), and an upper-left HUD with only
+the current action hint. Implemented by Claude directly.
+
+- **Accepted — patience 48 / 38 / 28 s** (Easy / Normal / Challenge; was
+  150 / 120 / 100), the middle of the owner's ranges. Checked against the belt:
+  a given food enters about every 18 s on average on Normal solo and stays in
+  view about 13 s, and every 8.5 s in the Challenge rush, so one order is
+  always servable in time while three at once needs planning. Stars are barely
+  affected: patience is at most 1 of 10 points per customer. Not yet
+  playtested with children; tune `PATIENCE_SECONDS` in `customerState.js`.
+- **Accepted — green / amber / red steps at 50% and 20%** (was 60% / 30%),
+  hard steps with no blend. The look-around warning now starts with red.
+- **Added — a thicker strip (19 → 33 texture px, track 26 → 44) and a gentle
+  pulse in red.** At the old thickness the strip was about 5 px on screen from
+  the room camera, too thin for the colour to be noticed.
+- **Accepted — nothing refills patience** (pure `drainPatience`, unit-tested).
+- **Accepted — the challenge is modal.** Root cause of the overlap: on the
+  frame the challenge started, the scene read "paused" before the rush
+  sequence began it, so the context update still ran and re-targeted a nearby
+  seated customer, re-showing Talk. Fixed by re-reading the state after the
+  sequence. On top of that, a modal class hides the action button, Listen
+  Again, notices, combo, temperature and hint, and the Talk HUD is forced hidden
+  every frame of the scene (a settings change could otherwise re-show it). The
+  challenge box sits above every HUD layer (z-index 40).
+- **Added — waiting bubbles are hidden during the challenge.** Patience is
+  frozen then, and one bubble sat over the settings button in the challenge camera.
+- **Accepted — no title and no `N / total` in the HUD.** Progress remains in
+  the claim registry, director, completion and debug `progress`.
+- **Accepted — the upper-left is a compact hint sized to its text**, replacing
+  the `scene-card` with title + hint + progress. It is hidden during the
+  challenge, the result moment, the walk to the turnaround and the finish.
+- **Modified — the turnaround close-up keeps its hint** (`こんどは きみの ばん！`):
+  it is the one moment the child's role changes from asking to answering.
+- **Kept — existing hint strings.** Every service state already has a useful
+  one, so in normal play the hint is always present, just small.
+- **Tests.** Unit: patience ranges, thresholds, drain/no refill, speech-focus
+  protection (269/269 total). Browser, Normal (session scratchpad
+  `restaurant-hud.mjs`, untrusted: no known-bad run): full run 30/31 (the one
+  failure was the check trying to claim a customer before anyone was seated), then
+  that section rerun 12/12. The full run staged Talk as visible
+  right before the challenge (the real overlap path) and a per-frame monitor saw
+  no control or hint in 91 challenge frames. Other checks: replies uncovered by
+  hit-test, Space does not start the mic, the click reply works, Talk returns
+  after the rush starts, the hint is compact, progress is hidden but still counts,
+  the score shows in the rush, a measured full drain of 38.0 s, a wrong delivery
+  does not refill patience, green → amber → red matches the ratio, and an
+  ignored customer walks out. Easy/Challenge patience are unit-tested only;
+  the result moment and turnaround hint hiding were not run in the browser.
