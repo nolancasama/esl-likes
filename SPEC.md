@@ -445,7 +445,7 @@ rule fails at the easiest level, where it matters most.
   belt after the player's third correct delivery, and patience is moderate but
   still forgiving.
 
-### Rush and rival waiter (added 2026-09-13, revised 2026-09-16)
+### Rush and rival waiter (added 2026-09-13, revised 2026-09-19)
 
 Every shift starts with the player as the only waiter. Easy has no rival and no
 rate change. On Normal and Challenge, the player's third **correct delivery**
@@ -454,26 +454,50 @@ Again, taking orders and rival service do not count. The completed delivery's
 normal feedback plays first, followed by a 0.9-second service-time beat. Then
 the rival intro starts (revised 2026-09-17), never while Talk is open.
 
-The intro is a short challenge scene (revised 2026-09-17, pure
+The intro is a staged challenge scene (revised 2026-09-19, pure
 `rivalChallenge.js`) and freezes play for as long as it lasts, including the
 wait for a reply: player movement, actions and click-to-walk, the belt, every
 patience, customer timers, the director, carried-dish temperature and the
 rival's AI. Only the rival's walk, the camera, the dialogue and cosmetic
-animation run. The camera eases toward the front-left aisle, a short rising
-sting plays, and a large `ライバル ウェイター！` title shows. The rival
-physically enters at `(-2.1, 6.6)` under a temporary `ウェイター` tag, walks to
-`(-2.1, 2.4)` at about 4 units per second, turns to face the room and plays
-`emote-yes` for 0.9 seconds. On arrival the title goes and an RPG-style box
-along the bottom (name tab `ウェイター`, rival kept in view above it) shows
-`勝負しよう！／どっちがたくさん料理を運べるかな？` with furigana, no TTS. After
-0.45 seconds (so a press still queued from the delivery cannot answer) three
-large replies appear: `いいよ！勝負だ！`, `負けないよ！`, `がんばるぞ！` (about
-1.5 seconds from the walk starting). The game waits indefinitely. Replies are
-ordinary buttons: click/tap, arrow keys move focus (also after a click into the
-room), Enter or Space activates the focused reply; the microphone is never
-used. Every reply has the same result, with no bonus or hidden effect. On a
-reply the box closes, a short confirmation sting plays and the rival plays
-`emote-yes` for 0.55 seconds. Then, together: the belt switches to its rush
+animation run. A large `ライバル ウェイター！` title shows while the rival
+physically enters from `(-2.1, 6.6)` to `(-2.1, 2.4)` at about 4 units per
+second; the floating `ウェイター` label remains hidden. Low warning notes and
+a quick rising run accompany the unchanged, approximately 1.05-second walk.
+After arrival, the rival turns smoothly for about 0.2 seconds by the shortest
+angle to face the camera (`rotation.y = 0`), regardless of where the player is.
+
+The reveal then lasts 2.0 seconds from its entry. A fixed camera preset punches
+in quickly to a close three-quarter view of the rival's upper body, with head
+and raised fists in frame at Chromebook and phone aspect ratios. Event-timed
+BA-BAM stacked notes land with the punch-in. The rival plants a slightly wide
+stance, leans forward, lowers the head and throws both fists forward-up, with
+two sharp pumps during the first approximately 0.8 seconds before holding the
+pose. It is playful and visibly distinct from both result-stage celebration
+and despair. No shake or field-of-view effect is used. During the following
+0.8-second return, the camera eases fully back to the entrance framing and the
+pose blends to rest over about 0.35 seconds. The title stays visible through
+this return, fades over roughly its final 0.25 seconds and is hidden at the end.
+The procedural pose leaves no residual offsets in later walking or idle.
+
+Only then do the floating `ウェイター` label and RPG-style bottom challenge
+panel appear, on the same update and never alongside the title. The panel has
+no duplicate name badge. It lays out the full, aria-labelled
+`勝負しよう！／どっちがたくさん料理を運べるかな？` line once, with furigana and
+no TTS, then reveals it at about 30 cost units per second. Each plain character
+costs one, a newline costs zero, and a ruby unit costs its base-text length;
+unrevealed units are hidden without being removed, so centred lines never
+reflow and ruby markup is never split. Space, Enter or a click/tap on the panel
+while typing reveals the whole line and is fully consumed. A skip key's repeat
+presses and keyup are swallowed and reply focus waits for that release, so the
+same press cannot answer, start Talk or trigger a world action.
+
+When the line completes naturally or by skip, all three large replies appear
+together: `いいよ！勝負だ！`, `負けないよ！`, `がんばるぞ！`. The game waits
+indefinitely. Arrow keys move focus; click/tap and a fresh Enter or Space
+activate the focused reply, and the microphone is never used. Every reply has
+the same result, with no bonus or hidden effect. On a reply the box closes, a
+short confirmation sting plays and the rival plays `emote-yes` for 0.55
+seconds. Then, together: the belt switches to its rush
 rate, the director enters the rush, the camera eases back to the whole room,
 the score pill (`きみ 0 ・ ウェイター 0`) appears with a `ランチラッシュ！` cue
 under it, and the rival's state machine begins, as the same character. The pill
@@ -483,7 +507,7 @@ stars. The HUD's upper centre is a stack: score (persistent, hidden until the
 challenge is accepted), phase cue, then notices. The challenge can never run
 twice.
 
-**Result moment (revised 2026-09-18).** When every customer of a shift in which
+**Result moment (revised 2026-09-19).** When every customer of a shift in which
 the rival arrived is resolved, play freezes in the room for 0.9 s so the last
 delivery's feedback lands, then moves into a dedicated, continuous result
 stage. Every service system and player action stays frozen. Diners, dishes and
@@ -495,10 +519,14 @@ top centre and shows `きみの かち！`, `ウェイターの かち！` or `�
 decided by the competition score only. Procedural poses on the rigid node rig
 make the winner celebrate, the loser react with funny despair or mild
 dejection, and both waiters shrug on a draw. The existing rising, falling or
-two-note result sting plays. The label then fades, the score shrinks upward to
-its compact pill, and both waiters ease back to neutral and turn toward each
-other. The stage flows directly into the final question; it never returns to
-the gameplay camera or room framing.
+two-note result sting plays. The reaction phase lasts 3.6 seconds. Its animation
+functions continue in real seconds rather than being slowed to fill the longer
+phase: each reaction reaches its strong pose early and holds it. Only after the
+full reaction hold does the label fade, the score shrink upward to its compact
+pill, and both waiters ease back to neutral and turn toward each other. The
+question camera and question also wait for that hold. The stage then flows
+directly into the final question; it never returns to the gameplay camera or
+room framing.
 
 **Turnaround partner (revised 2026-09-18).** No extra NPC appears for the final
 question. If the rival arrived, the same rival remains in the result-stage

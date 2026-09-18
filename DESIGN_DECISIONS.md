@@ -1424,3 +1424,69 @@ the current action hint. Implemented by Claude directly.
   up (top .8rem / 5.3rem) so the label only touches the sign's frame, never
   its lettering. Accepted: during the question the English bubble covers part
   of the sign; the sign is fully visible for the whole result.
+
+## 2026-09-19 — Restaurant: the rival reveal and challenge land as two beats
+
+- **Accepted — a staged reveal before dialogue.** The frozen intro now runs
+  entrance → 0.2 s turn → 2.0 s reveal → 0.8 s return. The rival finishes the
+  existing walk before turning by the shortest angle to face the camera. The
+  `ライバル ウェイター！` title remains through the walk, turn and reveal; the
+  reveal punches the camera into a close three-quarter view, lands a BA-BAM
+  accent, and holds a procedural challenger pose. The camera then eases all
+  the way back to the entrance framing while the pose blends cleanly to rest,
+  and the title fades only at the end of that return.
+- **Accepted — a distinct playful challenger pose.** A planted wide stance,
+  forward lean and fists raised in front make the invitation read as
+  “bring it on.” Two quick pumps in the first 0.8 s add energy, then the strong
+  pose holds. It deliberately differs from the result-stage sideways raised
+  arms and hopping celebration and from the kneeling despair pose. The same
+  captured-node offset machinery is restored before later idle and walking.
+- **Accepted — a generated musical phrase, timed to the action.** Low warning
+  notes and a quick rising run follow the walk; two brighter, punchier stacks
+  fire from the reveal event, so BA-BAM cannot drift away from the camera
+  punch-in. This keeps the entrance alert and exciting without adding an audio
+  asset or making it frightening.
+- **Accepted — label and challenge panel are a second beat.** Only after the
+  return and title fade do the floating `ウェイター` label and bottom panel
+  appear, together. The redundant in-panel name badge is removed, so the title,
+  floating label and panel never compete. The challenge line and all three
+  replies keep their existing Japanese strings.
+- **Accepted — cost-based, furigana-safe typewriting.** The full line structure
+  is laid out once at about 30 cost units per second: ordinary characters cost
+  one, line breaks cost zero, and a complete ruby group costs the length of its
+  base. Unrevealed unit spans use `visibility: hidden`, keeping centred lines
+  stable and ensuring ruby and reading markup are never cut apart.
+- **Accepted — deliberate skip and reply input.** Space, Enter or a panel
+  click/tap reveals the rest of a typing line and performs no world, speech or
+  reply action. A skip key's repeats and release are consumed before reply
+  focus is enabled, so only a fresh keypress can answer. Natural completion
+  replaces the fixed 0.45 s reply delay; all three replies appear together,
+  after which arrows, click/tap and fresh Space/Enter work as before.
+- **Kept — one continuous full pause.** Movement, actions, belt, patience,
+  customer timers, director, temperature and rival AI remain frozen through
+  entrance, reveal, typing, indefinite reply wait and the 0.55 s reaction.
+  Only then do the 0–0 score, lunch-rush cue, room camera and rival AI begin.
+- **Modified — result reaction holds for 3.6 s** (was 1.8 s). Reaction motion
+  keeps its existing real-time functions, reaches its strong pose early and
+  holds there; label fade, score shrink, settling, turn-to-face, question camera
+  and final question all wait for the longer reaction to finish.
+- **Why.** Separating the cinematic reveal from the challenge gives the rival
+  an unmistakable entrance and lets the child read the dialogue without camera
+  motion or competing labels. Stable type layout preserves furigana for young
+  readers, while the longer result hold makes the outcome legible before the
+  stage moves into its final conversation.
+- **Rejected — slicing `innerHTML` for the typewriter.** Partial HTML can split
+  a `<ruby>` or `<rt>`, produce invalid markup and make centred text reflow.
+- **Rejected — slowing result animations to fill 3.6 s.** Time-scaling would
+  make the reactions sluggish; they should perform at their existing pace and
+  hold the readable final pose instead.
+- **Tuned after renders (Claude).** Fists forward at shoulder height read as a
+  zombie reach in the close-up, so the arms are raised up and out in a V above
+  the shoulders, each pump driving them higher; the close-up camera sits 0.45
+  further back so the rival is seen to the shins. The rival faces the camera,
+  not the player's avatar, which can stand anywhere behind it.
+- **Fixed — Space on a focused button (shared `input.js`).** The keyup handler
+  called `preventDefault()` on Space even when a button had focus, which
+  cancels the browser's keyup click: Space never answered a challenge reply
+  (earlier checks used Enter). Keyup now exempts a focused button exactly as
+  keydown already did, so Space works on any focused game button.

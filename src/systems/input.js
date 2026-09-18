@@ -26,8 +26,11 @@ export function createInput(target = window) {
   };
 
   const onKeyUp = (event) => {
-    if (HANDLED_KEYS.has(event.code)) event.preventDefault();
     held.delete(event.code);
+    // A button fires its Space click on keyup; preventing it here cancelled it.
+    const element = event.target instanceof Element ? event.target : null;
+    if ((event.code === 'Space' || event.code === 'Enter') && element?.closest('button, [role="button"]')) return;
+    if (HANDLED_KEYS.has(event.code)) event.preventDefault();
   };
 
   const clear = () => {

@@ -1,5 +1,5 @@
 export const RESULT_STAGE_TIMING = Object.freeze({
-  reaction: 1.8,
+  reaction: 3.6,
   labelFade: 0.3,
   scoreShrink: 0.5,
   settle: 0.6,

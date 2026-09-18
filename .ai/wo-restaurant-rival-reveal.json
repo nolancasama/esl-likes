@@ -1,0 +1,68 @@
+{
+  "task": "Restaurant: dramatic rival reveal (title held, camera punch-in, challenger pose, challenger jingle), then label + challenge panel as a second beat with a furigana-safe typewriter line, Space-to-skip, replies shown together; result stage reaction hold doubled",
+  "notes": [
+    "Read DESIGN_DECISIONS.md (Restaurant entries 2026-09-16..18) and SPEC.md section 4 'Rush and rival waiter' / 'Result moment' first. Record this pass as a new dated DESIGN_DECISIONS entry (2026-09-19) and revise the SPEC paragraphs it supersedes.",
+    "On-screen strings stay the existing Japanese ones: the title is STRINGS.rivalTitle ('ライバル ウェイター！', called RIVAL! below), the floating label is STRINGS.rivalLabel ('ウェイター', called WAITER below). Do not change lesson.js strings.",
+    "Current flow lives in src/minigames/restaurant/index.js: beginRivalChallenge (~L1468), showChallengeLine, showChallengeReplies, onChallengeReply, onChallengeKey, beginRushGameplay, updateRushSequence (~L1556), updateRivalEntranceLabel, the overlay markup/CSS in createOverlay (~L353-500), appendFurigana (~L130), the result-stage pose code (captureNodePose, poseNode, applyReactionPose, applyResultPosesAfterAnimation ~L2577-2871), and update() (~L2977). Pure state lives in rivalChallenge.js and resultStage.js.",
+    "FROZEN TIMELINE (intro clock; all service frozen throughout, exactly as today via rivalChallenge.paused): (1) 'entering': title shown, jingle starts, rival walks RIVAL_ENTRANCE_START -> RIVAL_ENTRANCE_END (~1.05 s, unchanged), WAITER label hidden. (2) 'turning' ~0.2 s: rival rotates smoothly (shortest angle) to face the camera (rotation.y 0, as today; the player avatar can be anywhere, the camera is the player's view). (3) 'reveal' 2.0 s: on entry, camera punches in (fixed preset, fast damping ~9-10) to a close three-quarter framing of the rival's upper body; BA-BAM accent plays; rival plays the challenger pose; the 2.0 s hold is measured from reveal start. (4) 'returning' ~0.8 s: camera eases back to ENTRANCE_CAMERA (damping ~3.5-4), pose blends back to rest over the first ~0.35 s; title fades out (opacity transition ~0.25 s) during the end of this phase and is hidden at its end. (5) 'typing': WAITER label AND challenge panel appear on the same update; the line types in. (6) 'awaiting': line complete, all three replies appear together. (7) 'reacting' (existing 0.55 s nod) -> (8) 'done' -> beginRushGameplay exactly as today (0-0 score, lunch rush cue, ROOM_CAMERA).",
+    "Make the phase durations named exported constants in rivalChallenge.js (e.g. RIVAL_REVEAL_TIMING = { turn: 0.2, reveal: 2.0, return: 0.8 }) so tests and scene share them. Keep 'arrive()' as the scene's signal that the walk finished; the pure module then runs turning/reveal/returning by time via advance(dt) and emits one event per phase entry (e.g. 'reveal', 'returning', 'panel', 'choices-shown', 'rush'), robust to a large dt crossing several phases (return all crossed events in order, like resultStage.advance does, or document otherwise and test it).",
+    "CHALLENGER POSE: reuse the result-stage node-offset machinery (static animation + captureNodePose + poseNode after the mixer). Must read 'confident challenger, bring it on', playful, and must NOT look like the result stage 'celebrate' (arms straight up sideways + hopping) or 'despair' (kneel + fists at ceiling). Direction: planted wide stance (legs splayed slightly on z), torso leaning forward toward camera, head slightly down/forward, both fists thrown up in FRONT (rotate arms on x toward forward-up, elbows implied, not straight sideways), two sharp fist pumps in the first ~0.8 s (fast out, eased back), then held. Optional tiny stomp (0.05-0.08 y dip) on the first pump. Restore rest pose cleanly when returning/at exit/at enter so the rival's later walking/idle animation is not left offset.",
+    "CAMERA: a new CHALLENGE_CLOSEUP_CAMERA constant near ENTRANCE_CAMERA. Starting value to tune by render: position ~[-1.35, 1.95, 5.2], lookAt ~[-2.1, 1.3, 2.4] (rival at x -2.1, z 2.4, scale 0.78). The rival must be clearly framed, head and raised fists in frame, at 1366x768 and 412x915 (portrait may pull back along the view line, as fitStageCamera does). Noticeable but not nauseating: no shake, no FOV tricks.",
+    "JINGLE: replace the single 'restaurant-rival-sting' with a note sequence played through the existing code-generated audio.playSfx (one oscillator per call; each call needs a unique name or options object; type/frequency/endFrequency/duration/gain). Structure: low cautious warning notes (e.g. two short 'square' or 'triangle' notes around 196-233 Hz), a quick rising run through the walk, then a strong BA-BAM (two punchy chords/stacked notes ~0.12 s apart, louder) fired by the 'reveal' event, not by a fixed time, so it lands on the punch-in. Whole thing ~1.0-1.3 s because the walk is ~1.05 s; alert/exciting, not scary: major or suspended intervals, no minor-second drones. Drive it from the intro clock the way updateResultSting does.",
+    "TYPEWRITER: new pure module src/minigames/restaurant/typewriter.js. parseFurigana(source) -> units: each plain character (including kana, punctuation and full-width marks) is one unit; '\\n' is kept as a zero-cost line-break unit; each '{kanji|reading}' is ONE ruby unit with cost = base length (勝負 costs 2). createTypewriter({ units, charsPerSecond = 30 }) with advance(dt), revealAll(), revealedCost, totalCost, visibleUnitCount, complete. The scene renders the FULL structure once (each unit a span, ruby units as <ruby>base<rt>reading</rt></ruby> inside their span) and hides unrevealed units with visibility:hidden, so centred lines never reflow while typing and <ruby>/<rt> are never sliced. Keep appendFurigana for the reply buttons (or reimplement it on top of parseFurigana; either way reply rendering must not change). Give the line element an aria-label with the plain sentence.",
+    "SPACE / INPUT: while typing, a window capture-phase keydown for Space (and Enter) reveals the rest and is fully consumed (preventDefault + stopImmediatePropagation, repeats too); it must not reach input.js interact, speech Talk (speech target is already cleared during the intro; keep it so), world actions, or a reply. A click/tap on the panel while typing also reveals all (touch users need a skip). A Space/Enter press that skipped the typewriter must not select a reply: do not focus the first reply until that key's keyup has been seen (swallow the keyup and any repeats too), and ignore repeat keydowns for reply activation. After that a fresh press works as today (focused button, arrows move focus, click works). Natural completion replaces the old RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS guard; keep choose() rejecting until choices are visible.",
+    "REPLIES appear together: remove the nth-child animation-delay stagger; one shared short appear animation is fine.",
+    "PANEL: remove the .restaurant-ui__challenge-name badge (markup, CSS, the textContent assignment). The floating 3D WAITER label is the only name.",
+    "RESULT STAGE: RESULT_STAGE_TIMING.reaction 1.8 -> 3.6 (double). Reaction animations keep their current time functions (phaseElapsed in real seconds, no time scaling); they reach their strong pose early and hold it. If any reaction ends in an awkward idle state over the longer hold, make it hold its final pose rather than slowing it. Label fade, score shrink, settle, turn-to-face, question camera and the question itself are unchanged and start only after the longer hold.",
+    "Debug hook: extend the existing rivalChallenge debug object with phase, titleVisible, labelVisible (floating WAITER), panelVisible, nameBadgePresent (should be false), typing, lineRevealedCost, lineTotalCost, lineComplete, choicesVisible, cameraCloseup (bool), phaseElapsed; keep existing fields and names working. resultStage debug: expose reactionSeconds (the constant) alongside the existing fields.",
+    "Source-edit hygiene: edit with structured edit tools; the file contains Japanese text, regex literals and template CSS, so never do shell/sed/python rewrites of index.js."
+  ],
+  "requirements": [
+    "Title (STRINGS.rivalTitle) stays visible from intro start through walk, turn, reveal and return, then fades; it is never visible at the same time as the floating WAITER label or the challenge panel.",
+    "Rival reaches RIVAL_ENTRANCE_END, then turns to face the camera, then the camera punches in and the challenger pose plays, held ~2.0 s, then the camera eases back to ENTRANCE_CAMERA framing before any dialogue appears; gameplay never cuts straight from the close-up.",
+    "The whole Restaurant simulation (movement, belt, patience, director, rival AI, temperature) stays frozen from intro start until the reply reaction ends, as today.",
+    "Challenger pose is procedural, playful, visibly different from the result-stage celebrate/despair poses, and leaves no residual node offsets afterwards.",
+    "New challenger jingle via audio.playSfx note sequence with the BA-BAM tied to the reveal event; no new audio asset files.",
+    "Floating WAITER label and the challenge panel appear on the same update, after the title is gone; the in-panel name badge no longer exists.",
+    "Challenge line types in at ~30 cost-units/second via the pure typewriter module; ruby markup stays structurally valid at every step; lines do not reflow while typing.",
+    "Space (and Enter, and a panel click) during typing reveals the whole line and does nothing else; that same press cannot select a reply; replies appear only when the line is complete, all three at once.",
+    "After replies appear: arrows, click and a fresh Space/Enter on the focused reply work as before and lead into the existing nod -> rush -> 0-0 score -> lunch rush flow.",
+    "Result stage reaction hold doubled to 3.6 s without time-scaling the reaction animations; settling and the final question follow only after it.",
+    "Unit tests: rivalChallenge phase order and durations (turn/reveal/return), events in order even for a large dt, paused through all intro phases, panel event only after return, choose() rejected before choices, choices-shown only after typewriter completion signal; typewriter parse (plain, newline, ruby cost, the real rivalChallenge string from lesson.js), partial reveal after a short dt, advance rate ~30/s, revealAll completes, never splits a ruby unit; resultStage reaction constant is 3.6 and settling/question events only fire after it. Update existing tests that assumed the old choice delay or 1.8 s.",
+    "DESIGN_DECISIONS.md gets a 2026-09-19 entry (what, why, rejected alternatives: slicing innerHTML for the typewriter; slowing result animations instead of holding); SPEC.md Restaurant rival/result paragraphs revised to match."
+  ],
+  "constraints": [
+    "Do not change lesson.js strings, gameplay rules, scoring, rush trigger, rival AI or conveyor behaviour.",
+    "Do not change Easy (no rival) or pre-rush behaviour.",
+    "No new dependencies and no audio/image asset files.",
+    "Keep all existing debug fields working (harness scripts read them).",
+    "Do not commit or push; leave changes in the working tree for review."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/rivalChallenge.js",
+    "src/minigames/restaurant/rivalChallenge.test.mjs",
+    "src/minigames/restaurant/resultStage.js",
+    "src/minigames/restaurant/resultStage.test.mjs",
+    "src/config/lesson.js",
+    "src/systems/input.js",
+    "src/systems/speech.js",
+    "src/systems/audio.js",
+    "DESIGN_DECISIONS.md",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["browser check of the Normal rival intro and win/lose/draw result stage (controller-owned scratchpad script)"]
+  },
+  "category": "gameplay-3d-ui",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

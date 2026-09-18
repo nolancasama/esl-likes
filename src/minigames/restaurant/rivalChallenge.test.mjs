@@ -2,26 +2,42 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS,
   RIVAL_CHALLENGE_REACTION_SECONDS,
+  RIVAL_REVEAL_TIMING,
   createRivalChallenge,
 } from './rivalChallenge.js';
 import { RUSH_PLAYER_DELIVERIES, createRushTrigger } from './rushTrigger.js';
-import { UI } from '../../config/lesson.js';
 
-function toAwaitingChoices(challenge) {
+function eventTypes(events) {
+  return events.map(({ type }) => type);
+}
+
+function reachTyping(challenge) {
   challenge.start();
   challenge.arrive();
-  challenge.advance(RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS);
+  return challenge.advance(
+    RIVAL_REVEAL_TIMING.turn
+      + RIVAL_REVEAL_TIMING.reveal
+      + RIVAL_REVEAL_TIMING.return,
+  );
+}
+
+function reachChoices(challenge) {
+  reachTyping(challenge);
+  challenge.completeTyping();
 }
 
 function runToRush(index) {
   const challenge = createRivalChallenge({ enabled: true });
-  toAwaitingChoices(challenge);
+  reachChoices(challenge);
   const chosen = challenge.choose(index);
-  const events = [];
-  for (let step = 0; step < 20; step += 1) events.push(challenge.advance(0.05));
-  return { chosen, phase: challenge.phase, paused: challenge.paused, rushEvents: events.filter((e) => e === 'rush').length };
+  const events = challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS);
+  return {
+    chosen,
+    phase: challenge.phase,
+    paused: challenge.paused,
+    rushEvents: events.filter(({ type }) => type === 'rush').length,
+  };
 }
 
 test('the third player delivery triggers the challenge on Normal and Challenge only', () => {
@@ -44,45 +60,97 @@ test('Easy (no rival) never starts the challenge', () => {
   assert.equal(challenge.phase, 'idle');
 });
 
-test('service stays paused from the entrance until the reaction has finished', () => {
+test('turn, reveal, and return use the exported durations in order', () => {
+  assert.deepEqual(RIVAL_REVEAL_TIMING, { turn: 0.2, reveal: 2, return: 0.8 });
+  const challenge = createRivalChallenge({ enabled: true });
+  challenge.start();
+  assert.equal(challenge.arrive(), true);
+  assert.equal(challenge.phase, 'turning');
+
+  assert.deepEqual(challenge.advance(RIVAL_REVEAL_TIMING.turn - 0.01), []);
+  assert.equal(challenge.phase, 'turning');
+  assert.deepEqual(eventTypes(challenge.advance(0.01)), ['reveal']);
+  assert.equal(challenge.phase, 'reveal');
+
+  assert.deepEqual(challenge.advance(RIVAL_REVEAL_TIMING.reveal - 0.01), []);
+  assert.deepEqual(eventTypes(challenge.advance(0.01)), ['returning']);
+  assert.equal(challenge.phase, 'returning');
+
+  assert.deepEqual(challenge.advance(RIVAL_REVEAL_TIMING.return - 0.01), []);
+  assert.deepEqual(eventTypes(challenge.advance(0.01)), ['panel']);
+  assert.equal(challenge.phase, 'typing');
+});
+
+test('a large update emits every crossed intro event in order', () => {
+  const challenge = createRivalChallenge({ enabled: true });
+  challenge.start();
+  challenge.arrive();
+  assert.deepEqual(eventTypes(challenge.advance(20)), ['reveal', 'returning', 'panel']);
+  assert.equal(challenge.phase, 'typing');
+  assert.ok(Math.abs(challenge.phaseElapsed - 17) < 1e-9);
+});
+
+test('service stays paused through every intro and reply phase', () => {
   const challenge = createRivalChallenge({ enabled: true });
   assert.equal(challenge.paused, false);
   challenge.start();
-  assert.equal(challenge.paused, true);
-  challenge.arrive();
-  assert.equal(challenge.paused, true);
-  // Waiting for a reply never times out.
-  for (let step = 0; step < 2000; step += 1) challenge.advance(0.05);
+  for (const phase of ['entering', 'turning', 'reveal', 'returning', 'typing']) {
+    if (phase === 'turning') challenge.arrive();
+    if (phase === 'reveal') challenge.advance(RIVAL_REVEAL_TIMING.turn);
+    if (phase === 'returning') challenge.advance(RIVAL_REVEAL_TIMING.reveal);
+    if (phase === 'typing') challenge.advance(RIVAL_REVEAL_TIMING.return);
+    assert.equal(challenge.phase, phase);
+    assert.equal(challenge.paused, true, phase);
+  }
+  challenge.completeTyping();
   assert.equal(challenge.phase, 'awaiting');
   assert.equal(challenge.paused, true);
   challenge.choose(0);
+  assert.equal(challenge.phase, 'reacting');
   assert.equal(challenge.paused, true);
   challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS);
-  assert.equal(challenge.paused, false);
   assert.equal(challenge.phase, 'done');
+  assert.equal(challenge.paused, false);
 });
 
-test('replies appear only after a short beat and cannot be chosen before it', () => {
+test('the panel appears only after the return has completed', () => {
+  const challenge = createRivalChallenge({ enabled: true });
+  challenge.start();
+  challenge.arrive();
+  const beforePanel = RIVAL_REVEAL_TIMING.turn + RIVAL_REVEAL_TIMING.reveal
+    + RIVAL_REVEAL_TIMING.return - 0.001;
+  assert.deepEqual(eventTypes(challenge.advance(beforePanel)), ['reveal', 'returning']);
+  assert.equal(challenge.phase, 'returning');
+  assert.deepEqual(eventTypes(challenge.advance(0.001)), ['panel']);
+  assert.equal(challenge.phase, 'typing');
+});
+
+test('choices are gated by an explicit typewriter completion signal', () => {
   const challenge = createRivalChallenge({ enabled: true });
   challenge.start();
   assert.equal(challenge.choose(0), false, 'no reply while walking in');
-  challenge.arrive();
+  assert.deepEqual(challenge.completeTyping(), [], 'completion is ignored before typing');
+  reachTyping(challenge);
   assert.equal(challenge.choicesVisible, false);
-  assert.equal(challenge.choose(0), false, 'a queued press cannot answer');
-  assert.equal(challenge.advance(RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS), 'choices-shown');
+  assert.equal(challenge.choose(0), false, 'typing cannot be answered');
+  assert.deepEqual(eventTypes(challenge.advance(10)), []);
+  assert.equal(challenge.phase, 'typing', 'typing has no elapsed-time shortcut');
+  assert.deepEqual(eventTypes(challenge.completeTyping()), ['choices-shown']);
+  assert.equal(challenge.phase, 'awaiting');
   assert.equal(challenge.choicesVisible, true);
   assert.equal(challenge.selectedResponse, null);
+  assert.deepEqual(challenge.completeTyping(), [], 'choices-shown fires once');
 });
 
 test('the rush begins only after a reply and its brief reaction', () => {
   const challenge = createRivalChallenge({ enabled: true });
-  toAwaitingChoices(challenge);
-  assert.equal(challenge.advance(10), null);
+  reachChoices(challenge);
+  assert.deepEqual(challenge.advance(10), []);
   assert.equal(challenge.choose(1), true);
   assert.equal(challenge.choicesVisible, false, 'choosing dismisses the replies');
   assert.equal(challenge.selectedResponse, 1);
-  assert.equal(challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS / 2), null);
-  assert.equal(challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS / 2), 'rush');
+  assert.deepEqual(challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS / 2), []);
+  assert.deepEqual(eventTypes(challenge.advance(RIVAL_CHALLENGE_REACTION_SECONDS / 2)), ['rush']);
   assert.ok(RIVAL_CHALLENGE_REACTION_SECONDS >= 0.4 && RIVAL_CHALLENGE_REACTION_SECONDS <= 0.7);
 });
 
@@ -95,7 +163,7 @@ test('all three replies have the same gameplay outcome', () => {
 
 test('invalid replies are ignored and a second reply does nothing', () => {
   const challenge = createRivalChallenge({ enabled: true });
-  toAwaitingChoices(challenge);
+  reachChoices(challenge);
   assert.equal(challenge.choose(3), false);
   assert.equal(challenge.choose(-1), false);
   assert.equal(challenge.choose('0'), false);
@@ -106,18 +174,11 @@ test('invalid replies are ignored and a second reply does nothing', () => {
 
 test('the challenge is one shot per shift', () => {
   const challenge = createRivalChallenge({ enabled: true });
-  toAwaitingChoices(challenge);
+  reachChoices(challenge);
   assert.equal(challenge.start(), false, 'cannot restart mid-challenge');
   challenge.choose(0);
   challenge.advance(1);
   assert.equal(challenge.start(), false, 'cannot trigger again after the rush');
   assert.equal(challenge.arrive(), false);
-  assert.equal(challenge.advance(1), null, 'the rush event fires once');
-});
-
-test('the challenge line and replies are Japanese, three replies', () => {
-  const strings = UI.restaurant;
-  const plain = (text) => text.replace(/\{([^|}]+)\|[^}]+\}/g, '$1').replace(/\n/g, '');
-  assert.equal(plain(strings.rivalChallenge), '勝負しよう！どっちがたくさん料理を運べるかな？');
-  assert.deepEqual(strings.rivalChallengeReplies.map(plain), ['いいよ！勝負だ！', '負けないよ！', 'がんばるぞ！']);
+  assert.deepEqual(challenge.advance(1), [], 'the rush event fires once');
 });

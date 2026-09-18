@@ -14,7 +14,7 @@ const SETTLING_SECONDS = RESULT_STAGE_TIMING.labelFade
 
 test('result stage exposes the requested timing and layout', () => {
   assert.deepEqual(RESULT_STAGE_TIMING, {
-    reaction: 1.8,
+    reaction: 3.6,
     labelFade: 0.3,
     scoreShrink: 0.5,
     settle: 0.6,
@@ -33,6 +33,7 @@ test('phases advance in order at their specified durations', () => {
 
   assert.deepEqual(stage.advance(RESULT_STAGE_TIMING.reaction - 0.01), []);
   assert.equal(stage.phase, 'reaction');
+  assert.ok(Math.abs(stage.phaseElapsed - (RESULT_STAGE_TIMING.reaction - 0.01)) < 1e-10);
   assert.deepEqual(stage.advance(0.01), [{ type: 'phase', phase: 'settling' }]);
   assert.equal(stage.phase, 'settling');
 
@@ -45,6 +46,25 @@ test('phases advance in order at their specified durations', () => {
 
   assert.equal(stage.markAnswered(), true);
   assert.equal(stage.phase, 'answered');
+});
+
+test('settling and question wait for the full doubled reaction hold', () => {
+  const stage = createResultStage({ outcome: 'player' });
+  stage.start();
+
+  assert.deepEqual(stage.advance(1.8), []);
+  assert.equal(stage.phase, 'reaction', 'the former reaction duration is still mid-hold');
+  assert.equal(stage.phaseElapsed, 1.8, 'reaction time remains measured in real seconds');
+
+  assert.deepEqual(stage.advance(1.799), []);
+  assert.equal(stage.phase, 'reaction');
+  assert.deepEqual(stage.advance(0.001), [{ type: 'phase', phase: 'settling' }]);
+  assert.equal(stage.phase, 'settling');
+
+  assert.deepEqual(stage.advance(SETTLING_SECONDS - 0.001), []);
+  assert.equal(stage.phase, 'settling');
+  assert.deepEqual(stage.advance(0.001), [{ type: 'phase', phase: 'question' }]);
+  assert.equal(stage.phase, 'question');
 });
 
 test('label visibility and compact score follow the phase', () => {

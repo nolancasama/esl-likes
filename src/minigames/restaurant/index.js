@@ -19,12 +19,17 @@ import {
   createCompetitionScore,
   createRushTrigger,
 } from './rushTrigger.js';
-import { RIVAL_CHALLENGE_REACTION_SECONDS, createRivalChallenge } from './rivalChallenge.js';
+import {
+  RIVAL_CHALLENGE_REACTION_SECONDS,
+  RIVAL_REVEAL_TIMING,
+  createRivalChallenge,
+} from './rivalChallenge.js';
 import {
   RESULT_STAGE_LAYOUT,
   RESULT_STAGE_TIMING,
   createResultStage,
 } from './resultStage.js';
+import { createTypewriter, parseFurigana } from './typewriter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
   PATIENCE_LOW,
@@ -68,12 +73,32 @@ const STEER_CLEARANCE = 1.75;
 const RIVAL_ENTRANCE_START = Object.freeze({ x: -2.1, z: 6.6 });
 const RIVAL_ENTRANCE_END = Object.freeze({ x: -2.1, z: 2.4 });
 const RIVAL_ENTRANCE_SPEED = 4;
-// Walk (~1.05 s), then a wave while the challenge line shows; the replies
-// follow the line by RIVAL_CHALLENGE_CHOICE_DELAY_SECONDS.
-const RIVAL_ARRIVAL_WAVE_SECONDS = 0.9;
 const ROOM_CAMERA = Object.freeze({ position: [0, 11.5, 12], lookAt: [0, 0.8, 0.6], damping: 5 });
-// A modest eased move toward the front-left aisle the rival walks in along.
+// The entrance establishes the aisle before the reveal punches in, then receives
+// the returning camera before the dialogue is allowed to appear.
 const ENTRANCE_CAMERA = Object.freeze({ position: [-0.8, 6.4, 9.6], lookAt: [-2.1, 1.1, 3.3], damping: 5 });
+const CHALLENGE_CLOSEUP_CAMERA = Object.freeze({
+  position: [-1.3, 2.0, 5.65],
+  lookAt: [-2.1, 1.3, 2.4],
+  damping: 9.5,
+});
+const CHALLENGE_CLOSEUP_HALF_WIDTH = 1.25;
+const RIVAL_TITLE_FADE_SECONDS = 0.25;
+const RIVAL_POSE_RETURN_SECONDS = 0.35;
+// The walk carries a cautious warning into a bright rising run. The reveal
+// accent is separate so BA-BAM lands on the camera punch-in, not a wall-clock guess.
+const RIVAL_WALK_JINGLE = Object.freeze([
+  Object.freeze({ at: 0, frequency: 196, endFrequency: 208, duration: 0.14, type: 'triangle', gain: 0.09 }),
+  Object.freeze({ at: 0.2, frequency: 233, endFrequency: 247, duration: 0.14, type: 'triangle', gain: 0.09 }),
+  Object.freeze({ at: 0.4, frequency: 294, endFrequency: 330, duration: 0.12, type: 'square', gain: 0.08 }),
+  Object.freeze({ at: 0.57, frequency: 349, endFrequency: 392, duration: 0.12, type: 'square', gain: 0.085 }),
+  Object.freeze({ at: 0.73, frequency: 440, endFrequency: 494, duration: 0.12, type: 'triangle', gain: 0.095 }),
+  Object.freeze({ at: 0.89, frequency: 523, endFrequency: 587, duration: 0.15, type: 'triangle', gain: 0.1 }),
+]);
+const RIVAL_REVEAL_ACCENT = Object.freeze([
+  Object.freeze({ at: 0, frequencies: Object.freeze([392, 523, 587]), duration: 0.17, gain: 0.12 }),
+  Object.freeze({ at: 0.12, frequencies: Object.freeze([523, 659, 784]), duration: 0.28, gain: 0.15 }),
+]);
 // Patience strip inside the waiting bubble, in bubble-sprite units (2.0 x 1.0;
 // 256 texture px per unit). Thick enough that green/amber/red reads from the
 // fixed room camera; it sits inside the track drawn at y 144–188 px.
@@ -208,7 +233,18 @@ export function createRestaurant(ctx) {
   let rivalEmoteRemaining = 0;
   let rivalEntranceLabel = null;
   let challengePanel = null;
+  let challengeLine = null;
   let challengeReplies = null;
+  let challengeTypewriter = null;
+  let challengeLineUnits = [];
+  const challengeSuppressedKeys = new Set();
+  let challengePoseState = null;
+  let rivalTurnStartRotation = Math.PI;
+  let rivalIntroJingleElapsed = 0;
+  let rivalIntroNextNote = 0;
+  let rivalRevealAccentElapsed = null;
+  let rivalRevealAccentNext = 0;
+  let rivalCameraCloseup = false;
   let createRivalCharacter = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
@@ -395,7 +431,8 @@ export function createRestaurant(ctx) {
         transform: translateX(-50%) rotate(-3deg); color: #fff; -webkit-text-stroke: .16rem #1b2233;
         paint-order: stroke fill; filter: drop-shadow(0 .35rem 0 #1b2233);
         font: 1000 calc(clamp(2.2rem, 5.5vw, 3.8rem) * var(--ui-scale, 1)) system-ui, sans-serif;
-        animation: restaurant-title-pop .28s ease-out; }
+        opacity: 1; transition: opacity .25s ease; animation: restaurant-title-pop .28s ease-out; }
+      .restaurant-ui__title--fading { opacity: 0; }
       @keyframes restaurant-title-pop { from { transform: translateX(-50%) rotate(-3deg) scale(.6); opacity: 0; } }
       .restaurant-ui__score--result { padding: .7rem 1.2rem; background: #273858;
         font-size: calc(1.45rem * var(--ui-scale, 1)); animation: restaurant-score-pop .3s ease-out; }
@@ -419,14 +456,13 @@ export function createRestaurant(ctx) {
       /* z-index above the Talk HUD (20), Listen Again (21) and dialogue bubbles (18). */
       .restaurant-ui__challenge { position: absolute; z-index: 40; left: 50%; bottom: 1rem; transform: translateX(-50%);
         box-sizing: border-box; width: min(94vw, 52rem); padding: 1.25rem 1.3rem 1.1rem;
+        pointer-events: auto;
         border: .28rem solid #273858; border-radius: 1.5rem; background: #fff; color: #1b2940;
         box-shadow: 0 .45rem 0 rgb(28 48 78 / .28); animation: restaurant-challenge-in .22s ease-out; }
       @keyframes restaurant-challenge-in { from { transform: translateX(-50%) translateY(1.2rem); opacity: 0; } }
-      .restaurant-ui__challenge-name { position: absolute; left: 1.2rem; top: 0; transform: translateY(-60%);
-        padding: .22rem .9rem; border: .2rem solid #fff; border-radius: 999px; background: #1b2233; color: #fff;
-        font: 900 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
       .restaurant-ui__challenge-line { margin: 0; white-space: pre-line; text-align: center; line-height: 1.5;
         font: 900 calc(clamp(1.35rem, 3.3vw, 1.9rem) * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .restaurant-ui__challenge-unit { visibility: hidden; }
       .restaurant-ui__challenge rt { font-size: .5em; font-weight: 700; color: #4d5b73; }
       .restaurant-ui__challenge-replies { display: flex; flex-wrap: wrap; justify-content: center; gap: .7rem;
         margin-top: .9rem; }
@@ -441,8 +477,6 @@ export function createRestaurant(ctx) {
         animation: restaurant-challenge-reply-in .2s ease-out backwards; }
       @keyframes restaurant-challenge-reply-in { from { transform: translateY(.8rem); opacity: 0; } }
       .restaurant-ui__challenge-reply rt { color: #fff3dd; }
-      .restaurant-ui__challenge-reply:nth-child(2) { animation-delay: .05s; }
-      .restaurant-ui__challenge-reply:nth-child(3) { animation-delay: .1s; }
       #ui-layer .restaurant-ui__challenge-reply:hover { background: #f59a2c; }
       #ui-layer .restaurant-ui__challenge-reply:active { transform: translateY(.2rem); box-shadow: 0 .18rem 0 rgb(32 49 75 / .3); }
       .restaurant-ui__challenge-reply:focus-visible { outline: .32rem solid #ffcf33; outline-offset: .2rem; }
@@ -463,7 +497,6 @@ export function createRestaurant(ctx) {
       <div class="restaurant-ui__title" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__result" role="status" aria-live="polite" hidden></div>
       <section class="restaurant-ui__challenge" role="dialog" aria-live="polite" hidden>
-        <div class="restaurant-ui__challenge-name"></div>
         <p class="restaurant-ui__challenge-line"></p>
         <div class="restaurant-ui__challenge-replies" hidden></div>
       </section>
@@ -480,8 +513,26 @@ export function createRestaurant(ctx) {
     rivalTitle.textContent = STRINGS.rivalTitle;
     resultLabel = overlay.querySelector('.restaurant-ui__result');
     challengePanel = overlay.querySelector('.restaurant-ui__challenge');
-    challengePanel.querySelector('.restaurant-ui__challenge-name').textContent = STRINGS.rivalLabel;
-    appendFurigana(challengePanel.querySelector('.restaurant-ui__challenge-line'), STRINGS.rivalChallenge);
+    challengeLine = challengePanel.querySelector('.restaurant-ui__challenge-line');
+    challengeLineUnits = parseFurigana(STRINGS.rivalChallenge);
+    challengeTypewriter = createTypewriter({ units: challengeLineUnits, charsPerSecond: 30 });
+    challengeLine.setAttribute('aria-label', challengeLineUnits
+      .map((unit) => unit.kind === 'ruby' ? unit.base : unit.text)
+      .join(''));
+    for (const unit of challengeLineUnits) {
+      const span = document.createElement('span');
+      span.className = 'restaurant-ui__challenge-unit';
+      if (unit.kind === 'ruby') {
+        const ruby = document.createElement('ruby');
+        const reading = document.createElement('rt');
+        reading.textContent = unit.reading;
+        ruby.append(unit.base, reading);
+        span.append(ruby);
+      } else {
+        span.textContent = unit.text;
+      }
+      challengeLine.append(span);
+    }
     challengeReplies = challengePanel.querySelector('.restaurant-ui__challenge-replies');
     STRINGS.rivalChallengeReplies.forEach((reply, index) => {
       const button = document.createElement('button');
@@ -492,7 +543,11 @@ export function createRestaurant(ctx) {
       challengeReplies.append(button);
     });
     challengeReplies.addEventListener('click', onChallengeReply);
+    challengePanel.addEventListener('click', onChallengePanelClick);
     window.addEventListener('keydown', onChallengeKey, true);
+    window.addEventListener('keyup', onChallengeKeyUp, true);
+    // A keyup lost to a window switch must not lock the keyboard out of the replies.
+    window.addEventListener('blur', onChallengeBlur);
     temperature = overlay.querySelector('.restaurant-ui__temperature');
     actionButton.addEventListener('click', performAction);
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
@@ -1465,6 +1520,78 @@ export function createRestaurant(ctx) {
     return rivalChallenge?.phase === 'done';
   }
 
+  function fitChallengeCloseupCamera() {
+    const preset = CHALLENGE_CLOSEUP_CAMERA;
+    const [px, py, pz] = preset.position;
+    const [lx, ly, lz] = preset.lookAt;
+    const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * (camera.aspect || 1);
+    const availableDepth = Math.max(0.01, pz - lz);
+    const scale = Math.max(1, (CHALLENGE_CLOSEUP_HALF_WIDTH / halfTan) / availableDepth);
+    if (scale === 1) return preset;
+    return {
+      ...preset,
+      position: [lx + (px - lx) * scale, ly + (py - ly) * scale, lz + (pz - lz) * scale],
+    };
+  }
+
+  function updateRivalJingle(dt) {
+    rivalIntroJingleElapsed += Math.max(0, dt);
+    while (rivalIntroNextNote < RIVAL_WALK_JINGLE.length
+      && rivalIntroJingleElapsed >= RIVAL_WALK_JINGLE[rivalIntroNextNote].at) {
+      const note = RIVAL_WALK_JINGLE[rivalIntroNextNote];
+      audio.playSfx(`restaurant-rival-walk-${rivalIntroNextNote}`, note);
+      rivalIntroNextNote += 1;
+    }
+    if (rivalRevealAccentElapsed === null) return;
+    rivalRevealAccentElapsed += Math.max(0, dt);
+    while (rivalRevealAccentNext < RIVAL_REVEAL_ACCENT.length
+      && rivalRevealAccentElapsed >= RIVAL_REVEAL_ACCENT[rivalRevealAccentNext].at) {
+      const chordIndex = rivalRevealAccentNext;
+      const chord = RIVAL_REVEAL_ACCENT[chordIndex];
+      chord.frequencies.forEach((frequency, noteIndex) => {
+        audio.playSfx(`restaurant-rival-reveal-${chordIndex}-${noteIndex}`, {
+          type: chordIndex === 0 ? 'triangle' : 'square',
+          frequency,
+          endFrequency: frequency * 1.03,
+          duration: chord.duration,
+          gain: chord.gain,
+        });
+      });
+      rivalRevealAccentNext += 1;
+    }
+  }
+
+  function startRivalRevealAccent() {
+    rivalRevealAccentElapsed = 0;
+    rivalRevealAccentNext = 0;
+    updateRivalJingle(0);
+  }
+
+  function renderChallengeTypewriter() {
+    if (!challengeLine || !challengeTypewriter) return;
+    const visible = challengeTypewriter.visibleUnitCount;
+    [...challengeLine.children].forEach((span, index) => {
+      span.style.visibility = index < visible ? 'visible' : 'hidden';
+    });
+  }
+
+  function updateChallengeTypewriter(dt) {
+    if (rivalChallenge?.phase !== 'typing' || !challengeTypewriter) return;
+    challengeTypewriter.advance(dt);
+    renderChallengeTypewriter();
+    if (challengeTypewriter.complete) {
+      processRivalChallengeEvents(rivalChallenge.completeTyping());
+    }
+  }
+
+  function completeChallengeTypewriter() {
+    if (rivalChallenge?.phase !== 'typing' || !challengeTypewriter) return false;
+    challengeTypewriter.revealAll();
+    renderChallengeTypewriter();
+    processRivalChallengeEvents(rivalChallenge.completeTyping());
+    return true;
+  }
+
   function beginRivalChallenge() {
     if (!rivalChallenge?.start()) return false;
     // The scene is modal and freezes play, so no half-targeted conversation,
@@ -1484,30 +1611,46 @@ export function createRestaurant(ctx) {
     syncHud();
     if (claimRegistry) competitionScore?.capture(claimRegistry.counts);
     cameraRig.setPreset('fixed', ENTRANCE_CAMERA);
-    if (rivalTitle) rivalTitle.hidden = false;
-    audio.playSfx('restaurant-rival-sting', { frequency: 280, endFrequency: 1180, duration: 0.32, gain: 0.12 });
+    rivalCameraCloseup = false;
+    rivalIntroJingleElapsed = 0;
+    rivalIntroNextNote = 0;
+    rivalRevealAccentElapsed = null;
+    rivalRevealAccentNext = 0;
+    if (rivalTitle) {
+      rivalTitle.classList.remove('restaurant-ui__title--fading');
+      rivalTitle.hidden = false;
+    }
+    updateRivalJingle(0);
     createRivalCharacter?.(RIVAL_ENTRANCE_START);
     setRivalAnimation('walk', true);
     updateRivalEntranceLabel();
     return true;
   }
 
-  function showChallengeLine() {
+  function showChallengePanel() {
     // The third delivery's thanks bubble must not sit over the scene.
     dialogue.hide();
     dialogueCustomer = null;
     dialogueRemaining = 0;
-    if (rivalTitle) rivalTitle.hidden = true;
+    if (rivalTitle) {
+      rivalTitle.hidden = true;
+      rivalTitle.classList.remove('restaurant-ui__title--fading');
+    }
     if (!challengePanel) return;
     challengeReplies.hidden = true;
     challengePanel.hidden = false;
+    restoreChallengePose();
+    setRivalAnimation('idle', true);
+    renderChallengeTypewriter();
   }
 
   function showChallengeReplies() {
     if (!challengeReplies) return;
     challengeReplies.hidden = false;
     // Keyboard players land on a reply; a mouse click works regardless.
-    challengeReplies.querySelector('button')?.focus({ preventScroll: true });
+    if (challengeSuppressedKeys.size === 0) {
+      challengeReplies.querySelector('button')?.focus({ preventScroll: true });
+    }
   }
 
   function hideChallengePanel() {
@@ -1515,6 +1658,13 @@ export function createRestaurant(ctx) {
     if (challengePanel.contains(document.activeElement)) document.activeElement.blur();
     challengePanel.hidden = true;
     challengeReplies.hidden = true;
+  }
+
+  function onChallengePanelClick(event) {
+    if (!active || rivalChallenge?.phase !== 'typing') return;
+    event.preventDefault();
+    event.stopPropagation();
+    completeChallengeTypewriter();
   }
 
   function onChallengeReply(event) {
@@ -1529,6 +1679,24 @@ export function createRestaurant(ctx) {
 
   // On the window, so the arrows still reach the replies after a click into the room.
   function onChallengeKey(event) {
+    const activationKey = event.code === 'Space' || event.code === 'Enter';
+    if (active && activationKey && rivalChallenge?.phase === 'typing') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      challengeSuppressedKeys.add(event.code);
+      completeChallengeTypewriter();
+      return;
+    }
+    if (activationKey && challengeSuppressedKeys.has(event.code)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (activationKey && event.repeat && rivalChallenge?.choicesVisible) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
     const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.code];
     if (!step || !rivalChallenge?.choicesVisible || !challengeReplies) return;
     // Arrows move between replies here; they must not also walk the avatar.
@@ -1538,6 +1706,49 @@ export function createRestaurant(ctx) {
     const current = buttons.indexOf(document.activeElement);
     const next = current < 0 ? (step > 0 ? 0 : buttons.length - 1) : (current + step + buttons.length) % buttons.length;
     buttons[next]?.focus({ preventScroll: true });
+  }
+
+  function onChallengeKeyUp(event) {
+    if (!challengeSuppressedKeys.has(event.code)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    challengeSuppressedKeys.delete(event.code);
+    if (challengeSuppressedKeys.size === 0 && rivalChallenge?.choicesVisible) {
+      challengeReplies?.querySelector('button')?.focus({ preventScroll: true });
+    }
+  }
+
+  function onChallengeBlur() {
+    if (challengeSuppressedKeys.size === 0) return;
+    challengeSuppressedKeys.clear();
+    if (rivalChallenge?.choicesVisible) challengeReplies?.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  function beginRivalReveal() {
+    if (!rivalCharacter) return;
+    rivalCharacter.rotation.y = 0;
+    setRivalAnimation('static', true);
+    rivalCharacter.updateAnimation?.(0);
+    restoreChallengePose();
+    challengePoseState = { character: rivalCharacter, nodes: captureNodePose(rivalCharacter) };
+    rivalCameraCloseup = true;
+    cameraRig.setPreset('fixed', fitChallengeCloseupCamera());
+    startRivalRevealAccent();
+  }
+
+  function beginRivalReturn() {
+    rivalCameraCloseup = false;
+    cameraRig.setPreset('fixed', { ...ENTRANCE_CAMERA, damping: 3.8 });
+  }
+
+  function processRivalChallengeEvents(events) {
+    for (const event of events ?? []) {
+      if (event.type === 'reveal') beginRivalReveal();
+      else if (event.type === 'returning') beginRivalReturn();
+      else if (event.type === 'panel') showChallengePanel();
+      else if (event.type === 'choices-shown') showChallengeReplies();
+      else if (event.type === 'rush') beginRushGameplay();
+    }
   }
 
   function beginRushGameplay() {
@@ -1562,6 +1773,7 @@ export function createRestaurant(ctx) {
       if (rushBeatRemaining === 0 && !questionCommitted && !focus.active) beginRivalChallenge();
       return;
     }
+    updateRivalJingle(serviceDt);
     if (rivalChallenge.phase === 'entering' && rivalCharacter) {
       const dx = RIVAL_ENTRANCE_END.x - rivalCharacter.position.x;
       const dz = RIVAL_ENTRANCE_END.z - rivalCharacter.position.z;
@@ -1574,26 +1786,39 @@ export function createRestaurant(ctx) {
       }
       if (step >= distance - 1e-6) {
         rivalCharacter.position.set(RIVAL_ENTRANCE_END.x, 0, RIVAL_ENTRANCE_END.z);
-        // Face the room (the player's view) to challenge: the walk in shows
-        // only the rival's back, and the player may be anywhere behind it.
-        rivalCharacter.rotation.y = 0;
+        rivalTurnStartRotation = rivalCharacter.rotation.y;
         rivalChallenge.arrive();
-        rivalEmoteRemaining = RIVAL_ARRIVAL_WAVE_SECONDS;
-        showChallengeLine();
       }
     } else {
-      const event = rivalChallenge.advance(serviceDt);
-      if (event === 'choices-shown') showChallengeReplies();
-      else if (event === 'rush') beginRushGameplay();
+      const wasTyping = rivalChallenge.phase === 'typing';
+      processRivalChallengeEvents(rivalChallenge.advance(serviceDt));
+      if (wasTyping) updateChallengeTypewriter(serviceDt);
+    }
+    if (rivalChallenge.phase === 'turning' && rivalCharacter) {
+      const progress = Math.min(1, rivalChallenge.phaseElapsed / RIVAL_REVEAL_TIMING.turn);
+      const target = shortestAngle(rivalTurnStartRotation, 0);
+      rivalCharacter.rotation.y = THREE.MathUtils.lerp(
+        rivalTurnStartRotation,
+        target,
+        THREE.MathUtils.smoothstep(progress, 0, 1),
+      );
+    }
+    if (rivalChallenge.phase === 'returning' && rivalTitle) {
+      const fadeAt = RIVAL_REVEAL_TIMING.return - RIVAL_TITLE_FADE_SECONDS;
+      rivalTitle.classList.toggle(
+        'restaurant-ui__title--fading',
+        rivalChallenge.phaseElapsed >= fadeAt,
+      );
     }
     updateRivalEntranceLabel();
   }
 
   function updateRivalEntranceLabel() {
     if (!rivalEntranceLabel) return;
-    const entering = rivalIntroActive() && Boolean(rivalCharacter);
-    rivalEntranceLabel.visible = entering;
-    if (!entering) return;
+    const labelVisible = Boolean(rivalCharacter)
+      && ['typing', 'awaiting', 'reacting'].includes(rivalChallenge?.phase);
+    rivalEntranceLabel.visible = labelVisible;
+    if (!labelVisible) return;
     rivalEntranceLabel.position.copy(rivalCharacter.position);
     rivalEntranceLabel.position.y += 2.35;
   }
@@ -2218,9 +2443,19 @@ export function createRestaurant(ctx) {
       rivalChallenge: {
         active: rivalIntroActive(),
         phase: rivalChallenge?.phase ?? 'idle',
+        phaseElapsed: rivalChallenge?.phaseElapsed ?? 0,
         awaitingResponse: rivalChallenge?.phase === 'awaiting',
         lineVisible: Boolean(challengePanel && !challengePanel.hidden),
+        titleVisible: Boolean(rivalTitle && !rivalTitle.hidden),
+        labelVisible: Boolean(rivalEntranceLabel?.visible),
+        panelVisible: Boolean(challengePanel && !challengePanel.hidden),
+        nameBadgePresent: Boolean(challengePanel?.querySelector('.restaurant-ui__challenge-name')),
+        typing: rivalChallenge?.phase === 'typing',
+        lineRevealedCost: challengeTypewriter?.revealedCost ?? 0,
+        lineTotalCost: challengeTypewriter?.totalCost ?? 0,
+        lineComplete: challengeTypewriter?.complete ?? false,
         choicesVisible: Boolean(challengePanel && !challengePanel.hidden && challengeReplies && !challengeReplies.hidden),
+        cameraCloseup: rivalCameraCloseup,
         // Base text only; furigana readings are left out.
         choices: challengeReplies
           ? [...challengeReplies.querySelectorAll('button')].map((button) => [...button.childNodes]
@@ -2336,6 +2571,7 @@ export function createRestaurant(ctx) {
       },
       resultStage: {
         active: Boolean(resultStage?.active),
+        reactionSeconds: RESULT_STAGE_TIMING.reaction,
         outcome: resultStage?.outcome ?? null,
         phase: resultStage?.active ? resultStage.phase : null,
         labelVisible: Boolean(resultStage?.labelVisible),
@@ -2588,6 +2824,13 @@ export function createRestaurant(ctx) {
     return nodes;
   }
 
+  function restoreChallengePose() {
+    if (!challengePoseState) return;
+    resetNodesToRest(challengePoseState);
+    challengePoseState.character.position.y = 0;
+    challengePoseState = null;
+  }
+
   function snapshotPose(rest) {
     const nodes = {};
     for (const [name, entry] of Object.entries(rest.nodes)) {
@@ -2787,15 +3030,16 @@ export function createRestaurant(ctx) {
     if (reaction === 'celebrate') {
       const hopCycle = seconds % 0.5;
       const hopping = seconds < 1.5 ? Math.sin(hopCycle / 0.5 * Math.PI) : 0;
-      const pump = Math.sin(seconds * Math.PI * 4) * 0.35;
+      const pump = seconds < 1.5 ? Math.sin(seconds * Math.PI * 4) * 0.35 : 0;
       rest.character.position.y = Math.max(0, hopping) * 0.45;
       poseNode(rest, 'arm-left', { z: (2.4 + pump) * blend });
       poseNode(rest, 'arm-right', { z: (-2.4 - pump) * blend });
-      poseNode(rest, 'torso', { y: Math.sin(seconds * Math.PI * 2) * 0.12 * blend });
+      const cheerTwist = seconds < 1.5 ? Math.sin(seconds * Math.PI * 2) * 0.12 : 0;
+      poseNode(rest, 'torso', { y: cheerTwist * blend });
     } else if (reaction === 'despair') {
       // Rigid legs have no knees: the body drops and the legs fold back along
       // the floor. Fists alternate, like shaking them at the ceiling.
-      const shake = Math.sin(seconds * Math.PI * 16) * 0.28;
+      const shake = seconds < 1.5 ? Math.sin(seconds * Math.PI * 16) * 0.28 : 0;
       // Turned three-quarters toward the stage centre, so the legs folded
       // back along the floor show as kneeling rather than a shorter waiter.
       rest.character.position.y = -0.46 * blend;
@@ -2814,7 +3058,9 @@ export function createRestaurant(ctx) {
       poseNode(rest, 'arm-right', { x: 0.16 * blend, z: 0.12 * blend });
     } else if (reaction === 'shrug') {
       const lift = Math.sin(Math.min(1, seconds / 0.45) * Math.PI) * 0.04;
-      const nod = seconds > 0.65 ? Math.sin((seconds - 0.65) * Math.PI * 2.2) * 0.08 : 0;
+      const nod = seconds > 0.65 && seconds < 1.55
+        ? Math.sin((seconds - 0.65) * Math.PI * 2.2) * 0.08
+        : 0;
       poseNode(rest, 'arm-left', { x: -0.5 * blend, z: 0.55 * blend });
       poseNode(rest, 'arm-right', { x: -0.5 * blend, z: -0.55 * blend });
       poseNode(rest, 'torso', null, { y: lift * blend });
@@ -2868,6 +3114,52 @@ export function createRestaurant(ctx) {
       applySettlingPose(resultPoseState.player, playerTarget, progress);
       applySettlingPose(resultPoseState.rival, rivalTarget, progress);
     }
+  }
+
+  function challengerPump(seconds, start) {
+    const duration = 0.32;
+    if (seconds < start || seconds >= start + duration) return 0;
+    const progress = (seconds - start) / duration;
+    return Math.sin(progress * Math.PI) ** 0.7;
+  }
+
+  // Static mixer pose plus node offsets: planted and leaning in, with both
+  // fists in front. It intentionally shares neither the result cheer's
+  // sideways arms/hops nor the despair pose's kneel/ceiling fists.
+  function applyChallengerPoseAfterAnimation() {
+    if (!challengePoseState || !rivalChallenge) return;
+    const revealing = rivalChallenge.phase === 'reveal';
+    const returning = rivalChallenge.phase === 'returning';
+    if (!revealing && !returning) return;
+    resetNodesToRest(challengePoseState);
+    const seconds = revealing ? rivalChallenge.phaseElapsed : RIVAL_REVEAL_TIMING.reveal;
+    const revealBlend = THREE.MathUtils.smoothstep(Math.min(1, seconds / 0.18), 0, 1);
+    const returnBlend = returning
+      ? 1 - THREE.MathUtils.smoothstep(
+        Math.min(1, rivalChallenge.phaseElapsed / RIVAL_POSE_RETURN_SECONDS),
+        0,
+        1,
+      )
+      : 1;
+    const blend = revealBlend * returnBlend;
+    const pump = Math.max(challengerPump(seconds, 0.04), challengerPump(seconds, 0.43));
+    const stomp = revealing && seconds < 0.24
+      ? Math.sin(seconds / 0.24 * Math.PI) * 0.065
+      : 0;
+    challengePoseState.character.position.y = -stomp * blend;
+    poseNode(challengePoseState, 'leg-left', { z: -0.2 * blend });
+    poseNode(challengePoseState, 'leg-right', { z: 0.2 * blend });
+    poseNode(challengePoseState, 'torso', { x: 0.27 * blend }, { z: 0.045 * blend });
+    poseNode(challengePoseState, 'head', { x: 0.18 * blend }, { z: 0.035 * blend });
+    // Fists up and forward in a V above the shoulders; each pump drives them higher.
+    poseNode(challengePoseState, 'arm-left', {
+      x: (-2.55 - pump * 0.35) * blend,
+      z: 0.32 * blend,
+    });
+    poseNode(challengePoseState, 'arm-right', {
+      x: (-2.55 - pump * 0.35) * blend,
+      z: -0.32 * blend,
+    });
   }
 
   function enter(level) {
@@ -2928,8 +3220,19 @@ export function createRestaurant(ctx) {
     rushBeatRemaining = 0;
     rivalChallenge = createRivalChallenge({ enabled: rivalEnabled });
     rivalEmoteRemaining = 0;
+    challengeSuppressedKeys.clear();
+    restoreChallengePose();
+    rivalTurnStartRotation = Math.PI;
+    rivalIntroJingleElapsed = 0;
+    rivalIntroNextNote = 0;
+    rivalRevealAccentElapsed = null;
+    rivalRevealAccentNext = 0;
+    rivalCameraCloseup = false;
     if (rivalEntranceLabel) rivalEntranceLabel.visible = false;
-    if (rivalTitle) rivalTitle.hidden = true;
+    if (rivalTitle) {
+      rivalTitle.classList.remove('restaurant-ui__title--fading');
+      rivalTitle.hidden = true;
+    }
     turnaroundPartner = null;
     turnaroundWalk.walking = false;
     resultOutcome = null;
@@ -3040,6 +3343,9 @@ export function createRestaurant(ctx) {
       if (rivalCharacter) {
         if (focus.active) setRivalAnimation('idle', true);
         else if (rivalChallenge?.phase === 'entering') setRivalAnimation('walk');
+        else if (rivalChallenge?.phase === 'reveal' || rivalChallenge?.phase === 'returning') {
+          setRivalAnimation('static');
+        }
         else if (rivalIntroActive() && rivalEmoteRemaining > 0) setRivalAnimation('emote-yes');
         else if (rivalWalk.active && rivalWalk.delayRemaining <= 0) setRivalAnimation('walk');
         else setRivalAnimation('idle');
@@ -3076,12 +3382,14 @@ export function createRestaurant(ctx) {
       turnaroundPartner.character.updateAnimation?.(safeDt);
     }
     rivalCharacter?.updateAnimation?.(focus.active ? 0 : safeDt);
+    applyChallengerPoseAfterAnimation();
     applyResultPosesAfterAnimation();
     syncHud();
   }
 
   function exit() {
     active = false;
+    restoreChallengePose();
     restoreResultPose();
     resultStage = null;
     resultStageBeltTravel = null;
@@ -3104,6 +3412,8 @@ export function createRestaurant(ctx) {
     removeDebugHook();
     actionButton?.removeEventListener('click', performAction);
     window.removeEventListener('keydown', onChallengeKey, true);
+    window.removeEventListener('keyup', onChallengeKeyUp, true);
+    window.removeEventListener('blur', onChallengeBlur);
     listenAgain?.dispose();
     listenAgain = null;
     listenCustomer = null;
@@ -3145,7 +3455,13 @@ export function createRestaurant(ctx) {
     rivalEmoteRemaining = 0;
     rivalEntranceLabel = null;
     challengePanel = null;
+    challengeLine = null;
     challengeReplies = null;
+    challengeTypewriter = null;
+    challengeLineUnits = [];
+    challengeSuppressedKeys.clear();
+    challengePoseState = null;
+    rivalCameraCloseup = false;
     createRivalCharacter = null;
     rival = null;
     rivalCharacter = null;

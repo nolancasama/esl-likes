@@ -120,6 +120,25 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+000000000. 2026-09-19 Restaurant rival reveal + longer result hold (Codex via
+     router, Sol high, SUCCESS; Claude reviewed, fixed and tuned directly;
+     DESIGN_DECISIONS 2026-09-19, SPEC revised). PUSHED LIVE 2026-09-19 at the
+     owner's request. Intro: walk → 0.2 s turn to camera → 2.0 s close-up with a
+     fists-up challenger pose and generated BA-BAM jingle → 0.8 s camera return →
+     title fades → floating `ウェイター` label + panel together (in-panel name
+     badge removed) → furigana-safe typewriter (`typewriter.js`, 30/s; Space,
+     Enter or a panel tap reveals all, and that press cannot answer) → all three
+     replies at once. Result reaction 1.8 → 3.6 s, animations at normal speed
+     then held. Claude fixed a pre-existing shared bug: `input.js` keyup
+     prevented Space on focused buttons, so Space never answered a reply.
+     Verified: `npm test` 288/288, build OK; browser (session scratchpad
+     `restaurant-reveal.mjs` / `restaurant-stage.mjs`, UNTRUSTED, no known-bad
+     run) intro skip 38/38 and natural 35/36, win/lose/draw 19/19 each. The
+     remaining misses were script sampling gaps, not game failures. Claude
+     viewed the close-up, typing and reply renders. NOT run: Challenge, 412 px
+     close-up, other minigames after the `input.js` change (it only stops
+     preventing Space/Enter keyup on focused buttons). NEXT: owner judges the
+     reveal's feel and the jingle by ear (sound was not observed).
 00000000. 2026-09-18 Restaurant dedicated result stage (Codex via router, Sol
      high, SUCCESS; Claude reviewed renders and tuned directly; DESIGN_DECISIONS
      2026-09-18, SPEC "Result moment"/"Turnaround partner" revised).
