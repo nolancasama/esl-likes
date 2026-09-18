@@ -483,30 +483,34 @@ stars. The HUD's upper centre is a stack: score (persistent, hidden until the
 challenge is accepted), phase cue, then notices. The challenge can never run
 twice.
 
-**Result moment (added 2026-09-17).** When every customer of a shift that had
-a rival is resolved, the round-end pause becomes a 1.9-second result moment
-instead of the plain 1.3 seconds. Round end already stops every service system
-(belt, customers, patience, director, rival AI, player input). The score pill
-enlarges, and under it `きみの かち！`, `ウェイターの かち！` or `ひきわけ！` appears,
-decided by the head-to-head score only (a tie is a draw). Both waiters turn to
-the room. The winner hops twice and plays `emote-yes`, and the other plays
-`emote-no` with a slight forward droop. In a draw both play `emote-yes` with small hops.
-A short triangle-wave note sting plays: rising for a player win, falling for a
-rival win, two notes for a draw. Then the turnaround starts on its own.
+**Result moment (revised 2026-09-18).** When every customer of a shift in which
+the rival arrived is resolved, play freezes in the room for 0.9 s so the last
+delivery's feedback lands, then moves into a dedicated, continuous result
+stage. Every service system and player action stays frozen. Diners, dishes and
+service UI are hidden, and the same player and rival objects are placed full
+body in front of the stopped belt, player on the left and rival on the right,
+with the MATSUBARA RESTAURANT sign centred above them. The camera eases into
+this composition without a hard cut. The head-to-head score pill enlarges at
+top centre and shows `きみの かち！`, `ウェイターの かち！` or `ひきわけ！` beneath it,
+decided by the competition score only. Procedural poses on the rigid node rig
+make the winner celebrate, the loser react with funny despair or mild
+dejection, and both waiters shrug on a draw. The existing rising, falling or
+two-note result sting plays. The label then fades, the score shrinks upward to
+its compact pill, and both waiters ease back to neutral and turn toward each
+other. The stage flows directly into the final question; it never returns to
+the gameplay camera or room framing.
 
-**Turnaround partner (revised 2026-09-17).** No extra NPC appears for the final
-question. If the rival has arrived, the same rival character steers around the
-tables to open floor beside the player (a walk of about 1.1 s, 4–8 units per
-second), turns to the player and nods (`emote-yes`, 0.7 s). Otherwise (Easy, or
-a shift that ended before the rush), a served customer asks: the shift's last
-diner stays seated at their table instead of walking out, or, if the final
-resolution was a walk-out, the most recently served customer walks back in
-through the door. The close-up camera then targets that character, who turns to face the camera
-(the child's view) and asks
-"What food do you like?". The answer flow, matching, completion and stars are
-unchanged. Stars,
-records and progress are untouched. Easy, and any shift that ended before the
-rush, keep the plain pause.
+**Turnaround partner (revised 2026-09-18).** No extra NPC appears for the final
+question. If the rival arrived, the same rival remains in the result-stage
+composition: there is no walk back through the restaurant and no old close-up.
+The camera eases slightly closer while keeping both waiters and at least part
+of the sign visible, and the rival asks "What food do you like?" while facing
+the player. Otherwise (Easy, or a shift that ended before the rush), the
+existing customer approach and close-up path is unchanged: the shift's last
+served diner stays seated to ask, or, if the final resolution was a walk-out,
+the most recently served customer walks back in through the door. The answer
+flow, matching, completion, stars, records and progress are unchanged. Easy
+and pre-rush endings keep their plain pause and customer partner.
 
 Normal's rival has speed 3.6, waits until a customer has been seated for 7
 seconds, may claim 0.35 of the shift total, hesitates 0.8–1.5 seconds, and

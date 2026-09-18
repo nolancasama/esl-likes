@@ -1379,3 +1379,48 @@ the current action hint. Implemented by Claude directly.
   does not refill patience, green → amber → red matches the ratio, and an
   ignored customer walks out. Easy/Challenge patience are unit-tested only;
   the result moment and turnaround hint hiding were not run in the browser.
+
+## 2026-09-18 - Restaurant: dedicated result stage flows into the final question
+
+- **Accepted — dedicated staged composition.** Rival shifts move the same
+  player and rival objects into a clean full-body result composition: player
+  left, rival right, stopped belt behind them, and the MATSUBARA RESTAURANT sign
+  centred between and above them.
+- **Accepted — no walk-back and no gameplay camera between result and
+  question.** The result stage is continuous: after the reaction settles, the
+  waiters turn toward each other and the camera eases slightly closer for the
+  rival's "What food do you like?" question.
+- **Accepted — the score shrinks upward.** The head-to-head pill starts large
+  above the result label, then smoothly compacts and moves to the top edge as
+  the label fades, leaving the conversation clear while keeping the score
+  visible.
+- **Accepted — procedural poses on the rigid node rig.** Celebrate, funny
+  despair, mild dejection and friendly shrug poses animate the existing player
+  and rival nodes; no duplicate characters or new animation assets are used.
+- **Modified — labels stay Japanese.** Keep `きみの かち！` /
+  `ウェイターの かち！` / `ひきわけ！` and `きみ N ・ ウェイター N`, not `YOU
+  WIN!` / `YOU 4 - WAITER 2`, following the 2026-09-17 decision that game-state
+  text is Japanese.
+- **Modified — "fists clenched" cannot be shown.** The models have block hands
+  and no fingers, so fast, small fist shaking conveys the despair reaction
+  instead.
+- **Added — diners and dishes are hidden while the stage is up** so the staged
+  composition stays clean.
+- **Kept — Easy and pre-rush endings use the customer path.** Only shifts in
+  which the rival arrived use the dedicated result stage.
+- **Added at review (Claude, from renders) — 0.9 s frozen lead-in in the room**
+  before the stage, so the last delivery's thanks and combo land (plan step 1);
+  the stage then clears that bubble, because its diner is hidden.
+- **Modified at review — the kneel is three-quarter.** From the front camera
+  the rigid legs (no knee joint) folded back disappear and the rival reads as
+  "shorter", and with arms up it looked like the winner's cheer. The despairing
+  waiter turns 0.5 rad toward the stage centre, drops 0.46, folds the legs back
+  and looks up with alternating fist shakes; no lean back (with the yaw it read
+  as toppling over).
+- **Modified at review — framing.** Result camera (0, 2.9, 0.4) → (0, 1.75, -4.6),
+  in front of the middle table's chair, which sat in the foreground at the
+  first proposed position; eases in with damping 5.5 so the reaction plays in
+  the stage framing, not during a long sweep. Stage score and result label moved
+  up (top .8rem / 5.3rem) so the label only touches the sign's frame, never
+  its lettering. Accepted: during the question the English bubble covers part
+  of the sign; the sign is fully visible for the whole result.

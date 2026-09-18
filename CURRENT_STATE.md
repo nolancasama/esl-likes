@@ -120,6 +120,25 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+00000000. 2026-09-18 Restaurant dedicated result stage (Codex via router, Sol
+     high, SUCCESS; Claude reviewed renders and tuned directly; DESIGN_DECISIONS
+     2026-09-18, SPEC "Result moment"/"Turnaround partner" revised).
+     PUSHED LIVE 2026-09-18 at the owner's request. Rival shifts: 0.9 s frozen room beat, then the same
+     player/rival staged left/right in front of the stopped belt under the sign,
+     procedural reactions (celebrate / three-quarter kneel with fist shakes /
+     dejected / shrug), label fades, score shrinks to the top, waiters turn to
+     each other, camera eases in, the rival asks the question; Easy/pre-rush
+     unchanged. Pure `resultStage.js` + tests; debug `resultStage {...}`;
+     portrait viewports pull the stage camera back (`fitStageCamera`).
+     Verified: `npm test` 277/277, build OK; browser (session scratchpad
+     `restaurant-stage.mjs`, UNTRUSTED, no known-bad run; dev server with the
+     outcome forced and the Normal shift shortened to 5, harness-side only)
+     18/18 each for win/lose/draw at 1366x768 (before the portrait fit, which
+     leaves desktop framing unchanged) and a 412x915 layout run. NOT run: an
+     unpatched real full shift, Challenge. Known: at 412 px the score pill
+     touches the settings button (pre-existing, gameplay pill too); during the
+     question the bubble covers part of the sign. NEXT: owner judges the renders
+     (is the kneel funny, not distressing?) on the live build.
 0000000. 2026-09-17 Restaurant faster patience + modal challenge + hint-only HUD
      (Claude directly; DESIGN_DECISIONS sixth pass, SPEC §3 patience and director
      paragraphs). PUSHED LIVE 2026-09-17 at the owner's request. Patience 48/38/28 s (`PATIENCE_SECONDS`,

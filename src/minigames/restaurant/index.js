@@ -21,6 +21,11 @@ import {
 } from './rushTrigger.js';
 import { RIVAL_CHALLENGE_REACTION_SECONDS, createRivalChallenge } from './rivalChallenge.js';
 import {
+  RESULT_STAGE_LAYOUT,
+  RESULT_STAGE_TIMING,
+  createResultStage,
+} from './resultStage.js';
+import {
   OWNERSHIP_BUBBLE_TEXT,
   PATIENCE_LOW,
   PATIENCE_SECONDS,
@@ -79,10 +84,15 @@ const PATIENCE_FILL_Y = -0.148;
 const PATIENCE_URGENT_PULSE = 0.07;
 // Long enough for the delivery's thanks, temperature and combo to land first.
 const RUSH_BEAT_SECONDS = 1.6;
-// End-of-shift result moment; replaces the plain 1.3 s round-end pause
-// whenever there was a rival.
-const RESULT_CEREMONY_SECONDS = 1.9;
 const ROUND_END_SECONDS = 1.3;
+// In front of the middle table's chair (seat z 0.75), so nothing sits in the foreground.
+// With the stage score and label above it, the result label only reaches the sign's frame.
+const RESULT_CAMERA = Object.freeze({ position: [0, 2.9, 0.4], lookAt: [0, 1.75, -4.6], damping: 5.5 });
+// Frozen room beat between the final resolution and the stage.
+const RESULT_STAGE_LEAD_IN_SECONDS = 0.9;
+// Half the frame width, at the waiters' depth, that both staged waiters need.
+const RESULT_STAGE_HALF_WIDTH = 2.2;
+const RESULT_QUESTION_CAMERA = Object.freeze({ position: [0, 2.2, 0.6], lookAt: [0, 1.55, -4.2], damping: 3 });
 // Short note sequences (seconds, Hz); each whole sting is well under a second.
 const RESULT_STINGS = Object.freeze({
   player: [[0, 523], [0.11, 659], [0.22, 784], [0.33, 1046]],
@@ -173,8 +183,11 @@ export function createRestaurant(ctx) {
   let rivalTitle = null;
   let resultLabel = null;
   let resultOutcome = null;
-  let resultActive = false;
-  let resultElapsed = 0;
+  let resultStage = null;
+  let resultStageStartCount = 0;
+  let resultStagePendingOutcome = null;
+  let resultStageBeltTravel = null;
+  let resultPoseState = null;
   let resultNextNote = 0;
   let canvas = null;
   let autoTarget = null;
@@ -234,6 +247,7 @@ export function createRestaurant(ctx) {
   const move = new THREE.Vector2();
   const bubblePosition = new THREE.Vector3();
   const worldPoint = new THREE.Vector3();
+  const debugProjection = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   const steerAim = new THREE.Vector2();
@@ -299,6 +313,7 @@ export function createRestaurant(ctx) {
   // turnaround close-up keeps its "your turn" hint: the child's role flips there.
   function hintSuppressed() {
     return rivalIntroActive()
+      || Boolean(resultStage?.active)
       || phase === 'round-end' || phase === 'turnaround-approach' || phase === 'finishing';
   }
 
@@ -309,7 +324,8 @@ export function createRestaurant(ctx) {
     overlay.classList.toggle('restaurant-ui--modal', modal);
     // The challenge is answered with buttons, never the microphone: the Talk HUD
     // (outside this overlay) stays hidden however something tries to show it.
-    if (modal && !hud.element.hidden) hud.hide();
+    const resultPrelude = resultStage?.phase === 'reaction' || resultStage?.phase === 'settling';
+    if ((modal || resultPrelude) && !hud.element.hidden) hud.hide();
   }
 
   function setNotice(text, seconds = 1.8) {
@@ -373,7 +389,8 @@ export function createRestaurant(ctx) {
         white-space: nowrap; padding: .48rem .8rem;
         border: .18rem solid #fff; border-radius: 999px; background: #315d92; color: #fff;
         box-shadow: 0 .25rem 0 rgb(35 49 71 / .24);
-        font: 900 calc(.92rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+        font: 900 calc(.92rem * var(--ui-scale, 1)) system-ui, sans-serif;
+        transition: top .5s ease, transform .5s ease, font-size .5s ease, padding .5s ease; }
       .restaurant-ui__title { position: absolute; left: 50%; top: 26%; white-space: nowrap;
         transform: translateX(-50%) rotate(-3deg); color: #fff; -webkit-text-stroke: .16rem #1b2233;
         paint-order: stroke fill; filter: drop-shadow(0 .35rem 0 #1b2233);
@@ -382,13 +399,18 @@ export function createRestaurant(ctx) {
       @keyframes restaurant-title-pop { from { transform: translateX(-50%) rotate(-3deg) scale(.6); opacity: 0; } }
       .restaurant-ui__score--result { padding: .7rem 1.2rem; background: #273858;
         font-size: calc(1.45rem * var(--ui-scale, 1)); animation: restaurant-score-pop .3s ease-out; }
+      .restaurant-ui__score--stage { top: .8rem; padding: .78rem 1.3rem; background: #273858;
+        font-size: calc(2rem * var(--ui-scale, 1)); animation: restaurant-score-pop .3s ease-out; }
+      .restaurant-ui__score--stage.restaurant-ui__score--compact { top: .6rem; padding: .48rem .8rem;
+        font-size: calc(.92rem * var(--ui-scale, 1)); }
       @keyframes restaurant-score-pop { from { transform: translateX(-50%) scale(.7); } }
       /* Result under the enlarged score; colour follows who won, never a fail red. */
-      .restaurant-ui__result { position: absolute; left: 50%; top: 6.2rem; white-space: nowrap; line-height: 1;
+      .restaurant-ui__result { position: absolute; left: 50%; top: 5.3rem; white-space: nowrap; line-height: 1;
         transform: translateX(-50%) rotate(-3deg); color: #ffd43b; -webkit-text-stroke: .15rem #55380b;
         paint-order: stroke fill; filter: drop-shadow(0 .32rem 0 #fff);
         font: 1000 calc(clamp(2rem, 5vw, 3.4rem) * var(--ui-scale, 1)) system-ui, sans-serif;
-        animation: restaurant-title-pop .28s ease-out; }
+        opacity: 1; transition: opacity .3s ease; animation: restaurant-title-pop .28s ease-out; }
+      .restaurant-ui__result--fading { opacity: 0; }
       .restaurant-ui__result[data-outcome="rival"] { color: #fff; -webkit-text-stroke-color: #1b2233;
         filter: drop-shadow(0 .32rem 0 #1b2233); }
       .restaurant-ui__result[data-outcome="draw"] { color: #fff; -webkit-text-stroke-color: #315d92;
@@ -425,6 +447,8 @@ export function createRestaurant(ctx) {
       #ui-layer .restaurant-ui__challenge-reply:active { transform: translateY(.2rem); box-shadow: 0 .18rem 0 rgb(32 49 75 / .3); }
       .restaurant-ui__challenge-reply:focus-visible { outline: .32rem solid #ffcf33; outline-offset: .2rem; }
       @media (max-width: 44rem) { .restaurant-ui__temperature { right: 50%; bottom: 5.9rem; transform: translateX(50%); } }
+      /* Narrow screens: the stage score stays clear of the settings button. */
+      @media (max-width: 30rem) { .restaurant-ui__score--stage { font-size: calc(1.15rem * var(--ui-scale, 1)); } }
     `;
     document.head.append(style);
 
@@ -2134,6 +2158,15 @@ export function createRestaurant(ctx) {
     };
   }
 
+  function objectInCameraFrustum(object) {
+    if (!object) return false;
+    object.getWorldPosition(debugProjection);
+    debugProjection.project(camera);
+    return debugProjection.x >= -1 && debugProjection.x <= 1
+      && debugProjection.y >= -1 && debugProjection.y <= 1
+      && debugProjection.z >= -1 && debugProjection.z <= 1;
+  }
+
   function debugSnapshot() {
     const scoring = scoreSession(records);
     const conveyorState = conveyor?.snapshot() ?? {
@@ -2290,10 +2323,36 @@ export function createRestaurant(ctx) {
         score: competitionScore?.score(counts) ?? null,
       },
       resultCeremony: {
-        active: resultActive,
+        active: Boolean(resultStage?.active),
         outcome: resultOutcome,
         label: resultLabel && !resultLabel.hidden ? resultLabel.textContent : null,
-        remaining: resultActive ? roundEndRemaining : 0,
+        remaining: resultStage?.phase === 'reaction'
+          ? Math.max(0, RESULT_STAGE_TIMING.reaction - resultStage.phaseElapsed
+            + RESULT_STAGE_TIMING.labelFade + RESULT_STAGE_TIMING.scoreShrink + RESULT_STAGE_TIMING.settle)
+          : (resultStage?.phase === 'settling'
+            ? Math.max(0, RESULT_STAGE_TIMING.labelFade + RESULT_STAGE_TIMING.scoreShrink
+              + RESULT_STAGE_TIMING.settle - resultStage.phaseElapsed)
+            : 0),
+      },
+      resultStage: {
+        active: Boolean(resultStage?.active),
+        outcome: resultStage?.outcome ?? null,
+        phase: resultStage?.active ? resultStage.phase : null,
+        labelVisible: Boolean(resultStage?.labelVisible),
+        scoreVisible: Boolean(scoreText && !scoreText.hidden),
+        scoreCompact: Boolean(resultStage?.scoreCompact),
+        scoreText: scoreText && !scoreText.hidden ? scoreText.textContent : null,
+        playerPosition: player ? { x: player.position.x, z: player.position.z } : null,
+        rivalPosition: rivalCharacter ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z } : null,
+        playerReaction: resultStage?.reactions?.player ?? null,
+        rivalReaction: resultStage?.reactions?.rival ?? null,
+        conveyorStopped: Boolean(resultStage?.active && resultStageBeltTravel !== null
+          && Math.abs((conveyor?.snapshot().beltTravel ?? resultStageBeltTravel) - resultStageBeltTravel) < 1e-9),
+        cameraPreset: cameraRig.preset,
+        cameraPosition: { x: camera.position.x, y: camera.position.y, z: camera.position.z },
+        signInView: objectInCameraFrustum(signAnchor),
+        customersVisible: customers.filter((customer) => customer.character.visible).length,
+        startCount: resultStageStartCount,
       },
       scoreText: scoreText?.hidden ? null : scoreText?.textContent ?? null,
       combo,
@@ -2446,12 +2505,15 @@ export function createRestaurant(ctx) {
     if (!active || completed || phase !== 'turnaround') return;
     completed = true;
     acceptedAnswer = answer || LESSON.answers[0];
+    const finishingResultStage = Boolean(resultStage?.active);
+    if (finishingResultStage) resultStage.markAnswered();
     phase = 'finishing';
     endFocus();
     speech.clearTarget();
     hud.setTalkState('accepted');
     setInstruction(STRINGS.complete);
     playPartnerAnimation('emote-yes');
+    if (finishingResultStage) player.playAnimation?.('emote-yes');
     audio.playSfx('stamp');
     finishRemaining = 0.75;
   }
@@ -2490,58 +2552,159 @@ export function createRestaurant(ctx) {
       }
     }
     if (!resolved) return;
-    phase = 'round-end';
     clearQuestion();
     hideAction();
     setListenTarget(null);
     hud.hide();
     setInstruction(STRINGS.roundEnd);
-    if (scoreText && claimRegistry) scoreText.classList.add('restaurant-ui__score--result');
-    roundEndRemaining = ROUND_END_SECONDS;
     if (dialogueCustomer) dialogueRemaining = Math.min(dialogueRemaining, 1.1);
     // Only a shift that had a rival gets the result moment (never Easy, never a
     // shift that ended before the rush).
+    phase = 'round-end';
     if (rivalArrived() && claimRegistry) {
       const outcome = competitionOutcome(competitionScore?.score(claimRegistry.counts));
-      if (outcome) beginResultCeremony(outcome);
+      // Frozen beat in the room first, so the last delivery's thanks and combo land.
+      if (outcome) {
+        resultStagePendingOutcome = outcome;
+        roundEndRemaining = RESULT_STAGE_LEAD_IN_SECONDS;
+        return;
+      }
     }
+    if (scoreText && claimRegistry) scoreText.classList.add('restaurant-ui__score--result');
+    roundEndRemaining = ROUND_END_SECONDS;
   }
 
-  // Presentation only: stars, records and the turnaround are untouched.
-  // round-end already stops every service system; this adds the reactions.
-  function beginResultCeremony(outcome) {
-    resultOutcome = outcome;
-    resultActive = true;
-    resultElapsed = 0;
-    resultNextNote = 0;
-    roundEndRemaining = RESULT_CEREMONY_SECONDS;
-    autoTarget = null;
-    updateChallengeScore();
-    phasePillRemaining = 0;
-    if (phasePill) phasePill.hidden = true;
-    noticeRemaining = 0;
+  function captureNodePose(character) {
+    const nodes = {};
+    for (const name of ['root', 'leg-left', 'leg-right', 'torso', 'arm-left', 'arm-right', 'head']) {
+      const node = character?.getObjectByName(name);
+      if (!node) continue;
+      nodes[name] = {
+        node,
+        rotation: node.rotation.clone(),
+        position: node.position.clone(),
+      };
+    }
+    return nodes;
+  }
+
+  function snapshotPose(rest) {
+    const nodes = {};
+    for (const [name, entry] of Object.entries(rest.nodes)) {
+      nodes[name] = { rotation: entry.node.rotation.clone(), position: entry.node.position.clone() };
+    }
+    return {
+      nodes,
+      positionY: rest.character.position.y,
+      rotationY: rest.character.rotation.y,
+    };
+  }
+
+  function restoreResultPose() {
+    if (!resultPoseState) return;
+    for (const rest of [resultPoseState.player, resultPoseState.rival]) {
+      if (!rest) continue;
+      for (const entry of Object.values(rest.nodes)) {
+        entry.node.rotation.copy(entry.rotation);
+        entry.node.position.copy(entry.position);
+      }
+      rest.character.position.y = 0;
+    }
+    resultPoseState = null;
+  }
+
+  function stageAllCharacters() {
+    discardRivalDish();
+    if (carried?.mesh) carried.mesh.visible = false;
+    for (const dish of dishes) dish.mesh.visible = false;
+    for (const customer of customers) {
+      customer.character.visible = false;
+      customer.ownership.visible = false;
+      if (customer.servedDish?.mesh) customer.servedDish.mesh.visible = false;
+    }
+    if (rivalEntranceLabel) rivalEntranceLabel.visible = false;
+
+    hideAction();
+    setListenTarget(null);
+    if (temperature) temperature.hidden = true;
     if (notice) notice.hidden = true;
     if (comboPop) comboPop.hidden = true;
+    if (phasePill) phasePill.hidden = true;
+    if (challengePanel) hideChallengePanel();
+    noticeRemaining = 0;
+    comboRemaining = 0;
+    phasePillRemaining = 0;
+    autoTarget = null;
+    clickQuestionCustomer = null;
+
+    player.position.set(RESULT_STAGE_LAYOUT.player.x, 0, RESULT_STAGE_LAYOUT.player.z);
+    rivalCharacter.position.set(RESULT_STAGE_LAYOUT.rival.x, 0, RESULT_STAGE_LAYOUT.rival.z);
+    player.rotation.set(0, 0, 0);
+    rivalCharacter.rotation.set(0, 0, 0);
+
+    player.playAnimation?.('static', { fade: 0 });
+    setRivalAnimation('static', true);
+    player.updateAnimation?.(0);
+    rivalCharacter.updateAnimation?.(0);
+    resultPoseState = {
+      player: { character: player, nodes: captureNodePose(player), settlingStart: null },
+      rival: { character: rivalCharacter, nodes: captureNodePose(rivalCharacter), settlingStart: null },
+    };
+  }
+
+  // A narrow (portrait) viewport pulls the camera back along its view line
+  // until both waiters, arms included, fit across the frame.
+  function fitStageCamera(preset) {
+    const [px, py, pz] = preset.position;
+    const [lx, ly, lz] = preset.lookAt;
+    const halfTan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * (camera.aspect || 1);
+    const neededDepth = RESULT_STAGE_HALF_WIDTH / halfTan;
+    const stageZ = RESULT_STAGE_LAYOUT.player.z;
+    const scale = Math.max(1, (neededDepth + stageZ - lz) / (pz - lz));
+    if (scale === 1) return preset;
+    return {
+      ...preset,
+      position: [lx + (px - lx) * scale, ly + (py - ly) * scale, lz + (pz - lz) * scale],
+    };
+  }
+
+  function beginResultStage(outcome) {
+    if (resultStage?.active || !rivalCharacter) return false;
+    const nextStage = createResultStage({ outcome });
+    if (!nextStage.start()) return false;
+    resultStage = nextStage;
+    resultStageStartCount += 1;
+    resultOutcome = outcome;
+    resultNextNote = 0;
+    resultStageBeltTravel = conveyor?.snapshot().beltTravel ?? null;
+    phase = 'result-stage';
+    updateChallengeScore();
+    // The last delivery's thanks had the lead-in beat; its diner is about to vanish.
+    dialogue.hide();
+    dialogueCustomer = null;
+    dialogueRemaining = 0;
+    stageAllCharacters();
+    hud.hide();
+    cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(RESULT_CAMERA));
+    if (scoreText) {
+      scoreText.classList.remove('restaurant-ui__score--result', 'restaurant-ui__score--compact');
+      scoreText.classList.add('restaurant-ui__score--stage');
+      scoreText.hidden = false;
+    }
     if (resultLabel) {
       resultLabel.textContent = outcome === 'player'
         ? STRINGS.resultPlayer
         : (outcome === 'rival' ? STRINGS.resultRival : STRINGS.resultDraw);
       resultLabel.dataset.outcome = outcome;
+      resultLabel.classList.remove('restaurant-ui__result--fading');
       resultLabel.hidden = false;
     }
-    // Both waiters turn to the room: rotation 0 faces the fixed camera.
-    player.rotation.y = 0;
-    if (rivalCharacter) rivalCharacter.rotation.y = 0;
-    const playerHappy = outcome !== 'rival';
-    const rivalHappy = outcome !== 'player';
-    player.playAnimation?.(playerHappy ? 'emote-yes' : 'emote-no');
-    setRivalAnimation(rivalHappy ? 'emote-yes' : 'emote-no');
+    return true;
   }
 
-  function updateResultCeremony(dt) {
-    resultElapsed += dt;
+  function updateResultSting() {
     const notes = RESULT_STINGS[resultOutcome];
-    while (resultNextNote < notes.length && resultElapsed >= notes[resultNextNote][0]) {
+    while (resultNextNote < notes.length && resultStage.elapsed >= notes[resultNextNote][0]) {
       const [, frequency] = notes[resultNextNote];
       const last = resultNextNote === notes.length - 1;
       audio.playSfx(`restaurant-result-${resultOutcome}-${resultNextNote}`, {
@@ -2553,31 +2716,158 @@ export function createRestaurant(ctx) {
       });
       resultNextNote += 1;
     }
-    // Winner hops twice; the other waiter droops a little ("aw, almost").
-    // A draw is two small friendly hops each. No clip for either exists.
-    const hop = Math.max(0, Math.sin(resultElapsed * Math.PI / 0.42));
-    const hopping = resultElapsed < 0.84;
-    const pose = (character, happy) => {
-      if (!character) return;
-      const height = resultOutcome === 'draw' ? 0.16 : 0.34;
-      character.position.y = happy && hopping ? hop * height : 0;
-      character.rotation.x = happy ? 0 : Math.min(1, resultElapsed / 0.3) * 0.16;
-    };
-    pose(player, resultOutcome !== 'rival');
-    pose(rivalCharacter, resultOutcome !== 'player');
   }
 
-  function endResultCeremony() {
-    if (!resultActive) return;
-    resultActive = false;
-    if (resultLabel) resultLabel.hidden = true;
-    for (const character of [player, rivalCharacter]) {
-      if (!character) continue;
-      character.position.y = 0;
-      character.rotation.x = 0;
-    }
+  function beginResultSettling() {
+    if (!resultPoseState) return;
+    resultPoseState.player.settlingStart = snapshotPose(resultPoseState.player);
+    resultPoseState.rival.settlingStart = snapshotPose(resultPoseState.rival);
+    if (resultLabel) resultLabel.classList.add('restaurant-ui__result--fading');
+    scoreText?.classList.add('restaurant-ui__score--compact');
     player.playAnimation?.('idle');
     setRivalAnimation('idle');
+  }
+
+  function beginResultQuestion() {
+    phase = 'turnaround';
+    turnaroundPartner = { type: 'rival', character: rivalCharacter, customer: null };
+    if (resultLabel) resultLabel.hidden = true;
+    restoreResultPose();
+    player.position.y = 0;
+    rivalCharacter.position.y = 0;
+    playPartnerAnimation('idle');
+    dialogue.show({ text: LESSON.question, anchor: rivalCharacter, offsetY: 1.8 });
+    setInstruction(STRINGS.turnaround);
+    cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(RESULT_QUESTION_CAMERA));
+    beginFocus('restaurant-turnaround');
+    promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
+  }
+
+  function updateResultStage(dt) {
+    const events = resultStage.advance(dt);
+    updateResultSting();
+    for (const event of events) {
+      if (event.phase === 'settling') beginResultSettling();
+      else if (event.phase === 'question') beginResultQuestion();
+    }
+    if (resultLabel && !resultStage.labelVisible
+      && resultStage.phaseElapsed >= RESULT_STAGE_TIMING.labelFade) resultLabel.hidden = true;
+  }
+
+  function resetNodesToRest(rest) {
+    for (const entry of Object.values(rest.nodes)) {
+      entry.node.rotation.copy(entry.rotation);
+      entry.node.position.copy(entry.position);
+    }
+  }
+
+  function poseNode(rest, name, rotation = null, position = null) {
+    const entry = rest.nodes[name];
+    if (!entry) return;
+    if (rotation) {
+      entry.node.rotation.set(
+        entry.rotation.x + (rotation.x ?? 0),
+        entry.rotation.y + (rotation.y ?? 0),
+        entry.rotation.z + (rotation.z ?? 0),
+      );
+    }
+    if (position) {
+      entry.node.position.set(
+        entry.position.x + (position.x ?? 0),
+        entry.position.y + (position.y ?? 0),
+        entry.position.z + (position.z ?? 0),
+      );
+    }
+  }
+
+  function applyReactionPose(rest, reaction, seconds) {
+    resetNodesToRest(rest);
+    const blend = THREE.MathUtils.smoothstep(Math.min(1, seconds / 0.25), 0, 1);
+    rest.character.position.y = 0;
+    if (reaction === 'celebrate') {
+      const hopCycle = seconds % 0.5;
+      const hopping = seconds < 1.5 ? Math.sin(hopCycle / 0.5 * Math.PI) : 0;
+      const pump = Math.sin(seconds * Math.PI * 4) * 0.35;
+      rest.character.position.y = Math.max(0, hopping) * 0.45;
+      poseNode(rest, 'arm-left', { z: (2.4 + pump) * blend });
+      poseNode(rest, 'arm-right', { z: (-2.4 - pump) * blend });
+      poseNode(rest, 'torso', { y: Math.sin(seconds * Math.PI * 2) * 0.12 * blend });
+    } else if (reaction === 'despair') {
+      // Rigid legs have no knees: the body drops and the legs fold back along
+      // the floor. Fists alternate, like shaking them at the ceiling.
+      const shake = Math.sin(seconds * Math.PI * 16) * 0.28;
+      // Turned three-quarters toward the stage centre, so the legs folded
+      // back along the floor show as kneeling rather than a shorter waiter.
+      rest.character.position.y = -0.46 * blend;
+      rest.character.rotation.y = -Math.sign(rest.character.position.x || 1) * 0.5 * blend;
+      poseNode(rest, 'leg-left', { x: 1.25 * blend });
+      poseNode(rest, 'leg-right', { x: 1.25 * blend });
+      poseNode(rest, 'head', { x: -0.62 * blend });
+      poseNode(rest, 'arm-left', { x: (-2.8 + shake) * blend, z: 0.35 * blend });
+      poseNode(rest, 'arm-right', { x: (-2.8 - shake) * blend, z: -0.35 * blend });
+    } else if (reaction === 'dejected') {
+      const sigh = Math.sin(Math.min(1, seconds / 1.2) * Math.PI) * -0.04;
+      rest.character.position.y = sigh * blend;
+      poseNode(rest, 'head', { x: 0.4 * blend });
+      poseNode(rest, 'torso', { x: 0.18 * blend });
+      poseNode(rest, 'arm-left', { x: 0.16 * blend, z: -0.12 * blend });
+      poseNode(rest, 'arm-right', { x: 0.16 * blend, z: 0.12 * blend });
+    } else if (reaction === 'shrug') {
+      const lift = Math.sin(Math.min(1, seconds / 0.45) * Math.PI) * 0.04;
+      const nod = seconds > 0.65 ? Math.sin((seconds - 0.65) * Math.PI * 2.2) * 0.08 : 0;
+      poseNode(rest, 'arm-left', { x: -0.5 * blend, z: 0.55 * blend });
+      poseNode(rest, 'arm-right', { x: -0.5 * blend, z: -0.55 * blend });
+      poseNode(rest, 'torso', null, { y: lift * blend });
+      poseNode(rest, 'head', { x: nod * blend, z: 0.15 * blend });
+    }
+  }
+
+  function shortestAngle(from, to) {
+    return from + Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+
+  function applySettlingPose(rest, targetRotationY, progress) {
+    const start = rest.settlingStart;
+    if (!start) return;
+    const blend = THREE.MathUtils.smoothstep(progress, 0, 1);
+    for (const [name, entry] of Object.entries(rest.nodes)) {
+      const from = start.nodes[name];
+      if (!from) continue;
+      entry.node.rotation.set(
+        THREE.MathUtils.lerp(from.rotation.x, entry.rotation.x, blend),
+        THREE.MathUtils.lerp(from.rotation.y, entry.rotation.y, blend),
+        THREE.MathUtils.lerp(from.rotation.z, entry.rotation.z, blend),
+      );
+      entry.node.position.lerpVectors(from.position, entry.position, blend);
+    }
+    rest.character.position.y = THREE.MathUtils.lerp(start.positionY, 0, blend);
+    rest.character.rotation.y = THREE.MathUtils.lerp(
+      start.rotationY,
+      shortestAngle(start.rotationY, targetRotationY),
+      blend,
+    );
+  }
+
+  // The mixer owns the rest pose; result-stage offsets must be applied after it.
+  function applyResultPosesAfterAnimation() {
+    if (!resultStage?.active || !resultPoseState) return;
+    if (resultStage.phase === 'reaction') {
+      applyReactionPose(resultPoseState.player, resultStage.reactions.player, resultStage.phaseElapsed);
+      applyReactionPose(resultPoseState.rival, resultStage.reactions.rival, resultStage.phaseElapsed);
+    } else if (resultStage.phase === 'settling') {
+      const total = RESULT_STAGE_TIMING.labelFade + RESULT_STAGE_TIMING.scoreShrink + RESULT_STAGE_TIMING.settle;
+      const progress = Math.min(1, resultStage.phaseElapsed / total);
+      const playerTarget = Math.atan2(
+        rivalCharacter.position.x - player.position.x,
+        rivalCharacter.position.z - player.position.z,
+      );
+      const rivalTarget = Math.atan2(
+        player.position.x - rivalCharacter.position.x,
+        player.position.z - rivalCharacter.position.z,
+      );
+      applySettlingPose(resultPoseState.player, playerTarget, progress);
+      applySettlingPose(resultPoseState.rival, rivalTarget, progress);
+    }
   }
 
   function enter(level) {
@@ -2643,10 +2933,21 @@ export function createRestaurant(ctx) {
     turnaroundPartner = null;
     turnaroundWalk.walking = false;
     resultOutcome = null;
-    resultActive = false;
-    resultElapsed = 0;
+    resultStage = null;
+    resultStageStartCount = 0;
+    resultStagePendingOutcome = null;
+    resultStageBeltTravel = null;
+    restoreResultPose();
     resultNextNote = 0;
-    if (resultLabel) resultLabel.hidden = true;
+    if (resultLabel) {
+      resultLabel.classList.remove('restaurant-ui__result--fading');
+      resultLabel.hidden = true;
+    }
+    if (scoreText) scoreText.classList.remove(
+      'restaurant-ui__score--result',
+      'restaurant-ui__score--stage',
+      'restaurant-ui__score--compact',
+    );
     autoTarget = null;
     cancelFocus();
     records.length = 0;
@@ -2679,8 +2980,11 @@ export function createRestaurant(ctx) {
     elapsed += safeDt;
     focus.update(safeDt);
     const serviceDt = focus.serviceDelta(safeDt);
-    serviceElapsed += serviceDt;
-    if (Number.isFinite(focusReleasedAgo)) focusReleasedAgo += serviceDt;
+    if (phase === 'service') {
+      serviceElapsed += serviceDt;
+      if (Number.isFinite(focusReleasedAgo)) focusReleasedAgo += serviceDt;
+    }
+    if (resultStage?.active) input.consumeInteract();
 
     if (noticeRemaining > 0) {
       noticeRemaining -= safeDt;
@@ -2693,15 +2997,15 @@ export function createRestaurant(ctx) {
         dialogueCustomer = null;
       }
     }
-    if (speechCooldown > 0) {
+    if (!resultStage?.active && speechCooldown > 0) {
       speechCooldown -= safeDt;
       if (speechCooldown <= 0) hud.hide();
     }
-    if (comboRemaining > 0) {
+    if (!resultStage?.active && comboRemaining > 0) {
       comboRemaining -= safeDt;
       if (comboRemaining <= 0) comboPop.hidden = true;
     }
-    if (phasePillRemaining > 0) {
+    if (!resultStage?.active && phasePillRemaining > 0) {
       phasePillRemaining -= safeDt;
       if (phasePillRemaining <= 0) phasePill.hidden = true;
     }
@@ -2741,13 +3045,16 @@ export function createRestaurant(ctx) {
         else setRivalAnimation('idle');
       }
       updateRoundEnd();
+    } else if (phase === 'result-stage') {
+      updateResultStage(safeDt);
     } else if (phase === 'round-end') {
-      if (resultActive) updateResultCeremony(safeDt);
-      else player.playAnimation?.('idle');
+      player.playAnimation?.('idle');
+      if (resultStagePendingOutcome) setRivalAnimation('idle');
       roundEndRemaining -= safeDt;
       if (roundEndRemaining <= 0) {
-        endResultCeremony();
-        beginTurnaroundApproach();
+        const outcome = resultStagePendingOutcome;
+        resultStagePendingOutcome = null;
+        if (!outcome || !beginResultStage(outcome)) beginTurnaroundApproach();
       }
     } else if (phase === 'turnaround-approach') {
       updateTurnaroundApproach(safeDt);
@@ -2769,11 +3076,21 @@ export function createRestaurant(ctx) {
       turnaroundPartner.character.updateAnimation?.(safeDt);
     }
     rivalCharacter?.updateAnimation?.(focus.active ? 0 : safeDt);
+    applyResultPosesAfterAnimation();
     syncHud();
   }
 
   function exit() {
     active = false;
+    restoreResultPose();
+    resultStage = null;
+    resultStageBeltTravel = null;
+    scoreText?.classList.remove(
+      'restaurant-ui__score--result',
+      'restaurant-ui__score--stage',
+      'restaurant-ui__score--compact',
+    );
+    resultLabel?.classList.remove('restaurant-ui__result--fading');
     cancelFocus();
     unsubscribeSettings?.();
     unsubscribeSettings = null;

@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 const COMMON_KEYS = ['a', 'b', 'e', 'f', 'i', 'j', 'k', 'm', 'q'];
 const RARE_KEYS = ['c', 'd', 'g', 'h', 'l', 'n', 'o', 'p', 'r'];
 const ALL_KEYS = [...COMMON_KEYS, ...RARE_KEYS];
-const REQUIRED_CLIPS = ['idle', 'walk', 'sprint', 'emote-yes'];
+const REQUIRED_CLIPS = ['idle', 'walk', 'sprint', 'emote-yes', 'static'];
 const TARGET_HEIGHT = 1.95;
 const RARE_CHANCE = 1 / 12;
 
@@ -14,6 +14,7 @@ export const CLIP = Object.freeze({
   walk: 'walk',
   sprint: 'sprint',
   emoteYes: 'emote-yes',
+  static: 'static',
   run: 'sprint',
   cheer: 'emote-yes',
 });
