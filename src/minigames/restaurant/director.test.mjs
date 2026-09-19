@@ -295,3 +295,31 @@ test('phases progress from warm-up through rush to final push', () => {
   assert.ok(sim.state.events.some((event) => event.type === 'phase' && event.phase === 'rush'));
   assert.ok(sim.state.events.some((event) => event.type === 'phase' && event.phase === 'finalPush'));
 });
+
+test('paceScale shortens the rush refill of a freed table', () => {
+  function refillSeconds(paceScale) {
+    const director = createRestaurantDirector({
+      level: 3, tables: 1, total: 5, manualRush: true, paceScale, rng: () => 0.5,
+    });
+    director.startRush();
+    const table = { occupied: false };
+    const view = { tables: [table], customers: [], liveOrders: 2, focusReleasedAgo: Infinity };
+    let time = 0;
+    const seatedAt = [];
+    for (let step = 0; step < 400 && seatedAt.length < 2; step += 1) {
+      time += 0.01;
+      if (director.advance(0.01, view).some((event) => event.type === 'seat')) {
+        seatedAt.push(time);
+        table.occupied = true;
+        director.advance(0.01, view);
+        time += 0.01;
+        table.occupied = false;
+      }
+    }
+    assert.equal(seatedAt.length, 2);
+    return seatedAt[1] - seatedAt[0];
+  }
+  const normal = refillSeconds(1);
+  const faster = refillSeconds(0.7);
+  assert.ok(Math.abs(faster - normal * 0.7) < 0.05, `normal ${normal}, faster ${faster}`);
+});

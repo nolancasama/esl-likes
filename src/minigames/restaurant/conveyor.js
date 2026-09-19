@@ -7,21 +7,24 @@ const SHARED_CONFIG = Object.freeze({
 const SCHEDULER_EPSILON = 1e-10;
 export const MIN_DISH_SPACING = 1.9;
 
-function difficultyConfig(speed, entryInterval, rush) {
+function difficultyConfig(speed, entryInterval, rush, roundTwo = null) {
   return Object.freeze({
     ...SHARED_CONFIG,
     speed,
     entryInterval,
     rush: rush ? Object.freeze(rush) : null,
+    roundTwo: roundTwo ? Object.freeze(roundTwo) : null,
   });
 }
 
 export const CONVEYOR_CONFIG = Object.freeze({
   // Visible span 13.2: solo ≈ 3.7 dishes; rush ≈ 5.1 (Normal) and 6.6 (Challenge).
   // Pickups by both waiters keep the on-screen count about one lower.
+  // Round 2 (after beating the first rival): +17% speed and a denser stream,
+  // ≈ 6.0 (Normal) and 6.8 (Challenge) visible, still MIN_DISH_SPACING apart.
   1: difficultyConfig(0.9, 4.0, null),
-  2: difficultyConfig(1.0, 3.6, { speed: 1.08, entryInterval: 2.4 }),
-  3: difficultyConfig(1.05, 3.4, { speed: 1.18, entryInterval: 1.7 }),
+  2: difficultyConfig(1.0, 3.6, { speed: 1.08, entryInterval: 2.4 }, { speed: 1.26, entryInterval: 1.75 }),
+  3: difficultyConfig(1.05, 3.4, { speed: 1.18, entryInterval: 1.7 }, { speed: 1.38, entryInterval: 1.4 }),
 });
 
 function sample(rng) {
@@ -133,15 +136,23 @@ export function createConveyor(options = {}) {
     nextEntryTime += entryInterval;
   }
 
-  function startRush() {
-    const rush = defaults.rush;
-    if (!rush || mode === 'rush') return false;
-    speed = Number(rush.speed);
-    entryInterval = Math.max(Number(rush.entryInterval), MIN_DISH_SPACING / speed);
+  function switchMode(nextMode, values) {
+    if (!values || mode === nextMode) return false;
+    speed = Number(values.speed);
+    entryInterval = Math.max(Number(values.entryInterval), MIN_DISH_SPACING / speed);
     const acceleratedEntryTime = Math.max(serviceTime, lastEntryTime + entryInterval);
     if (acceleratedEntryTime < nextEntryTime) nextEntryTime = stableNumber(acceleratedEntryTime);
-    mode = 'rush';
+    mode = nextMode;
     return true;
+  }
+
+  function startRush() {
+    return mode === 'solo' && switchMode('rush', defaults.rush);
+  }
+
+  // Round 2 only: the belt keeps its dishes and simply speeds up and densifies.
+  function startRoundTwo() {
+    return switchMode('roundTwo', defaults.roundTwo);
   }
 
   function advance(serviceDt, view = {}) { // view remains accepted but intentionally unused.
@@ -223,5 +234,5 @@ export function createConveyor(options = {}) {
     };
   }
 
-  return { advance, startRush, take, exchange, nearestPickable, predictX, snapshot };
+  return { advance, startRush, startRoundTwo, take, exchange, nearestPickable, predictX, snapshot };
 }

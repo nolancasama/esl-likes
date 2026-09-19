@@ -120,6 +120,24 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+00000000000. 2026-09-19 Restaurant rival progression (PUSHED LIVE 2026-09-19 at
+     the owner's request, after testing; Claude directly — router: Codex usage-limit until
+     2026-09-22, other workers quarantined; order `.ai/wo-restaurant-rival-progression.json`;
+     DESIGN_DECISIONS "rival progression", SPEC §4 "Rival progression").
+     Round 1 loss/draw → `もう一回 やる？` rematch/finish (rematch = Waiter 1, no
+     solo, no cinematic, 0–0); win → Waiter 1 walks out, Waiter 2 (model `k`,
+     black apron, gold bow tie) full intro → Round 2 (harder per level) → final
+     question from Waiter 2. Pure `rivalProgression.js` (+ `ROUND_TWO` tuning),
+     conveyor `startRoundTwo`, director `paceScale`, `resetForNextRound` in
+     index.js, debug `progression {...}`, `rival.config`, `hud.overlayCreates`.
+     Verified: `npm test` 317/317, build OK; browser harness (session scratchpad
+     `restaurant-progression.mjs`, forced outcomes, Normal shift patched to 5)
+     paths A 9/9, B 19/19, C 41/41, D 31/31, E 19/19, F 32/32, G 49/49 (F/G
+     after harness-only sampling fixes); known-bad (choice removed) fails as
+     expected. Claude viewed W2 close-up, replies, Round 2 start, choice screen,
+     final question. Old `npm run playthrough:restaurant` stopped after ~20 min, 0 passes (stale harness, raised-hands era). NOT run: Challenge (level 3) in the browser, 412 px,
+     real unforced outcomes. NEXT: owner judges Waiter 2's look and Round 2
+     difficulty in play on the live build.
 0000000000. 2026-09-19 Restaurant belt exchange + もどす tub sign + shared
      dejected pose (Codex via router, Sol high, SUCCESS; Claude reviewed and fixed
      directly; DESIGN_DECISIONS "belt exchange, labelled return, shared

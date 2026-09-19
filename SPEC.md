@@ -540,7 +540,8 @@ full reaction hold does the label fade, the score shrink upward to its compact
 pill, and both waiters ease back to neutral and turn toward each other. The
 question camera and question also wait for that hold. The stage then flows
 directly into the final question; it never returns to the gameplay camera or
-room framing.
+room framing. (Since 2026-09-19 a Round 1 loss or draw asks for a rematch there
+first, and a Round 1 win leads to Waiter 2 — see "Rival progression" below.)
 
 **Turnaround partner (revised 2026-09-18).** No extra NPC appears for the final
 question. If the rival arrived, the same rival remains in the result-stage
@@ -560,6 +561,43 @@ notices a dish after 1.0 second. Challenge's rival has speed 4.4, waits 3.5
 seconds, may claim 0.5 of the shift total, hesitates 0.3–0.8 seconds, and
 notices a dish after 0.6 seconds. The longer 9- and 13-customer shifts leave
 customers to compete for after the tutorial-like first three deliveries.
+
+**Rival progression (added 2026-09-19).** On Normal and Challenge the result
+stage above ends Round 1 against Waiter 1. What follows depends on the result:
+
+- *Loss or draw.* Instead of the final question, Waiter 1 asks
+  `もう一回 やる？` in the challenge panel with two choices, `もう一回！` and
+  `おわりにする` (same buttons, keys and modal rules as the challenge; Talk hidden;
+  a press already under way as the choices appear cannot pick one). Rematch:
+  the room is reset, Waiter 1 stands at the aisle end, `もう いっかい しょうぶ！`
+  shows, and a competitive round starts at once at 0–0 with Round 1 tuning —
+  no solo deliveries, no entrance scene. It can be repeated any number of times.
+  Finish: Waiter 1 asks "What food do you like?" as in the turnaround below.
+  A draw never unlocks Waiter 2.
+- *Win.* No choice and no question. The room is reset, Waiter 1 walks out down
+  the aisle it came in by, and Waiter 2 — model `k` (moustache), black apron,
+  gold bow tie, the same `ウェイター` label — gets the full entrance scene with
+  the title `もっと つよい ウェイター！`, the line
+  `ぼくとも 勝負しよう！ / もっと むずかしいよ！` and the replies `いいよ！勝負だ！`,
+  `負けないよ！`, `やってみよう！` (flavour only). After the reply the cue is
+  `ラウンド 2！` and Round 2 starts at 0–0 with no solo phase.
+- *Round 2.* Always ends in the result stage with Waiter 2 and then Waiter 2's
+  "What food do you like?"; win, loss and draw alike. There is no Round 3.
+
+A rematch or Round 2 has the competitive part of the first shift as its length
+(shift total minus the three solo deliveries: 6 on Normal, 10 on Challenge).
+The reset between rounds removes every customer, served plate and carried dish,
+claims and reservations, the rival model and its walk, the director, the score
+baseline and the result stage; belt dishes stay (the belt is order-blind).
+Settings, speech mode, the overlay and its listeners are untouched. Stars are
+rated over all rounds (a ratio, so retries neither inflate nor sink them).
+
+Round 2 is harder through execution, not share. Normal: rival speed 4.2, seated
+age 5 s, share 0.45, hesitation 0.4–0.8 s, dish notice 0.6 s; belt 1.26 m/s with
+a dish every 1.75 s (≈ 6.0 visible); patience 28 s; the fifth table opens.
+Challenge: rival speed 5.15, seated age 3 s, share 0.5, hesitation 0.25–0.6 s,
+dish notice 0.45 s; belt 1.38 m/s every 1.4 s (≈ 6.8 visible); patience 25 s;
+freed tables refill 30% sooner (all five are already in use).
 
 Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
 A newly seated customer is unclaimed and immediately talkable. Pressing Talk on

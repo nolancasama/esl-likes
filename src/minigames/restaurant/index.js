@@ -31,6 +31,12 @@ import {
   createResultStage,
 } from './resultStage.js';
 import { reactionPose } from './reactionPose.js';
+import {
+  RIVAL_IDS,
+  ROUND_TWO,
+  competitiveRoundTotal,
+  createRivalProgression,
+} from './rivalProgression.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
@@ -120,6 +126,9 @@ const RESULT_STAGE_LEAD_IN_SECONDS = 0.9;
 // Half the frame width, at the waiters' depth, that both staged waiters need.
 const RESULT_STAGE_HALF_WIDTH = 2.2;
 const RESULT_QUESTION_CAMERA = Object.freeze({ position: [0, 2.2, 0.6], lookAt: [0, 1.55, -4.2], damping: 3 });
+// The rematch question has a bottom panel, not a bubble: aim lower and pull back
+// so both waiters stand above the panel instead of behind it.
+const REMATCH_CAMERA = Object.freeze({ position: [0, 2.4, 1.6], lookAt: [0, 0.95, -4.2], damping: 3 });
 // Short note sequences (seconds, Hz); each whole sting is well under a second.
 const RESULT_STINGS = Object.freeze({
   player: [[0, 523], [0.11, 659], [0.22, 784], [0.33, 1046]],
@@ -127,7 +136,28 @@ const RESULT_STINGS = Object.freeze({
   draw: [[0, 698], [0.18, 880]],
 });
 const RIVAL_MIN_SPEED = RIVAL_SPEED * 0.7;
-const RIVAL_MAX_SPEED = RIVAL_SPEED * 1.3;
+// Round 2 Challenge's rival (5.15) must not be slowed by the walk clamp.
+const RIVAL_MAX_SPEED = Math.max(RIVAL_SPEED * 1.3, ROUND_TWO[3].rival.speed * 1.15);
+// Two different waiters. Kenney models ignore tint, so Waiter 2 reads as a new
+// person through another face, hair and moustache (model 'k'), a black apron
+// instead of the white one (a red one vanished into k's red shirt), and a gold
+// bow tie. Neither model is the player's or a customer's.
+const RIVAL_CAST = Object.freeze({
+  [RIVAL_IDS.WAITER_1]: Object.freeze({
+    model: 'r', tint: 0x4b78c5, apron: 0xffffff, apronEmissive: 0x333333, bowTie: null,
+  }),
+  [RIVAL_IDS.WAITER_2]: Object.freeze({
+    model: 'k', tint: 0xd8563f, apron: 0x22252e, apronEmissive: 0x08090c, bowTie: 0xffcf33,
+  }),
+});
+// After losing Round 1, Waiter 1 leaves down the aisle it arrived by.
+const RIVAL_EXIT_WAYPOINTS = Object.freeze([
+  Object.freeze({ x: -2.1, z: -3.3 }),
+  Object.freeze({ x: -2.1, z: 7.4 }),
+]);
+const RIVAL_EXIT_SPEED = 6;
+const REMATCH_CHOICE_GUARD_SECONDS = 0.35;
+const PLAYER_START = Object.freeze({ x: 0, z: 5.7 });
 
 const TABLES = Object.freeze([
   Object.freeze({ x: -4.2, z: -1.0, seatX: -4.2, seatZ: -2.05 }),
@@ -249,6 +279,14 @@ export function createRestaurant(ctx) {
   let rivalRevealAccentNext = 0;
   let rivalCameraCloseup = false;
   let createRivalCharacter = null;
+  // Rival progression (Normal/Challenge only): which waiter, which round.
+  let progression = null;
+  const rivalCharacters = {};
+  let rematchChoiceActive = false;
+  let rematchChoiceShownAt = -Infinity;
+  let roundPatience = null;
+  let overlayCreates = 0;
+  const rivalExit = { character: null, index: 0 };
   let directorPhase = 'warmup';
   let shiftTotal = 0;
   let focusReleasedAgo = Infinity;
@@ -353,13 +391,14 @@ export function createRestaurant(ctx) {
   function hintSuppressed() {
     return rivalIntroActive()
       || Boolean(resultStage?.active)
-      || phase === 'round-end' || phase === 'turnaround-approach' || phase === 'finishing';
+      || phase === 'round-end' || phase === 'turnaround-approach' || phase === 'finishing'
+      || phase === 'round-transition';
   }
 
   function syncHud() {
     if (!instruction || !overlay) return;
     instruction.hidden = !instructionText || hintSuppressed();
-    const modal = rivalIntroActive();
+    const modal = rivalIntroActive() || rematchChoiceActive;
     overlay.classList.toggle('restaurant-ui--modal', modal);
     // The challenge is answered with buttons, never the microphone: the Talk HUD
     // (outside this overlay) stays hidden however something tries to show it.
@@ -517,8 +556,30 @@ export function createRestaurant(ctx) {
     resultLabel = overlay.querySelector('.restaurant-ui__result');
     challengePanel = overlay.querySelector('.restaurant-ui__challenge');
     challengeLine = challengePanel.querySelector('.restaurant-ui__challenge-line');
-    challengeLineUnits = parseFurigana(STRINGS.rivalChallenge);
+    challengeReplies = challengePanel.querySelector('.restaurant-ui__challenge-replies');
+    setChallengeContent(STRINGS.rivalChallenge, STRINGS.rivalChallengeReplies);
+    overlayCreates += 1;
+    challengeReplies.addEventListener('click', onChallengeReply);
+    challengePanel.addEventListener('click', onChallengePanelClick);
+    window.addEventListener('keydown', onChallengeKey, true);
+    window.addEventListener('keyup', onChallengeKeyUp, true);
+    // A keyup lost to a window switch must not lock the keyboard out of the replies.
+    window.addEventListener('blur', onChallengeBlur);
+    temperature = overlay.querySelector('.restaurant-ui__temperature');
+    actionButton.addEventListener('click', performAction);
+    listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
+    document.querySelector('#ui-layer').append(overlay);
+    setInstruction(STRINGS.walkToCustomer);
+  }
+
+  // One panel for every rival exchange (either waiter's challenge, the rematch
+  // question). Replaces the line, its typewriter and the reply buttons in place;
+  // the listeners stay on the panel and the reply container.
+  function setChallengeContent(lineText, replies) {
+    if (!challengeLine || !challengeReplies) return;
+    challengeLineUnits = parseFurigana(lineText);
     challengeTypewriter = createTypewriter({ units: challengeLineUnits, charsPerSecond: 30 });
+    challengeLine.replaceChildren();
     challengeLine.setAttribute('aria-label', challengeLineUnits
       .map((unit) => unit.kind === 'ruby' ? unit.base : unit.text)
       .join(''));
@@ -536,8 +597,8 @@ export function createRestaurant(ctx) {
       }
       challengeLine.append(span);
     }
-    challengeReplies = challengePanel.querySelector('.restaurant-ui__challenge-replies');
-    STRINGS.rivalChallengeReplies.forEach((reply, index) => {
+    challengeReplies.replaceChildren();
+    replies.forEach((reply, index) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'restaurant-ui__challenge-reply';
@@ -545,17 +606,12 @@ export function createRestaurant(ctx) {
       appendFurigana(button, reply);
       challengeReplies.append(button);
     });
-    challengeReplies.addEventListener('click', onChallengeReply);
-    challengePanel.addEventListener('click', onChallengePanelClick);
-    window.addEventListener('keydown', onChallengeKey, true);
-    window.addEventListener('keyup', onChallengeKeyUp, true);
-    // A keyup lost to a window switch must not lock the keyboard out of the replies.
-    window.addEventListener('blur', onChallengeBlur);
-    temperature = overlay.querySelector('.restaurant-ui__temperature');
-    actionButton.addEventListener('click', performAction);
-    listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
-    document.querySelector('#ui-layer').append(overlay);
-    setInstruction(STRINGS.walkToCustomer);
+  }
+
+  function encounterStrings() {
+    return progression?.rivalId === RIVAL_IDS.WAITER_2
+      ? { title: STRINGS.rival2Title, line: STRINGS.rival2Challenge, replies: STRINGS.rival2ChallengeReplies }
+      : { title: STRINGS.rivalTitle, line: STRINGS.rivalChallenge, replies: STRINGS.rivalChallengeReplies };
   }
 
   function createDish(food, shared) {
@@ -882,25 +938,47 @@ export function createRestaurant(ctx) {
     player.add(carryAnchor);
     world.add(player);
 
-    createRivalCharacter = (position) => {
-      if (rivalCharacter) return rivalCharacter;
-      rivalCharacter = characters.create({ model: 'r', tint: 0x4b78c5 });
-      rivalCharacter.position.set(position.x, 0, position.z);
-      rivalCharacter.rotation.y = Math.PI;
-      rivalCharacter.scale.setScalar(0.78);
-      // A bright apron is readable even when the textured character ignores
-      // tint, and keeps this waiter distinct from every seated customer.
-      // White, not navy: the dark model plus a navy apron read as one more customer.
-      const apronMaterial = makeMaterial(0xffffff, { emissive: 0x333333 });
-      addPart(rivalCharacter, box, apronMaterial, 0, 1.06, 0.28, 0.56, 0.64, 0.08);
-      // The apron ties round the waist: the rival mostly walks away from the
-      // fixed camera, and from behind the front panel alone read as a dark customer.
-      addPart(rivalCharacter, box, apronMaterial, 0, 1.2, 0, 0.62, 0.14, 0.62);
-      rivalCarryAnchor = new THREE.Group();
-      rivalCarryAnchor.position.set(0, 1.42, 0.58);
-      rivalCharacter.add(rivalCarryAnchor);
-      world.add(rivalCharacter);
-      return rivalCharacter;
+    // Built on first entrance; `rivalCharacter` is always the current waiter.
+    createRivalCharacter = (id, position) => {
+      let character = rivalCharacters[id];
+      if (!character) {
+        const cast = RIVAL_CAST[id];
+        character = characters.create({ model: cast.model, tint: cast.tint });
+        character.name = `restaurant-rival-${id}`;
+        character.position.set(position.x, 0, position.z);
+        character.rotation.y = Math.PI;
+        character.scale.setScalar(0.78);
+        // A bright apron is readable even when the textured character ignores
+        // tint, and keeps this waiter distinct from every seated customer.
+        // White, not navy: the dark model plus a navy apron read as one more customer.
+        const apronMaterial = makeMaterial(cast.apron, { emissive: cast.apronEmissive });
+        addPart(character, box, apronMaterial, 0, 1.06, 0.28, 0.56, 0.64, 0.08);
+        // The apron ties round the waist: the rival mostly walks away from the
+        // fixed camera, and from behind the front panel alone read as a dark customer.
+        addPart(character, box, apronMaterial, 0, 1.2, 0, 0.62, 0.14, 0.62);
+        if (cast.bowTie !== null) {
+          const tieMaterial = makeMaterial(cast.bowTie, { emissive: 0x3a2a00 });
+          const left = addPart(character, box, tieMaterial, -0.1, 1.47, 0.3, 0.16, 0.13, 0.06);
+          const right = addPart(character, box, tieMaterial, 0.1, 1.47, 0.3, 0.16, 0.13, 0.06);
+          left.rotation.z = 0.35;
+          right.rotation.z = -0.35;
+          addPart(character, box, tieMaterial, 0, 1.47, 0.32, 0.07, 0.08, 0.06);
+        }
+        const anchor = new THREE.Group();
+        anchor.position.set(0, 1.42, 0.58);
+        character.add(anchor);
+        character.userData.restaurantCarryAnchor = anchor;
+        character.userData.restaurantRivalId = id;
+        world.add(character);
+        rivalCharacters[id] = character;
+      }
+      character.visible = true;
+      if (rivalCharacter !== character) {
+        rivalCharacter = character;
+        rivalCarryAnchor = character.userData.restaurantCarryAnchor;
+        rivalAnimation = '';
+      }
+      return character;
     };
 
     const hitGeometry = ownGeometry(new THREE.BoxGeometry(1.2, 2.1, 0.8));
@@ -1064,8 +1142,8 @@ export function createRestaurant(ctx) {
       prepDuration: (FOOD_PREP_SECONDS[food] ?? 8) * configured.prepScale,
       prepRemaining: 0,
       readyFired: false,
-      patienceMax: configured.patience,
-      patience: configured.patience,
+      patienceMax: roundPatience ?? configured.patience,
+      patience: roundPatience ?? configured.patience,
       character,
       clickTarget,
       ownership,
@@ -1608,14 +1686,34 @@ export function createRestaurant(ctx) {
     if (rival || !claimRegistry || !conveyor) return;
     rival = createRestaurantRival({
       level: difficulty,
+      // Round 2 overrides only the tuning; movement and claim rules are shared.
+      ...(progression?.round === 2 ? ROUND_TWO[difficulty]?.rival : {}),
       registry: claimRegistry,
       conveyor,
       total: Math.max(1, shiftTotal - claimRegistry.progress.done),
-      initialPosition: RIVAL_ENTRANCE_END,
+      initialPosition: rivalCharacter
+        ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
+        : RIVAL_ENTRANCE_END,
       beltFrontZ: BELT_FRONT_Z,
       pickupWindow: BELT_PICKUP_WINDOW,
       rng: Math.random,
     });
+  }
+
+  // The tuning the current rival model was built with (debug and tests).
+  function currentRivalConfig() {
+    const base = RIVAL_LEVELS[difficulty];
+    if (!base) return null;
+    const round = progression?.round === 2 ? ROUND_TWO[difficulty]?.rival : null;
+    const config = { ...base, ...(round ?? {}) };
+    return {
+      speed: config.speed,
+      minSeatedAge: config.minSeatedAge,
+      share: config.share,
+      hesitationMin: config.hesitationMin,
+      hesitationMax: config.hesitationMax,
+      dishNoticeSeconds: config.dishNoticeSeconds,
+    };
   }
 
   // The whole challenge scene (walk in, line, replies, reaction) pauses service.
@@ -1723,12 +1821,16 @@ export function createRestaurant(ctx) {
     rivalIntroNextNote = 0;
     rivalRevealAccentElapsed = null;
     rivalRevealAccentNext = 0;
+    // Same scene for either waiter; only who walks in and what they say differ.
+    const lines = encounterStrings();
+    setChallengeContent(lines.line, lines.replies);
     if (rivalTitle) {
+      rivalTitle.textContent = lines.title;
       rivalTitle.classList.remove('restaurant-ui__title--fading');
       rivalTitle.hidden = false;
     }
     updateRivalJingle(0);
-    createRivalCharacter?.(RIVAL_ENTRANCE_START);
+    createRivalCharacter?.(progression?.rivalId ?? RIVAL_IDS.WAITER_1, RIVAL_ENTRANCE_START);
     setRivalAnimation('walk', true);
     updateRivalEntranceLabel();
     return true;
@@ -1774,8 +1876,17 @@ export function createRestaurant(ctx) {
     completeChallengeTypewriter();
   }
 
+  // Replies (either challenge) or the rematch question's two choices are showing.
+  function choicesShown() {
+    return Boolean(rivalChallenge?.choicesVisible || rematchChoiceActive);
+  }
+
   function onChallengeReply(event) {
     const button = event.target instanceof Element ? event.target.closest('button[data-reply]') : null;
+    if (button && active && rematchChoiceActive) {
+      chooseAfterLoss(Number(button.dataset.reply));
+      return;
+    }
     if (!button || !active || !rivalChallenge?.choose(Number(button.dataset.reply))) return;
     // Role-play only: every reply leads to the same nod and the same rush.
     hideChallengePanel();
@@ -1787,7 +1898,10 @@ export function createRestaurant(ctx) {
   // On the window, so the arrows still reach the replies after a click into the room.
   function onChallengeKey(event) {
     const activationKey = event.code === 'Space' || event.code === 'Enter';
-    if (active && activationKey && rivalChallenge?.phase === 'typing') {
+    // A press already under way as the rematch question appears (Space mashed
+    // through the result) must not pick a choice on its keyup.
+    const choiceJustShown = rematchChoiceActive && elapsed - rematchChoiceShownAt < REMATCH_CHOICE_GUARD_SECONDS;
+    if (active && activationKey && (rivalChallenge?.phase === 'typing' || choiceJustShown)) {
       event.preventDefault();
       event.stopImmediatePropagation();
       challengeSuppressedKeys.add(event.code);
@@ -1799,13 +1913,13 @@ export function createRestaurant(ctx) {
       event.stopImmediatePropagation();
       return;
     }
-    if (activationKey && event.repeat && rivalChallenge?.choicesVisible) {
+    if (activationKey && event.repeat && choicesShown()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       return;
     }
     const step = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.code];
-    if (!step || !rivalChallenge?.choicesVisible || !challengeReplies) return;
+    if (!step || !choicesShown() || !challengeReplies) return;
     // Arrows move between replies here; they must not also walk the avatar.
     event.preventDefault();
     event.stopPropagation();
@@ -1820,7 +1934,7 @@ export function createRestaurant(ctx) {
     event.preventDefault();
     event.stopImmediatePropagation();
     challengeSuppressedKeys.delete(event.code);
-    if (challengeSuppressedKeys.size === 0 && rivalChallenge?.choicesVisible) {
+    if (challengeSuppressedKeys.size === 0 && choicesShown()) {
       challengeReplies?.querySelector('button')?.focus({ preventScroll: true });
     }
   }
@@ -1828,7 +1942,7 @@ export function createRestaurant(ctx) {
   function onChallengeBlur() {
     if (challengeSuppressedKeys.size === 0) return;
     challengeSuppressedKeys.clear();
-    if (rivalChallenge?.choicesVisible) challengeReplies?.querySelector('button')?.focus({ preventScroll: true });
+    if (choicesShown()) challengeReplies?.querySelector('button')?.focus({ preventScroll: true });
   }
 
   function beginRivalReveal() {
@@ -1860,11 +1974,13 @@ export function createRestaurant(ctx) {
 
   function beginRushGameplay() {
     // The belt, director and rival AI all switch together, only now.
-    conveyor.startRush();
+    const roundTwo = progression?.round === 2;
+    if (roundTwo) conveyor.startRoundTwo();
+    else conveyor.startRush();
     serviceDirector.startRush();
     directorPhase = serviceDirector.phase;
     cameraRig.setPreset('fixed', ROOM_CAMERA);
-    showPhaseCue('rush', STRINGS.lunchRush);
+    showPhaseCue('rush', roundTwo ? STRINGS.round2Cue : STRINGS.lunchRush);
     rivalEmoteRemaining = 0;
     setRivalAnimation('idle');
     activateRivalModel();
@@ -2545,7 +2661,26 @@ export function createRestaurant(ctx) {
         listenAgainVisible: Boolean(listenAgain?.element && !listenAgain.element.hidden
           && listenAgain.element.offsetParent),
         scoreVisible: Boolean(scoreText && !scoreText.hidden),
+        overlayCreates,
+        replyButtons: challengeReplies?.querySelectorAll('button').length ?? 0,
+        overlaysInDom: document.querySelectorAll('.restaurant-ui').length,
       },
+      progression: progression ? {
+        round: progression.round,
+        rivalId: progression.rivalId,
+        attempt: progression.attempt,
+        phase: progression.phase,
+        awaitingChoice: progression.awaitingChoice,
+        choicesVisible: Boolean(rematchChoiceActive && challengePanel && !challengePanel.hidden
+          && challengeReplies && !challengeReplies.hidden),
+        roundTotal: shiftTotal,
+        roundDone: claimRegistry?.progress.done ?? 0,
+        roundPatience: roundPatience ?? DIFFICULTY[difficulty].patience,
+        exitWalking: Boolean(rivalExit.character),
+        rivalCharactersBuilt: Object.keys(rivalCharacters),
+        rivalCharactersVisible: Object.entries(rivalCharacters)
+          .filter(([, character]) => character.visible).map(([id]) => id),
+      } : null,
       rivalChallenge: {
         active: rivalIntroActive(),
         phase: rivalChallenge?.phase ?? 'idle',
@@ -2585,6 +2720,7 @@ export function createRestaurant(ctx) {
         answerShowing: dialogueCustomer === customer && dialogueRemaining > 0,
         screen: projectObject(customer.clickTarget),
         patience: customer.patience,
+        patienceMax: customer.patienceMax,
         refusalRemaining: customer.refusalRemaining,
       })),
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
@@ -2651,10 +2787,13 @@ export function createRestaurant(ctx) {
           ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
           : rival.position,
         carryingFood,
+        config: currentRivalConfig(),
       } : null,
       rivalCharacter: rivalCharacter ? {
         visible: rivalCharacter.parent === world && rivalCharacter.visible,
         uuid: rivalCharacter.uuid,
+        id: rivalCharacter.userData.restaurantRivalId ?? null,
+        model: RIVAL_CAST[rivalCharacter.userData.restaurantRivalId]?.model ?? null,
         entering: rivalIntroActive(),
         entranceLabelVisible: Boolean(rivalEntranceLabel?.visible),
         position: { x: rivalCharacter.position.x, z: rivalCharacter.position.z },
@@ -3094,12 +3233,228 @@ export function createRestaurant(ctx) {
     promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
   }
 
+  // Where the rival would ask the final question, the progression decides:
+  // Round 1 loss/draw → rematch or finish; Round 1 win → Waiter 2; Round 2 → the question.
+  function beginAfterResult() {
+    const decision = progression?.resolveRound(resultOutcome) ?? { next: 'final-question' };
+    if (decision.next === 'choice') showRematchChoice();
+    else if (decision.next === 'round2-intro') beginRoundTwoTransition();
+    else beginResultQuestion();
+  }
+
+  function showRematchChoice() {
+    if (resultLabel) resultLabel.hidden = true;
+    restoreResultPose();
+    player.position.y = 0;
+    rivalCharacter.position.y = 0;
+    player.playAnimation?.('idle');
+    setRivalAnimation('idle');
+    cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(REMATCH_CAMERA));
+    setChallengeContent(STRINGS.rivalRematchAsk, STRINGS.rematchChoices);
+    challengeTypewriter.revealAll();
+    renderChallengeTypewriter();
+    rematchChoiceActive = true;
+    rematchChoiceShownAt = elapsed;
+    hud.hide();
+    if (challengePanel) {
+      challengePanel.hidden = false;
+      showChallengeReplies();
+    }
+    syncHud();
+  }
+
+  function chooseAfterLoss(index) {
+    if (!rematchChoiceActive || elapsed - rematchChoiceShownAt < REMATCH_CHOICE_GUARD_SECONDS) return;
+    const decision = index === 0 ? progression?.chooseRematch() : progression?.chooseFinish();
+    if (!decision) return;
+    rematchChoiceActive = false;
+    hideChallengePanel();
+    audio.playSfx('restaurant-challenge-accept', { frequency: 660, endFrequency: 1320, duration: 0.2, gain: 0.12 });
+    if (decision.next === 'round1-rematch') startRematchRound();
+    else beginResultQuestion();
+    syncHud();
+  }
+
+  // Everything one head-to-head leaves behind, so the next starts clean.
+  // Settings, speech mode, the overlay and its listeners are untouched.
+  function resetForNextRound({ total, patience = null, tables = DIFFICULTY[difficulty].count, paceScale = 1 }) {
+    clearQuestion();
+    cancelFocus();
+    speech.cancel();
+    speech.clearTarget();
+    hud.hide();
+    hideAction();
+    setListenTarget(null);
+    dialogue.hide();
+    dialogueCustomer = null;
+    dialogueRemaining = 0;
+    questionCustomer = null;
+    questionCommitted = false;
+    clickQuestionCustomer = null;
+    autoTarget = null;
+    speechCooldown = 0;
+    noticeRemaining = 0;
+    if (notice) notice.hidden = true;
+    combo = 0;
+    comboRemaining = 0;
+    if (comboPop) comboPop.hidden = true;
+    phasePillRemaining = 0;
+    if (phasePill) phasePill.hidden = true;
+    if (temperature) temperature.hidden = true;
+    temperatureText = '';
+
+    for (const customer of customers) {
+      if (customer.servedDish) removePhysicalDish(customer.servedDish, 'discarded');
+      world.remove(customer.ownership);
+      world.remove(customer.character);
+      customer.character.disposeCharacter?.();
+    }
+    customers.length = 0;
+    directorCustomerView.length = 0;
+    rivalCustomerView.length = 0;
+    for (const table of directorTableView) {
+      table.occupied = false;
+      table.customer = null;
+    }
+    if (carried) removePhysicalDish(carried, 'discarded');
+    carried = null;
+    // Belt dishes stay: the belt is order-blind, so they carry nothing over.
+    for (const dish of [...dishes]) {
+      if (dish.state !== 'belt') removePhysicalDish(dish, 'discarded');
+    }
+    discardRivalDish();
+
+    rival = null;
+    rivalWalk.active = false;
+    rivalWalk.delayRemaining = 0;
+    rivalWalk.durationRemaining = 0;
+    rivalEmoteRemaining = 0;
+    claimRegistry = createCustomerClaimRegistry();
+    competitionScore = createCompetitionScore();
+    shiftTotal = total;
+    roundPatience = patience;
+    serviceDirector = createRestaurantDirector({
+      level: difficulty,
+      tables,
+      total,
+      rng: Math.random,
+      manualRush: true,
+      paceScale,
+    });
+    directorPhase = serviceDirector.phase;
+    focusReleasedAgo = Infinity;
+    rushBeatRemaining = 0;
+
+    restoreResultPose();
+    restoreChallengePose();
+    resultStage = null;
+    resultOutcome = null;
+    resultStagePendingOutcome = null;
+    resultStageBeltTravel = null;
+    resultNextNote = 0;
+    if (resultLabel) {
+      resultLabel.classList.remove('restaurant-ui__result--fading');
+      resultLabel.hidden = true;
+    }
+    if (scoreText) {
+      scoreText.classList.remove(
+        'restaurant-ui__score--result',
+        'restaurant-ui__score--stage',
+        'restaurant-ui__score--compact',
+      );
+      scoreText.hidden = true;
+    }
+    hideChallengePanel();
+    rematchChoiceActive = false;
+    challengeSuppressedKeys.clear();
+    roundEndRemaining = -1;
+    turnaroundPartner = null;
+    turnaroundWalk.walking = false;
+
+    player.position.set(PLAYER_START.x, 0, PLAYER_START.z);
+    player.rotation.set(0, 0, 0);
+    player.playAnimation?.('idle', { fade: 0 });
+    cameraRig.setTarget(player).setPreset('fixed', ROOM_CAMERA);
+    setInstruction(STRINGS.walkToCustomer);
+    // Belt dishes were hidden for the stage; show them where they are.
+    updateConveyor(0);
+  }
+
+  // Waiter 1 again at the same difficulty: no solo phase and no entrance scene.
+  function startRematchRound() {
+    resetForNextRound({ total: competitiveRoundTotal(DIFFICULTY[difficulty].total) });
+    phase = 'service';
+    rivalCharacter.visible = true;
+    rivalCharacter.position.set(RIVAL_ENTRANCE_END.x, 0, RIVAL_ENTRANCE_END.z);
+    rivalCharacter.rotation.set(0, 0, 0);
+    setRivalAnimation('idle', true);
+    competitionScore.capture(claimRegistry.counts);
+    serviceDirector.startRush();
+    directorPhase = serviceDirector.phase;
+    activateRivalModel();
+    showPhaseCue('rush', STRINGS.rematchCue);
+    updateChallengeScore();
+    syncHud();
+  }
+
+  // A Round 1 win: Waiter 1 walks out, then Waiter 2 gets the full entrance.
+  function beginRoundTwoTransition() {
+    const settings = ROUND_TWO[difficulty];
+    resetForNextRound({
+      total: competitiveRoundTotal(DIFFICULTY[difficulty].total),
+      patience: settings.patience,
+      tables: settings.tables,
+      paceScale: settings.paceScale,
+    });
+    phase = 'round-transition';
+    rivalExit.character = rivalCharacter;
+    rivalExit.index = 0;
+    rivalCharacter.position.y = 0;
+    setRivalAnimation('walk', true);
+    syncHud();
+  }
+
+  function updateRivalExit(dt) {
+    const character = rivalExit.character;
+    const waypoint = RIVAL_EXIT_WAYPOINTS[rivalExit.index];
+    if (!character || !waypoint) {
+      beginRoundTwoIntro();
+      return;
+    }
+    const dx = waypoint.x - character.position.x;
+    const dz = waypoint.z - character.position.z;
+    const distance = Math.hypot(dx, dz);
+    const step = Math.min(distance, RIVAL_EXIT_SPEED * dt);
+    if (distance > 1e-6) {
+      character.position.x += dx / distance * step;
+      character.position.z += dz / distance * step;
+      character.rotation.y = Math.atan2(dx, dz);
+    }
+    if (step >= distance - 1e-6) rivalExit.index += 1;
+  }
+
+  function beginRoundTwoIntro() {
+    if (rivalExit.character) {
+      rivalExit.character.visible = false;
+      rivalExit.character.playAnimation?.('idle', { fade: 0 });
+    }
+    rivalExit.character = null;
+    if (!progression?.startRound2()) return;
+    phase = 'service';
+    rivalChallenge = createRivalChallenge({ enabled: true });
+    rivalEmoteRemaining = 0;
+    beginRivalChallenge();
+  }
+
   function updateResultStage(dt) {
     const events = resultStage.advance(dt);
     updateResultSting();
     for (const event of events) {
       if (event.phase === 'settling') beginResultSettling();
-      else if (event.phase === 'question') beginResultQuestion();
+      else if (event.phase === 'question') {
+        beginAfterResult();
+        if (phase !== 'result-stage') return;
+      }
     }
     if (resultLabel && !resultStage.labelVisible
       && resultStage.phaseElapsed >= RESULT_STAGE_TIMING.labelFade) resultLabel.hidden = true;
@@ -3295,6 +3650,13 @@ export function createRestaurant(ctx) {
     questionCommitted = false;
     rushBeatRemaining = 0;
     rivalChallenge = createRivalChallenge({ enabled: rivalEnabled });
+    progression = rivalEnabled ? createRivalProgression() : null;
+    for (const id of Object.keys(rivalCharacters)) delete rivalCharacters[id];
+    rematchChoiceActive = false;
+    rematchChoiceShownAt = -Infinity;
+    roundPatience = null;
+    rivalExit.character = null;
+    rivalExit.index = 0;
     rivalEmoteRemaining = 0;
     challengeSuppressedKeys.clear();
     restoreChallengePose();
@@ -3429,6 +3791,9 @@ export function createRestaurant(ctx) {
       updateRoundEnd();
     } else if (phase === 'result-stage') {
       updateResultStage(safeDt);
+    } else if (phase === 'round-transition') {
+      input.consumeInteract();
+      updateRivalExit(safeDt);
     } else if (phase === 'round-end') {
       player.playAnimation?.('idle');
       if (resultStagePendingOutcome) setRivalAnimation('idle');
@@ -3507,7 +3872,11 @@ export function createRestaurant(ctx) {
     rivalTitle = null;
     resultLabel = null;
     player?.disposeCharacter?.();
-    rivalCharacter?.disposeCharacter?.();
+    for (const character of Object.values(rivalCharacters)) character.disposeCharacter?.();
+    for (const id of Object.keys(rivalCharacters)) delete rivalCharacters[id];
+    progression = null;
+    rematchChoiceActive = false;
+    rivalExit.character = null;
     for (const customer of customers) customer.character.disposeCharacter?.();
     customers.length = 0;
     dishes.length = 0;

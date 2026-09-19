@@ -1541,3 +1541,46 @@ the current action hint. Implemented by Claude directly.
   now outranks proximity Talk exactly as the belt front already does; a clicked
   or committed conversation still wins. Supersedes the 2026-09-14 "a raised hand
   outranks the return action" rule for the tub radius only.
+
+## 2026-09-19 — Restaurant: rival progression (rematch, Waiter 2, Round 2)
+
+Owner's plan, reviewed and adjusted by Claude, implemented by Claude directly
+(the router had no other worker available: Codex in a usage-limit window, the
+rest quarantined). SPEC §4 "Rival progression" has the behaviour and numbers.
+
+- **Accepted — a Round 1 loss or draw ends on the child's terms.** Waiter 1 asks
+  `もう一回 やる？` with two choices, rematch or finish, instead of auto-starting
+  another round. Finishing always reaches the final English question, so losing
+  can never block the lesson. A draw counts as a loss for progression.
+- **Accepted — a rematch is play, not ceremony.** Same waiter, same tuning, a
+  clean room and 0–0, but no solo deliveries and no entrance scene.
+- **Accepted — a Round 1 win is progress.** No rematch prompt and no question;
+  Waiter 1 walks out and Waiter 2 gets the complete entrance (walk, jingle,
+  close-up, challenger pose, title, typewriter, replies) through the same code
+  path, with its own title, line and replies. Round 2 always ends in the final
+  question, asked by Waiter 2. No Round 3.
+- **Accepted — Waiter 2 must read as a different person.** Kenney models ignore
+  tint, so the difference is the model (`k`: moustache, brown hair, red shirt),
+  a black apron instead of white, and a gold bow tie. The floating label stays
+  `ウェイター`. A red apron was tried first and vanished into the red shirt.
+- **Accepted — Round 2 is harder through execution.** Faster rival (+17%),
+  shorter hesitation and dish notice, a +17% denser belt, shorter patience, and
+  more simultaneous customers; rival share stays at or under one half. Per
+  level (SPEC numbers), because the owner's absolute numbers were Challenge-derived:
+  applied to Normal they would have put a Normal child past the Challenge rival
+  in one step. Normal Round 2 is therefore roughly the Challenge rival plus the
+  Round 2 belt; Challenge Round 2 uses the owner's numbers.
+- **Accepted — rematch and Round 2 length = the competitive part of the first
+  shift** (6 Normal, 10 Challenge), so a retry costs about what the battle did.
+- **Accepted — belt dishes survive the reset.** The belt is order-blind, so its
+  dishes carry no state from the last round, and an emptied belt would leave the
+  new round with seconds of nothing to pick up.
+- **Accepted — the rematch question uses the challenge panel and its own camera**
+  (aimed lower than the question camera) so both waiters stand above the panel.
+  Keyboard presses that begin within 0.35 s of the choices appearing are
+  swallowed, so Space mashed through the result cannot pick a rematch.
+- **Rejected:** auto-starting a second round on a loss; a rematch prompt
+  between Waiter 1 and Waiter 2; a shortened Waiter 2 intro; making Waiter 2
+  hard by handing it most customers; a Round 3; one absolute Round 2 tuning for
+  both levels; English REMATCH/FINISH labels (the UI is kana/furigana for
+  Grade 3 readers).

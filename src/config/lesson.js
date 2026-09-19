@@ -262,6 +262,16 @@ export const UI = Object.freeze({
     // \n is the line break in the dialogue box. Every reply has the same outcome.
     rivalChallenge: '{勝負|しょうぶ}しよう！\nどっちがたくさん{料理|りょうり}を{運|はこ}べるかな？',
     rivalChallengeReplies: Object.freeze(['いいよ！{勝負|しょうぶ}だ！', '{負|ま}けないよ！', 'がんばるぞ！']),
+    // After losing or drawing Round 1: try the same waiter again, or finish.
+    rivalRematchAsk: 'もう{一回|いっかい} やる？',
+    rematchChoices: Object.freeze(['もう{一回|いっかい}！', 'おわりにする']),
+    // Plain kana: the phase pill is plain text, not furigana.
+    rematchCue: 'もう いっかい しょうぶ！',
+    // After winning Round 1: a second, stronger waiter. Replies are flavour only.
+    rival2Title: 'もっと つよい ウェイター！',
+    rival2Challenge: 'ぼくとも {勝負|しょうぶ}しよう！\nもっと むずかしいよ！',
+    rival2ChallengeReplies: Object.freeze(['いいよ！{勝負|しょうぶ}だ！', '{負|ま}けないよ！', 'やってみよう！']),
+    round2Cue: 'ラウンド 2！',
     // End-of-shift head-to-head result; friendly wording whoever wins.
     resultPlayer: 'きみの かち！',
     resultRival: 'ウェイターの かち！',

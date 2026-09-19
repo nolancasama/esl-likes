@@ -109,11 +109,14 @@ export function createRestaurantDirector({
   tables = 3,
   total,
   manualRush = false,
+  // Scales the rush-time refill gap of a freed table (Round 2 Challenge < 1).
+  paceScale = 1,
   rng = Math.random,
 } = {}) {
   if (typeof rng !== 'function') throw new TypeError('rng must be a function');
 
   const safeLevel = Math.min(3, finiteInt(level, 1, 1));
+  const rushPace = Number.isFinite(Number(paceScale)) && Number(paceScale) > 0 ? Number(paceScale) : 1;
   const tableCount = finiteInt(Array.isArray(tables) ? tables.length : tables, 1, 3);
   const customerTotal = finiteInt(total, 0, DEFAULT_TOTALS[safeLevel]);
   let serviceTime = 0;
@@ -150,8 +153,8 @@ export function createRestaurantDirector({
       minimum = 1.25;
       maximum = 2.2;
     } else {
-      minimum = 0.65;
-      maximum = 1.35;
+      minimum = 0.65 * rushPace;
+      maximum = 1.35 * rushPace;
     }
     plan.seatAt = serviceTime + randomBetween(rng, minimum, maximum);
   }
