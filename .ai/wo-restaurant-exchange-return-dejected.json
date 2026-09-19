@@ -1,0 +1,62 @@
+{
+  "task": "Restaurant: swap a carried dish with a conveyor dish, a physical もどす sign on the return tub, food-blind action priority while carrying, and replace the rival's kneeling 'despair' result pose with a shared dejected pose (slump, look down, slow head shake)",
+  "notes": [
+    "Read DESIGN_DECISIONS.md (Restaurant entries 2026-09-14..19) and SPEC.md section 4 first. Record this pass as a new DESIGN_DECISIONS entry dated 2026-09-19 (what, why, rejected alternatives listed below) and revise the SPEC paragraphs it supersedes (carrying, dish return, result-moment reactions).",
+    "EXCHANGE, pure model: add conveyor.exchange(dishId, food) to src/minigames/restaurant/conveyor.js. It succeeds only for a dish that exists and is within visibleHalfWidth (same rule as take). It removes that dish and puts a NEW dish { id: nextId++, food, x: <the replaced dish's exact x> } in its place, so count, spacing and the scheduler are unchanged (no enter event, no bag draw). Returns { taken: copy of the removed dish, placed: copy of the new dish } or null. A new id (not the old one) is deliberate: rival.js tracks its target by dishId and already abandons a target whose id vanished ('taken'), so a rival walking to the swapped-away dish abandons it cleanly, and the placed dish is an ordinary belt dish it can target later.",
+    "EXCHANGE, scene (src/minigames/restaurant/index.js): a new exchangeDish(beltDishId) used by Space (action type 'exchange') and by click-to-walk arrival. Same reach rule as collectDish (BELT_ARRIVAL_WINDOW around player x; the click path may fall back to the nearest pickable dish like collectDish(…, true) does). The belt dish becomes carried exactly as collectDish does (state, carrySeconds 0, carryAnchor, scale, steam, sfx, instruction). The previously carried scene dish object and its mesh go back onto the belt: state 'belt', id = placed.id, customerId null, carrySeconds 0, firstTry true, steam puffs hidden, mesh removed from carryAnchor and added to world, restaurantTarget kept so it is clickable again; updateConveyor then positions it from the snapshot like any belt dish (it must visibly sit exactly where the taken dish was on that same frame). Reset temperature HUD for the new carried dish as collect does. Belt dishes are treated as fresh (the belt is order-blind, SPEC §4), so re-picking a returned dish starts at hot; accepted.",
+    "CLICK PARITY: onCanvasPointer currently ignores dish clicks while carrying (`if (carried || …) continue`). Allow them: clicking a belt dish while carrying walks there (same predicted-x logic) and exchanges on arrival. Arrival handler: `if (arrived.type === 'dish') carried ? exchangeDish(arrived.value) : collectDish(arrived.value, true)` (with the same fallback-to-nearest behaviour).",
+    "ACTION PRIORITY (food-blind: the chosen action must never depend on whether the carried food matches a customer, or the label would give away the listening answer). Extract a small pure chooser, e.g. src/minigames/restaurant/actionPriority.js `chooseAction({ carried, lockedQuestion, questionCandidate, nearReturn, beltDish, deliverTarget })` returning one of 'none' | 'talk' | 'return' | 'exchange' | 'collect' | 'deliver', and use it from updateContext. Order: speechCooldown → none (existing); lockedQuestion → none (existing, Talk owns Space); questionCandidate → talk (existing; note questionCandidate is already null when the belt wins); carrying: nearReturn → 'return'; beltWins → 'exchange'; owned awaiting customer with refusalRemaining <= 0 → 'deliver'; else none. Empty-handed: unchanged (beltWins → 'collect'). Compute beltDish/beltWins whether or not the player carries (today it is `!carried && …`), same belt-front rule (z <= -4.0, BELT_FRONT_BAND, BELT_PICKUP_WINDOW) and same `!lockedQuestion && !clickedCustomer` condition. Instructions: exchange shows setInstruction + action label STRINGS.exchangeDish; return keeps STRINGS.returnDish ('スペースで おさらを もどす'); collect keeps STRINGS.collectDish.",
+    "ONE PRESS, ONE ACTION: performAction runs exactly the single current actionType; for 'exchange' it re-resolves the nearest pickable dish at press time (as 'collect' does). After any action hideAction() so the same frame cannot run a second one. Keep existing Talk/speech capture priority untouched.",
+    "STRINGS (src/config/lesson.js UI.restaurant): add exchangeDish: 'スペースで りょうりを とりかえる' and returnSign: 'もどす'. Do not change other strings.",
+    "もどす SIGN: a physical sign attached to the existing dish-return tub (dishReturnAnchor, built ~L772, tub at DISH_RETURN_POSITION (6.0, -3.95)). Canvas-texture board (same technique as buildRestaurantSign / ownTexture / ownMaterial; dispose via the existing owned sets) with STRINGS.returnSign in large heavy system-ui Japanese, high contrast, a colour that belongs with the tub (not a trash/rubbish look, no bin icon). Mount it on the tub itself (e.g. a short post or the tub's camera-facing front rim), tilted to face the fixed ROOM_CAMERA (position [0,11.5,12], lookAt [0,0.8,0.6]) so it reads from the normal whole-room view at 1366x768. It must not hide belt dishes (belt z -6.35, dish y ~1.23) or the player standing at the tub; keep its top below ~y 1.8. Not a HUD element, not a sprite that floats.",
+    "RESULT POSE: remove the 'despair' reaction entirely (kneel/leg fold/root drop/ceiling fists/three-quarter turn). resultStage.js REACTIONS: player win → { player: 'celebrate', rival: 'dejected' }; rival win unchanged { player: 'dejected', rival: 'celebrate' }; draw unchanged. Extract the per-reaction pose math from index.js applyReactionPose into a pure module (e.g. src/minigames/restaurant/reactionPose.js `reactionPose(reaction, seconds)` → { rootY, rootRotationY, nodes: { head: {x,y,z}, torso: {...}, 'arm-left': {...}, … } } offsets) that index.js applies with poseNode; celebrate and shrug keep their current math exactly (including the post-1.5 s hold added 2026-09-19). The shared 'dejected' pose: head tipped down (x ≈ 0.45), torso slumped forward (x ≈ 0.25), arms relaxed down and slightly forward following the slump, NO leg offsets and no rootY drop beyond a tiny sigh; a slow head shake (rotation about y, amplitude ≈ 0.3 rad, ≈ 1.1 s per side-to-side cycle, two cycles between ≈ 0.5 s and ≈ 2.7 s, eased in/out) then still for the rest of the 3.6 s hold. It must read 'Aw, I lost': no tears, particles, hand-over-face, sobbing, kneeling or fists to the sky. Both player (on a loss) and rival (on a player win) use this same function.",
+    "Debug hook additions (read-only, keep all existing fields): top-level or hud `actionType` (current actionType), `dishReturn.labelText` (the sign text), `dishReturn.labelVisible`, and conveyor dish entries already expose id/food/x. resultStage already exposes playerReaction/rivalReaction.",
+    "Source-edit hygiene: index.js contains Japanese text, regex literals and template CSS; edit with the structured edit tool only, never shell/sed/python rewrites."
+  ],
+  "requirements": [
+    "Carrying a dish at the belt front with a pickable dish in range: the action reads 'スペースで りょうりを とりかえる'; Space swaps: the player carries the belt dish and the previously carried dish sits at the taken dish's exact x on the belt from that frame and moves on with the belt.",
+    "Belt dish count is unchanged by an exchange, no dishes overlap (the placed dish has the taken dish's x), and no extra dish enters or bag food is consumed.",
+    "The placed dish has a new id, is an ordinary belt dish: clickable, collectable/exchangeable by the player and targetable/collectable by the rival later; a rival targeting the swapped-away dish abandons it without errors.",
+    "Clicking a belt dish while carrying walks there and exchanges on arrival.",
+    "Return tub still works while carrying: near it the action reads 'スペースで おさらを もどす' and Space frees the player's hands with the existing cleanup.",
+    "The tub carries a physical, camera-facing もどす sign readable from the normal whole-room camera; no ごみ wording or trash imagery.",
+    "Action priority is food-blind and as specified: Talk rules unchanged; while carrying, return tub > exchange at belt front > delivery; a single Space press performs exactly one action.",
+    "Player win: rival uses the shared dejected pose (slump, head down, slow two-cycle head shake, then still); no kneeling, no leg offsets, no ceiling fists, no crying effects. Rival win: player uses the same dejected pose, rival celebrates. Draw unchanged.",
+    "Result-stage timing (3.6 s reaction, settling, question) and the final 'What food do you like?' transition are unchanged.",
+    "Unit tests: conveyor.exchange (success returns taken/placed, placed x equals taken x, count constant, new id, spacing preserved relative to neighbours, out-of-view and unknown ids return null and change nothing, subsequent take/nearestPickable/predictX find the placed dish, advance moves it like others); actionPriority chooser (every branch, return beats exchange beats deliver, lockedQuestion blocks everything, questionCandidate wins when the belt does not, result independent of food match); resultStage reactionsFor('player') has rival 'dejected' and no reaction is 'despair'; reactionPose('dejected', t): no leg/knee nodes offset, head x > 0.3, torso x > 0.15, head y non-zero inside the shake window and ~0 after 2.9 s, max |head y| ≤ 0.35; celebrate/shrug outputs match the previous formulas at sample times.",
+    "npm test and npm run build pass."
+  ],
+  "constraints": [
+    "Do not change scoring, patience, rush trigger, rival AI rules, the challenge intro, result-stage timing, or any existing lesson string.",
+    "Do not change Easy/Normal/Challenge difficulty numbers or conveyor speeds/intervals.",
+    "No new dependencies and no image/audio asset files (canvas textures only).",
+    "Keep all existing debug fields working (harness scripts read them).",
+    "Do not commit or push; leave changes in the working tree for review.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism — do not try another escaped variant."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/conveyor.js",
+    "src/minigames/restaurant/conveyor.test.mjs",
+    "src/minigames/restaurant/resultStage.js",
+    "src/minigames/restaurant/resultStage.test.mjs",
+    "src/minigames/restaurant/rival.js",
+    "src/config/lesson.js",
+    "DESIGN_DECISIONS.md",
+    "SPEC.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["browser check of exchange, return tub sign and player-win dejected rival (controller-owned scratchpad script)"]
+  },
+  "category": "gameplay-3d-ui",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic",
+  "executionStyle": "deep-reasoning"
+}

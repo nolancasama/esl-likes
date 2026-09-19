@@ -1490,3 +1490,54 @@ the current action hint. Implemented by Claude directly.
   cancels the browser's keyup click: Space never answered a challenge reply
   (earlier checks used Enter). Keyup now exempts a focused button exactly as
   keydown already did, so Space works on any focused game button.
+
+## 2026-09-19 — Restaurant: belt exchange, labelled return, shared dejection
+
+- **Accepted — exchange in place.** Taking a conveyor dish while carrying swaps
+  the two. The selected dish becomes the carried dish, while the previous dish
+  receives a new ID at the selected dish's exact belt position. Count, spacing,
+  entry timing and the shuffled food bag are unchanged. The new ID deliberately
+  makes a rival abandon a vanished target cleanly; the placed dish is then an
+  ordinary shared dish it can target later.
+- **Accepted — keyboard and click parity.** At the belt front Space exchanges
+  with the nearest pickable dish, and clicking a belt dish walks to its predicted
+  position and exchanges on arrival, with the same nearest-dish fallback as a
+  normal pickup.
+- **Accepted — food-blind single-action priority.** Talk's existing capture and
+  lock rules remain first. While carrying, the return tub outranks exchange,
+  which outranks an eligible delivery; empty-handed pickup is unchanged. This
+  choice never checks whether the carried food matches a customer, so the action
+  label cannot reveal the listening answer. One Space press resolves only the
+  selected action.
+- **Accepted — a physical `もどす` sign.** A high-contrast canvas-texture board
+  is mounted on the return tub's camera-facing rim, below the belt sightline. Its
+  teal and cream treatment belongs to the station and uses no rubbish wording,
+  bin icon or floating HUD marker.
+- **Accepted — one shared losing pose.** Player and rival now use the same
+  standing dejected reaction: shoulders and torso slump, head tips down, relaxed
+  arms follow the slump, and a slow two-cycle head shake eases in and out before
+  the waiter holds still. This supersedes both the 2026-09-18 funny-despair pose
+  set and its reviewed three-quarter kneel, root drop, folded legs and ceiling
+  fists. The winner's celebration, draw shrug, 3.6-second reaction hold,
+  settling and final-question transition remain unchanged.
+- **Why.** Exchange makes an accidental pickup recoverable without interrupting
+  the order-blind conveyor, the tub label makes the alternative return action
+  legible in the room, and a shared restrained loss reaction reads consistently
+  for either character without turning defeat into melodrama.
+- **Rejected — returning the old dish to the tub during exchange.** That would
+  reduce belt count and spacing and make exchange behave like two actions.
+- **Rejected — reusing the removed dish ID or drawing a replacement from the
+  bag.** Reuse would leave a rival pursuing a different physical dish under the
+  same target; a bag draw would alter future supply and scheduling.
+- **Rejected — match-sensitive delivery priority.** Showing delivery only for a
+  correct carried food would expose the answer the child is meant to remember.
+- **Rejected — the kneeling despair reaction, crying effects and exaggerated
+  failure gestures.** The intended reading is simply “Aw, I lost,” followed by
+  the existing friendly final conversation.
+- **Modified after the browser check (Claude) — the tub outranks proximity
+  Talk.** The tub (6.0, -3.95) sits 2.6 from the back-right diner, inside the
+  2.7 talk radius, so while that diner was unasked a waiter standing at the tub
+  with a dish got Talk and could not return it. Standing at the tub with a dish
+  now outranks proximity Talk exactly as the belt front already does; a clicked
+  or committed conversation still wins. Supersedes the 2026-09-14 "a raised hand
+  outranks the return action" rule for the tub radius only.

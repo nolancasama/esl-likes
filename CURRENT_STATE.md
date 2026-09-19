@@ -120,6 +120,22 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 
 ## Next Steps
 
+0000000000. 2026-09-19 Restaurant belt exchange + もどす tub sign + shared
+     dejected pose (Codex via router, Sol high, SUCCESS; Claude reviewed and fixed
+     directly; DESIGN_DECISIONS "belt exchange, labelled return, shared
+     dejection"). PUSHED LIVE 2026-09-19 at the owner's request. Carrying at the
+     belt front: `スペースで りょうりを とりかえる` swaps in place (`conveyor.exchange`,
+     new id, same x); clicking a belt dish while carrying also swaps. Pure
+     `actionPriority.js` (food-blind: tub > exchange > deliver) and
+     `reactionPose.js` (the shared dejected pose replaces the kneeling despair).
+     Claude fixes: the tub now outranks proximity Talk (it sat inside the
+     back-right diner's talk radius, which blocked returns), and the belt hint
+     text went back to `walkToConveyor`. Verified: `npm test`, build; browser
+     (session scratchpad `restaurant-exchange.mjs`, UNTRUSTED) 14/14 (Space swap
+     lands at the exact x with a new id, count and spacing kept, click swap, tub
+     sign, tub return) and a player win 19/19; Claude viewed the tub sign in the
+     room view and the rival's dejected shake/hold. NOT run: rival win or draw
+     after the pose refactor (both use unchanged math), Challenge, 412 px.
 000000000. 2026-09-19 Restaurant rival reveal + longer result hold (Codex via
      router, Sol high, SUCCESS; Claude reviewed, fixed and tuned directly;
      DESIGN_DECISIONS 2026-09-19, SPEC revised). PUSHED LIVE 2026-09-19 at the

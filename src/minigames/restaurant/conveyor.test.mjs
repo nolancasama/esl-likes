@@ -111,6 +111,52 @@ test('take observes the pickup bounds and is atomic', () => {
   assert.equal(conveyor.predictX(dish.id, 1), null);
 });
 
+test('exchange replaces a visible dish in place without changing the stream', () => {
+  const conveyor = createConveyor({ difficulty: 1, foods: FOODS, rng: seededRng(22) });
+  const control = createConveyor({ difficulty: 1, foods: FOODS, rng: seededRng(22) });
+  conveyor.advance(4.9);
+  control.advance(4.9);
+  const before = conveyor.snapshot();
+  const target = before.dishes.find((dish) => Math.abs(dish.x) <= before.visibleHalfWidth);
+  const neighbours = before.dishes.filter((dish) => dish.id !== target.id);
+
+  const exchanged = conveyor.exchange(target.id, 'sushi');
+  assert.deepEqual(exchanged.taken, target);
+  assert.equal(exchanged.placed.food, 'sushi');
+  assert.equal(exchanged.placed.x, target.x);
+  assert.notEqual(exchanged.placed.id, target.id);
+  assert.equal(conveyor.snapshot().dishes.length, before.dishes.length);
+  for (const neighbour of neighbours) {
+    assert.ok(Math.abs(neighbour.x - exchanged.placed.x) >= MIN_DISH_SPACING - 1e-9);
+  }
+
+  assert.equal(conveyor.nearestPickable(exchanged.placed.x, 0.01)?.id, exchanged.placed.id);
+  assert.equal(conveyor.predictX(exchanged.placed.id, 1), exchanged.placed.x - before.speed);
+  conveyor.advance(0.5);
+  assert.equal(
+    conveyor.snapshot().dishes.find((dish) => dish.id === exchanged.placed.id)?.x,
+    exchanged.placed.x - (before.speed * 0.5),
+  );
+  assert.equal(conveyor.take(exchanged.placed.id)?.food, 'sushi');
+
+  const exchangedFoods = conveyor.advance(20)
+    .filter((event) => event.type === 'enter').map((event) => event.dish.food);
+  control.advance(0.5);
+  const controlFoods = control.advance(20)
+    .filter((event) => event.type === 'enter').map((event) => event.dish.food);
+  assert.deepEqual(exchangedFoods, controlFoods, 'exchange does not draw from the food bag');
+});
+
+test('exchange rejects unknown and out-of-view dishes without mutation', () => {
+  const conveyor = createConveyor({ difficulty: 1, foods: FOODS, rng: seededRng(23) });
+  const [entry] = entries(conveyor, 1, undefined, 0.1);
+  const before = conveyor.snapshot();
+  assert.equal(conveyor.exchange(entry.dish.id, 'sushi'), null);
+  assert.deepEqual(conveyor.snapshot(), before);
+  assert.equal(conveyor.exchange(9999, 'sushi'), null);
+  assert.deepEqual(conveyor.snapshot(), before);
+});
+
 test('config defaults remain frozen', () => {
   assert.equal(Object.isFrozen(CONVEYOR_CONFIG), true);
   assert.equal(Object.isFrozen(CONVEYOR_CONFIG[1]), true);

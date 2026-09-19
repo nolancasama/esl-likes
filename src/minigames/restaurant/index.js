@@ -11,6 +11,7 @@ import {
 } from './scoring.js';
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
+import { chooseAction } from './actionPriority.js';
 import { RESTAURANT_OWNERS, createCustomerClaimRegistry } from './claims.js';
 import { RIVAL_LEVELS, RIVAL_SPEED, createRestaurantRival } from './rival.js';
 import {
@@ -29,6 +30,7 @@ import {
   RESULT_STAGE_TIMING,
   createResultStage,
 } from './resultStage.js';
+import { reactionPose } from './reactionPose.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
@@ -195,6 +197,7 @@ export function createRestaurant(ctx) {
   let conveyor = null;
   let conveyorSurface = null;
   let dishReturnAnchor = null;
+  let dishReturnLabel = null;
   let signAnchor = null;
   let overlay = null;
   let style = null;
@@ -381,7 +384,7 @@ export function createRestaurant(ctx) {
   function showAction(text, type, target = null) {
     actionType = type;
     actionCustomer = type === 'deliver' ? target : null;
-    actionDish = type === 'collect' ? target : null;
+    actionDish = type === 'collect' || type === 'exchange' ? target : null;
     actionButton.textContent = text;
     actionButton.hidden = false;
   }
@@ -697,6 +700,52 @@ export function createRestaurant(ctx) {
     world.add(signAnchor);
   }
 
+  // A small physical label fixed to the tub's camera-facing rim. Its teal frame
+  // belongs to the return station; it is intentionally not styled as a bin.
+  function buildDishReturnSign(box) {
+    const faceWidth = 1.2;
+    const faceHeight = 0.5;
+    const signCanvas = document.createElement('canvas');
+    signCanvas.width = 480;
+    signCanvas.height = 200;
+    const context = signCanvas.getContext('2d');
+    context.fillStyle = '#fff7df';
+    context.fillRect(0, 0, signCanvas.width, signCanvas.height);
+    context.strokeStyle = '#287b83';
+    context.lineWidth = 18;
+    context.strokeRect(9, 9, signCanvas.width - 18, signCanvas.height - 18);
+    context.fillStyle = '#174f57';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.font = '900 118px system-ui, sans-serif';
+    context.fillText(STRINGS.returnSign, signCanvas.width / 2, signCanvas.height * 0.51);
+
+    const texture = ownTexture(new THREE.CanvasTexture(signCanvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
+    const faceMaterial = ownMaterial(new THREE.MeshStandardMaterial({
+      map: texture,
+      roughness: 0.82,
+      emissive: 0xfff3d4,
+      emissiveMap: texture,
+      emissiveIntensity: 0.12,
+    }));
+    const frameMaterial = makeMaterial(0x287b83, { roughness: 0.62 });
+
+    dishReturnLabel = new THREE.Group();
+    dishReturnLabel.name = 'restaurant-dish-return-label';
+    dishReturnLabel.position.set(0, 1.36, 0.43);
+    dishReturnLabel.rotation.set(-0.54, -0.37, 0);
+    addPart(dishReturnLabel, box, frameMaterial, 0, 0, -0.025, faceWidth + 0.12, faceHeight + 0.12, 0.08);
+    const face = new THREE.Mesh(ownGeometry(new THREE.PlaneGeometry(faceWidth, faceHeight)), faceMaterial);
+    face.position.z = 0.02;
+    dishReturnLabel.add(face);
+    for (const x of [-0.42, 0.42]) {
+      addPart(dishReturnLabel, box, frameMaterial, x, -0.36, -0.04, 0.055, 0.3, 0.055);
+    }
+    dishReturnAnchor.add(dishReturnLabel);
+  }
+
   function buildWorld() {
     world = new THREE.Group();
     world.name = 'restaurant-minigame';
@@ -778,6 +827,7 @@ export function createRestaurant(ctx) {
     addPart(dishReturnAnchor, box, returnMaterial, 0.57, 0.91, 0, 0.12, 0.5, 0.86);
     addPart(dishReturnAnchor, box, returnMaterial, 0, 0.91, -0.37, 1.25, 0.5, 0.12);
     addPart(dishReturnAnchor, box, returnMaterial, 0, 0.91, 0.37, 1.25, 0.5, 0.12);
+    buildDishReturnSign(box);
     world.add(dishReturnAnchor);
     buildRestaurantSign(box);
 
@@ -1277,6 +1327,56 @@ export function createRestaurant(ctx) {
     setInstruction(STRINGS.walkToDeliver);
   }
 
+  function exchangeDish(dishOrId, fallbackToNearest = false) {
+    if (!carried || !conveyor) return;
+    const requestedId = typeof dishOrId === 'object' ? dishOrId?.id : dishOrId;
+    const requested = conveyor.snapshot().dishes.find((dish) => dish.id === requestedId);
+    let target = requested && Math.abs(requested.x - player.position.x) <= BELT_ARRIVAL_WINDOW
+      ? requested
+      : null;
+    if (!target && fallbackToNearest) {
+      target = conveyor.nearestPickable(player.position.x, BELT_ARRIVAL_WINDOW);
+    }
+    if (!target) return;
+
+    const takenDish = beltDishFor(target.id);
+    if (!takenDish) return;
+    const returnedDish = carried;
+    const exchanged = conveyor.exchange(target.id, returnedDish.food);
+    if (!exchanged) return;
+
+    world.remove(takenDish.mesh);
+    carryAnchor.add(takenDish.mesh);
+    takenDish.state = 'carried';
+    takenDish.carrySeconds = 0;
+    takenDish.customerId = null;
+    takenDish.firstTry = true;
+    takenDish.mesh.position.set(0, 0, 0);
+    takenDish.mesh.rotation.set(0, 0, 0);
+    takenDish.mesh.scale.setScalar(0.88);
+    for (const puff of takenDish.mesh.userData.steam) puff.visible = true;
+
+    carryAnchor.remove(returnedDish.mesh);
+    world.add(returnedDish.mesh);
+    returnedDish.state = 'belt';
+    returnedDish.id = exchanged.placed.id;
+    returnedDish.customerId = null;
+    returnedDish.carrySeconds = 0;
+    returnedDish.firstTry = true;
+    returnedDish.mesh.position.set(exchanged.placed.x, BELT_TOP_Y + 0.13, BELT_CENTER_Z);
+    returnedDish.mesh.rotation.set(0, 0, 0);
+    returnedDish.mesh.scale.setScalar(0.82);
+    returnedDish.mesh.visible = Math.abs(exchanged.placed.x) < WALL_HALF_WIDTH;
+    for (const puff of returnedDish.mesh.userData.steam) puff.visible = false;
+
+    carried = takenDish;
+    temperature.hidden = true;
+    temperatureText = '';
+    audio.playSfx('interact');
+    hideAction();
+    setInstruction(STRINGS.walkToDeliver);
+  }
+
   function returnCarriedDish() {
     if (!carried) return;
     const returned = carried;
@@ -1407,12 +1507,19 @@ export function createRestaurant(ctx) {
 
   function performAction() {
     if (!active || phase !== 'service') return;
-    if (actionType === 'collect') {
+    const type = actionType;
+    const customer = actionCustomer;
+    hideAction();
+    if (type === 'collect') {
       const nearest = conveyor?.nearestPickable(player.position.x, BELT_PICKUP_WINDOW);
       if (nearest) collectDish(nearest);
     }
-    else if (actionType === 'deliver' && actionCustomer) deliver(actionCustomer);
-    else if (actionType === 'return') returnCarriedDish();
+    else if (type === 'exchange') {
+      const nearest = conveyor?.nearestPickable(player.position.x, BELT_PICKUP_WINDOW);
+      if (nearest) exchangeDish(nearest);
+    }
+    else if (type === 'deliver' && customer) deliver(customer);
+    else if (type === 'return') returnCarriedDish();
   }
 
   function canOccupy(x, z) {
@@ -2038,7 +2145,10 @@ export function createRestaurant(ctx) {
       const arrived = autoTarget;
       autoTarget = null;
       player.playAnimation?.('idle');
-      if (arrived.type === 'dish') collectDish(arrived.value, true);
+      if (arrived.type === 'dish') {
+        if (carried) exchangeDish(arrived.value, true);
+        else collectDish(arrived.value, true);
+      }
       else if (arrived.type === 'customer') {
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
@@ -2218,10 +2328,14 @@ export function createRestaurant(ctx) {
     }
     const clickedCustomer = customerWithinRange(clickQuestionCustomer);
     const nearbyCustomer = lockedQuestion ?? clickedCustomer ?? nearestSeatedCustomer();
-    const beltDish = !carried && player.position.z <= -4.0 ? nearestBeltDish() : null;
+    const beltDish = player.position.z <= -4.0 ? nearestBeltDish() : null;
     const beltWins = Boolean(beltDish && !lockedQuestion && !clickedCustomer);
+    // The tub lies inside the back-right diner's talk radius: like the belt
+    // front, standing at it with a dish outranks proximity Talk (not a click).
+    const nearReturn = Boolean(carried) && playerNearDishReturn();
+    const returnWins = nearReturn && !lockedQuestion && !clickedCustomer;
     const questionCandidate = lockedQuestion
-      ?? (!beltWins && isTalkable(nearbyCustomer) ? nearbyCustomer : null);
+      ?? (!beltWins && !returnWins && isTalkable(nearbyCustomer) ? nearbyCustomer : null);
 
     if (!questionCommitted) {
       if (questionCandidate) targetQuestion(questionCandidate);
@@ -2230,50 +2344,41 @@ export function createRestaurant(ctx) {
     // The 🔊 control sits beside the main action, never in its place (SPEC 3).
     setListenTarget(nearbyCustomer?.owner === RESTAURANT_OWNERS.PLAYER
       && canBeReminded(nearbyCustomer.state) ? nearbyCustomer : null);
-    if (carried) {
-      // A talkable customer keeps Space dedicated to Talk even with a dish in
-      // hand; otherwise the nearby return tub still outranks delivery.
-      if (questionCandidate) {
-        hideAction();
-        return;
-      }
-      if (playerNearDishReturn()) {
-        setInstruction(STRINGS.returnDish);
-        showAction(STRINGS.returnDish, 'return');
-        return;
-      }
-      setInstruction(STRINGS.walkToDeliver);
-      if (nearbyCustomer?.owner === RESTAURANT_OWNERS.PLAYER
-        && nearbyCustomer.state === 'awaiting'
-        && nearbyCustomer.refusalRemaining <= 0) {
-        showAction(STRINGS.deliverDish, 'deliver', nearbyCustomer);
-      }
-      else hideAction();
-      return;
-    }
+    const deliverTarget = nearbyCustomer?.owner === RESTAURANT_OWNERS.PLAYER
+      && nearbyCustomer.state === 'awaiting'
+      && nearbyCustomer.refusalRemaining <= 0
+      ? nearbyCustomer
+      : null;
+    const chosenAction = chooseAction({
+      carried: Boolean(carried),
+      lockedQuestion,
+      questionCandidate,
+      nearReturn,
+      beltDish: beltWins ? beltDish : null,
+      deliverTarget,
+    });
 
-    // A committed conversation outranks belt pickup so another world action
-    // cannot displace an active recognition attempt or read-along.
-    if (lockedQuestion) {
+    if (chosenAction === 'talk') {
       hideAction();
-      return;
-    }
-
-    if (beltWins) {
+    } else if (chosenAction === 'return') {
+      setInstruction(STRINGS.returnDish);
+      showAction(STRINGS.returnDish, 'return');
+    } else if (chosenAction === 'exchange') {
+      setInstruction(STRINGS.exchangeDish);
+      showAction(STRINGS.exchangeDish, 'exchange', beltDish);
+    } else if (chosenAction === 'deliver') {
+      setInstruction(STRINGS.walkToDeliver);
+      showAction(STRINGS.deliverDish, 'deliver', deliverTarget);
+    } else if (chosenAction === 'collect') {
       setInstruction(STRINGS.walkToConveyor);
       showAction(STRINGS.collectDish, 'collect', beltDish);
-      return;
-    }
-
-    if (questionCandidate) {
+    } else {
       hideAction();
-      return;
+      if (lockedQuestion) return;
+      if (carried) setInstruction(STRINGS.walkToDeliver);
+      else if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
+      else setInstruction(STRINGS.watchConveyor);
     }
-
-    hideAction();
-
-    if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
-    else setInstruction(STRINGS.watchConveyor);
   }
 
   function updateCarried(dt) {
@@ -2318,7 +2423,7 @@ export function createRestaurant(ctx) {
       }
       if (!target) continue;
       if (target.type === 'dish') {
-        if (carried || target.value.state !== 'belt' || !conveyor) continue;
+        if (target.value.state !== 'belt' || !conveyor) continue;
         const snapshotDish = conveyor.snapshot().dishes.find((dish) => dish.id === target.value.id);
         if (!snapshotDish) continue;
         const estimatedWalkSeconds = Math.hypot(
@@ -2415,6 +2520,7 @@ export function createRestaurant(ctx) {
       phase: phase === 'service' ? directorPhase : phase,
       lifecycle: phase,
       directorPhase,
+      actionType: actionType || 'none',
       progress: { done: claimRegistry?.progress.done ?? records.length, total: shiftTotal },
       level: difficulty,
       // Game time (frame-clamped), for timing checks independent of frame rate.
@@ -2508,6 +2614,8 @@ export function createRestaurant(ctx) {
       dishReturn: dishReturnAnchor ? {
         position: { x: DISH_RETURN_POSITION.x, z: DISH_RETURN_POSITION.z },
         screen: projectObject(dishReturnAnchor, 0.75),
+        labelText: STRINGS.returnSign,
+        labelVisible: Boolean(dishReturnLabel?.visible),
       } : null,
       sign: signAnchor ? {
         text: RESTAURANT_SIGN_TEXT,
@@ -3025,46 +3133,14 @@ export function createRestaurant(ctx) {
 
   function applyReactionPose(rest, reaction, seconds) {
     resetNodesToRest(rest);
-    const blend = THREE.MathUtils.smoothstep(Math.min(1, seconds / 0.25), 0, 1);
-    rest.character.position.y = 0;
-    if (reaction === 'celebrate') {
-      const hopCycle = seconds % 0.5;
-      const hopping = seconds < 1.5 ? Math.sin(hopCycle / 0.5 * Math.PI) : 0;
-      const pump = seconds < 1.5 ? Math.sin(seconds * Math.PI * 4) * 0.35 : 0;
-      rest.character.position.y = Math.max(0, hopping) * 0.45;
-      poseNode(rest, 'arm-left', { z: (2.4 + pump) * blend });
-      poseNode(rest, 'arm-right', { z: (-2.4 - pump) * blend });
-      const cheerTwist = seconds < 1.5 ? Math.sin(seconds * Math.PI * 2) * 0.12 : 0;
-      poseNode(rest, 'torso', { y: cheerTwist * blend });
-    } else if (reaction === 'despair') {
-      // Rigid legs have no knees: the body drops and the legs fold back along
-      // the floor. Fists alternate, like shaking them at the ceiling.
-      const shake = seconds < 1.5 ? Math.sin(seconds * Math.PI * 16) * 0.28 : 0;
-      // Turned three-quarters toward the stage centre, so the legs folded
-      // back along the floor show as kneeling rather than a shorter waiter.
-      rest.character.position.y = -0.46 * blend;
-      rest.character.rotation.y = -Math.sign(rest.character.position.x || 1) * 0.5 * blend;
-      poseNode(rest, 'leg-left', { x: 1.25 * blend });
-      poseNode(rest, 'leg-right', { x: 1.25 * blend });
-      poseNode(rest, 'head', { x: -0.62 * blend });
-      poseNode(rest, 'arm-left', { x: (-2.8 + shake) * blend, z: 0.35 * blend });
-      poseNode(rest, 'arm-right', { x: (-2.8 - shake) * blend, z: -0.35 * blend });
-    } else if (reaction === 'dejected') {
-      const sigh = Math.sin(Math.min(1, seconds / 1.2) * Math.PI) * -0.04;
-      rest.character.position.y = sigh * blend;
-      poseNode(rest, 'head', { x: 0.4 * blend });
-      poseNode(rest, 'torso', { x: 0.18 * blend });
-      poseNode(rest, 'arm-left', { x: 0.16 * blend, z: -0.12 * blend });
-      poseNode(rest, 'arm-right', { x: 0.16 * blend, z: 0.12 * blend });
-    } else if (reaction === 'shrug') {
-      const lift = Math.sin(Math.min(1, seconds / 0.45) * Math.PI) * 0.04;
-      const nod = seconds > 0.65 && seconds < 1.55
-        ? Math.sin((seconds - 0.65) * Math.PI * 2.2) * 0.08
-        : 0;
-      poseNode(rest, 'arm-left', { x: -0.5 * blend, z: 0.55 * blend });
-      poseNode(rest, 'arm-right', { x: -0.5 * blend, z: -0.55 * blend });
-      poseNode(rest, 'torso', null, { y: lift * blend });
-      poseNode(rest, 'head', { x: nod * blend, z: 0.15 * blend });
+    const pose = reactionPose(reaction, seconds);
+    rest.character.position.y = pose.rootY;
+    rest.character.rotation.y = pose.rootRotationY;
+    for (const [name, rotation] of Object.entries(pose.nodes)) {
+      poseNode(rest, name, rotation, pose.positions[name] ?? null);
+    }
+    for (const [name, position] of Object.entries(pose.positions)) {
+      if (!pose.nodes[name]) poseNode(rest, name, null, position);
     }
   }
 
@@ -3125,7 +3201,7 @@ export function createRestaurant(ctx) {
 
   // Static mixer pose plus node offsets: planted and leaning in, with both
   // fists in front. It intentionally shares neither the result cheer's
-  // sideways arms/hops nor the despair pose's kneel/ceiling fists.
+  // sideways arms/hops nor the dejected pose's relaxed standing slump.
   function applyChallengerPoseAfterAnimation() {
     if (!challengePoseState || !rivalChallenge) return;
     const revealing = rivalChallenge.phase === 'reveal';
@@ -3470,6 +3546,7 @@ export function createRestaurant(ctx) {
     conveyor = null;
     conveyorSurface = null;
     dishReturnAnchor = null;
+    dishReturnLabel = null;
     signAnchor = null;
     rivalCustomerView.length = 0;
     rivalWalk.active = false;

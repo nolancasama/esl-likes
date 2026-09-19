@@ -278,8 +278,10 @@ export const UI = Object.freeze({
     patientLeave: 'またね…',
     roundEnd: 'おつかれさま！',
     collectDish: 'スペースで りょうりを もつ',
+    exchangeDish: 'スペースで りょうりを とりかえる',
     deliverDish: 'スペースで とどける',
     returnDish: 'スペースで おさらを もどす',
+    returnSign: 'もどす',
   },
   transition: {
     label: 'ばめんを きりかえています',

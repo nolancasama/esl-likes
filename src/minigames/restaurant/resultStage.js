@@ -11,7 +11,7 @@ export const RESULT_STAGE_LAYOUT = Object.freeze({
 });
 
 const REACTIONS = Object.freeze({
-  player: Object.freeze({ player: 'celebrate', rival: 'despair' }),
+  player: Object.freeze({ player: 'celebrate', rival: 'dejected' }),
   rival: Object.freeze({ player: 'dejected', rival: 'celebrate' }),
   draw: Object.freeze({ player: 'shrug', rival: 'shrug' }),
 });

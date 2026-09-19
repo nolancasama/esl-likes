@@ -90,9 +90,12 @@ test('label visibility and compact score follow the phase', () => {
 });
 
 test('reactions map all three outcomes', () => {
-  assert.deepEqual(reactionsFor('player'), { player: 'celebrate', rival: 'despair' });
+  assert.deepEqual(reactionsFor('player'), { player: 'celebrate', rival: 'dejected' });
   assert.deepEqual(reactionsFor('rival'), { player: 'dejected', rival: 'celebrate' });
   assert.deepEqual(reactionsFor('draw'), { player: 'shrug', rival: 'shrug' });
+  for (const outcome of ['player', 'rival', 'draw']) {
+    assert.ok(!Object.values(reactionsFor(outcome)).includes('despair'));
+  }
 
   const stage = createResultStage({ outcome: 'rival' });
   assert.deepEqual(stage.reactions, { player: 'dejected', rival: 'celebrate' });

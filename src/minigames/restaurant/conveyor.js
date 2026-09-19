@@ -173,6 +173,16 @@ export function createConveyor(options = {}) {
     return copyDish(dishes.splice(index, 1)[0]);
   }
 
+  function exchange(dishId, food) {
+    const index = dishes.findIndex((dish) => dish.id === dishId);
+    if (index < 0 || Math.abs(dishes[index].x) > visibleHalfWidth) return null;
+    const taken = dishes[index];
+    const placed = { id: nextId, food, x: taken.x, filler: false };
+    nextId += 1;
+    dishes[index] = placed;
+    return { taken: copyDish(taken), placed: copyDish(placed) };
+  }
+
   function nearestPickable(x, window) {
     const target = Number(x);
     const radius = Number(window);
@@ -213,5 +223,5 @@ export function createConveyor(options = {}) {
     };
   }
 
-  return { advance, startRush, take, nearestPickable, predictX, snapshot };
+  return { advance, startRush, take, exchange, nearestPickable, predictX, snapshot };
 }

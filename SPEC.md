@@ -346,15 +346,26 @@ least 1.9 belt units apart, so the effective entry interval is never less than
 main increase in pressure; the smaller speed increase must never turn the belt
 into a twitch game.
 
-**Picking up.** Keyboard interaction, click or tap on a dish, and click-to-walk
-all work, with a forgiving pickup window along the belt front; a click leads the
-moving dish rather than demanding precision. A player carries one dish at a
-time. A wrongly picked dish goes into the **dish return** beside the entry end:
-it is removed and nothing else changes; the stream is unaffected. Wrong pickup
-and wrong delivery are separate mistakes. When the player is standing at the
-belt front without a dish, a pickable dish takes priority over a nearby
-customer's Talk prompt unless a question is already locked or that customer was
-explicitly clicked.
+**Picking up and exchanging (revised 2026-09-19).** Keyboard interaction, click
+or tap on a dish, and click-to-walk all work, with a forgiving pickup window
+along the belt front; a click leads the moving dish rather than demanding
+precision. A player carries one dish at a time. Taking a belt dish while already
+carrying exchanges the two: the selected dish goes into the player's hands and
+the carried dish takes its exact place on the moving belt with a new dish ID.
+The exchange neither changes the dish count or spacing nor advances the entry
+scheduler or shuffled food bag. The returned dish is an ordinary, owner-free
+belt dish that either waiter may take later; picking it up starts its temperature
+at hot because the belt remains order-blind.
+
+A wrongly picked dish may instead go into the **dish return** beside the entry
+end, whose physical `もどす` sign identifies it without suggesting rubbish. A
+return removes the carried dish and nothing else changes; the stream is
+unaffected. Wrong pickup and wrong delivery are separate mistakes. Talk keeps
+its existing lock and explicit-click rules. Otherwise, while carrying, Space
+uses the food-blind priority return tub, then a pickable belt dish for exchange,
+then an eligible delivery; empty-handed belt pickup is unchanged. The chosen
+action never depends on whether the carried food matches a nearby customer's
+unshown order, and one Space press performs only that action.
 
 **Never added:** a food icon over a customer, a line or glow linking dish and
 table, a ticket, a label of the requested food, or automatic delivery. The
@@ -473,7 +484,7 @@ BA-BAM stacked notes land with the punch-in. The rival plants a slightly wide
 stance, leans forward, lowers the head and throws both fists forward-up, with
 two sharp pumps during the first approximately 0.8 seconds before holding the
 pose. It is playful and visibly distinct from both result-stage celebration
-and despair. No shake or field-of-view effect is used. During the following
+and the shared standing dejection. No shake or field-of-view effect is used. During the following
 0.8-second return, the camera eases fully back to the entrance framing and the
 pose blends to rest over about 0.35 seconds. The title stays visible through
 this return, fades over roughly its final 0.25 seconds and is hidden at the end.
@@ -517,9 +528,12 @@ with the MATSUBARA RESTAURANT sign centred above them. The camera eases into
 this composition without a hard cut. The head-to-head score pill enlarges at
 top centre and shows `きみの かち！`, `ウェイターの かち！` or `ひきわけ！` beneath it,
 decided by the competition score only. Procedural poses on the rigid node rig
-make the winner celebrate, the loser react with funny despair or mild
-dejection, and both waiters shrug on a draw. The existing rising, falling or
-two-note result sting plays. The reaction phase lasts 3.6 seconds. Its animation
+make the winner celebrate, either losing waiter uses the same standing dejected
+pose, and both waiters shrug on a draw. The dejected waiter slumps, looks down
+and slowly shakes their head for two cycles before holding still; there is no
+kneeling, leg fold, large root drop or upward fist gesture. The existing rising,
+falling or two-note result sting plays. The reaction phase lasts 3.6 seconds.
+Its animation
 functions continue in real seconds rather than being slowed to fill the longer
 phase: each reaction reaches its strong pose early and holds it. Only after the
 full reaction hold does the label fade, the score shrink upward to its compact
