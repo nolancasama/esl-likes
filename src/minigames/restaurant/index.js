@@ -12,7 +12,15 @@ import {
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { chooseAction } from './actionPriority.js';
-import { RESTAURANT_OWNERS, createCustomerClaimRegistry } from './claims.js';
+import { RESTAURANT_OWNERS, RIVAL_MIN_SEATED_AGE, createCustomerClaimRegistry } from './claims.js';
+import {
+  TABLES,
+  TALK_RADIUS,
+  blocksMovement,
+  chairPositions,
+  canOccupy as roomCanOccupy,
+  resolveMove,
+} from './roomCollision.js';
 import { RIVAL_LEVELS, RIVAL_SPEED, createRestaurantRival } from './rival.js';
 import {
   RUSH_PLAYER_DELIVERIES,
@@ -56,7 +64,7 @@ const LESSON = LESSON_BY_ID.restaurant;
 const STRINGS = UI.restaurant;
 const MOVE_SPEED = 5;
 const AUTO_SPEED = 5.7;
-const CUSTOMER_RADIUS_SQ = 2.7 * 2.7;
+const CUSTOMER_RADIUS_SQ = TALK_RADIUS * TALK_RADIUS;
 const WALL_HALF_WIDTH = 6.85;
 const BELT_CENTER_Z = -6.35;
 const BELT_TOP_Y = 1.1;
@@ -178,14 +186,6 @@ const SETTLE_BEAT_SECONDS = 0.4;
 const RETURN_WALK_SPEED = 6.0;
 const RETURN_WALK_TIMEOUT = 2.0;
 
-const TABLES = Object.freeze([
-  Object.freeze({ x: -4.2, z: -1.0, seatX: -4.2, seatZ: -2.05 }),
-  Object.freeze({ x: 0, z: 1.8, seatX: 0, seatZ: 0.75 }),
-  Object.freeze({ x: 4.2, z: -1.0, seatX: 4.2, seatZ: -2.05 }),
-  Object.freeze({ x: -4.2, z: 3.9, seatX: -4.2, seatZ: 2.85 }),
-  Object.freeze({ x: 4.2, z: 3.9, seatX: 4.2, seatZ: 2.85 }),
-]);
-
 const DIFFICULTY = Object.freeze({
   // Patience drains only once claimed (PATIENCE_SECONDS in customerState.js):
   // one or two held orders comfortable, three needs attention, claiming almost
@@ -250,7 +250,6 @@ export function createRestaurant(ctx) {
   let signAnchor = null;
   let overlay = null;
   let style = null;
-  let instruction = null;
   let actionButton = null;
   let notice = null;
   let temperature = null;
@@ -337,7 +336,6 @@ export function createRestaurant(ctx) {
   let actionType = '';
   let actionCustomer = null;
   let actionDish = null;
-  let instructionText = '';
   let temperatureText = '';
   let listenAgain = null;
   let listenCustomer = null;
@@ -376,6 +374,10 @@ export function createRestaurant(ctx) {
     focusReleasedAgo: Infinity,
     progress: { done: 0 },
   };
+  // Solid geometry handed to roomCollision. Reused every frame rather than
+  // rebuilt, because movement asks it several times per step.
+  const solidBodies = [];
+  const collisionView = { tables: TABLES, blockers: solidBodies };
   const rivalCustomerView = [];
   const rivalView = { customers: rivalCustomerView, focusReleasedAgo: Infinity };
   const rivalWalk = {
@@ -416,25 +418,13 @@ export function createRestaurant(ctx) {
     return part;
   }
 
-  function setInstruction(text) {
-    if (!instruction || instructionText === text) return;
-    instructionText = text;
-    instruction.textContent = text;
-    syncHud();
-  }
-
-  // Cinematic moments keep the upper-left hint out of the picture. The
-  // turnaround close-up keeps its "your turn" hint: the child's role flips there.
-  function hintSuppressed() {
-    return rivalIntroActive()
-      || Boolean(resultStage?.active)
-      || phase === 'round-end' || phase === 'turnaround-approach' || phase === 'finishing'
-      || phase === 'round-transition';
-  }
-
+  // There is no persistent contextual hint panel (DESIGN_DECISIONS 2026-09-20
+  // "one place to look"). Everything it used to say is either named by the
+  // control the child would press — the Space action button or the Talk
+  // button — or already carried by the dialogue bubble, the temporary notice,
+  // the phase pill or the result UI.
   function syncHud() {
-    if (!instruction || !overlay) return;
-    instruction.hidden = !instructionText || hintSuppressed();
+    if (!overlay) return;
     const modal = rivalIntroActive() || rematchChoiceActive;
     overlay.classList.toggle('restaurant-ui--modal', modal);
     // The challenge is answered with buttons, never the microphone: the Talk HUD
@@ -490,15 +480,8 @@ export function createRestaurant(ctx) {
         padding: .38rem .85rem; border: .16rem solid #fff; border-radius: 999px;
         background: #ef8a17; color: #fff; box-shadow: 0 .22rem 0 rgb(35 49 71 / .24);
         font: 900 calc(.92rem * var(--ui-scale, 1)) system-ui, sans-serif; }
-      /* Upper left: the current action hint only, sized to its text. The room
-         name is on the wall sign; shift progress is not shown. */
-      .restaurant-ui__hint { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 12px;
-        box-sizing: border-box; max-width: min(46vw, 22rem); margin: 0; padding: .5rem .9rem;
-        border-radius: 1rem; background: rgb(255 255 255 / 92%); color: #1b2940;
-        box-shadow: 0 6px 18px rgb(28 71 102 / 20%); line-height: 1.35;
-        font: 800 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
       /* Modal states (rival challenge): ordinary controls and notices step aside. */
-      .restaurant-ui--modal .restaurant-ui__hint, .restaurant-ui--modal .restaurant-ui__action,
+      .restaurant-ui--modal .restaurant-ui__action,
       .restaurant-ui--modal .restaurant-ui__notice, .restaurant-ui--modal .restaurant-ui__combo,
       .restaurant-ui--modal .restaurant-ui__temperature, .restaurant-ui--modal .listen-again { display: none; }
       .restaurant-ui__score { position: absolute; left: 50%; top: 1rem; transform: translateX(-50%);
@@ -569,7 +552,6 @@ export function createRestaurant(ctx) {
     overlay = document.createElement('div');
     overlay.className = 'restaurant-ui';
     overlay.innerHTML = `
-      <p class="restaurant-ui__hint" role="status" aria-live="polite" hidden></p>
       <div class="restaurant-ui__notice" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__combo" role="status" aria-live="polite" hidden></div>
       <div class="restaurant-ui__phase" role="status" aria-live="polite" hidden></div>
@@ -583,7 +565,6 @@ export function createRestaurant(ctx) {
       <button class="restaurant-ui__action" type="button" hidden></button>
       <div class="restaurant-ui__temperature" role="status" hidden></div>
     `;
-    instruction = overlay.querySelector('.restaurant-ui__hint');
     actionButton = overlay.querySelector('.restaurant-ui__action');
     notice = overlay.querySelector('.restaurant-ui__notice');
     comboPop = overlay.querySelector('.restaurant-ui__combo');
@@ -607,7 +588,6 @@ export function createRestaurant(ctx) {
     actionButton.addEventListener('click', performAction);
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: listenAgainPressed });
     document.querySelector('#ui-layer').append(overlay);
-    setInstruction(STRINGS.walkToCustomer);
   }
 
   // One panel for every rival exchange (either waiter's challenge, the rematch
@@ -950,11 +930,14 @@ export function createRestaurant(ctx) {
       addPart(world, tableTop, woodMaterial, table.x, 0.95, table.z);
       addPart(world, cylinder, woodMaterial, table.x, 0.48, table.z, 0.38, 0.85, 0.38);
       addPart(world, cylinder, woodMaterial, table.x, 0.08, table.z, 0.75, 0.12, 0.75);
-      addPart(world, box, chairMaterial, table.seatX, 0.47, table.seatZ, 0.9, 0.16, 0.82);
+      // Seats come from roomCollision so the meshes and their collision boxes
+      // are one definition: a chair the child can see is a chair they bump into.
+      const [seat, farSeat] = chairPositions(table);
+      addPart(world, box, chairMaterial, seat.x, 0.47, seat.z, 0.9, 0.16, 0.82);
       // Backrest behind the seated customer, not between them and their table.
-      addPart(world, box, chairMaterial, table.seatX, 1.05, table.seatZ - 0.35, 0.9, 1.05, 0.15);
-      addPart(world, box, chairMaterial, table.x, 0.47, table.z + 1.25, 0.9, 0.16, 0.82);
-      addPart(world, box, chairMaterial, table.x, 1.05, table.z + 1.62, 0.9, 1.05, 0.15);
+      addPart(world, box, chairMaterial, seat.x, 1.05, seat.z - 0.35, 0.9, 1.05, 0.15);
+      addPart(world, box, chairMaterial, farSeat.x, 0.47, farSeat.z, 0.9, 0.16, 0.82);
+      addPart(world, box, chairMaterial, farSeat.x, 1.05, farSeat.z + 0.37, 0.9, 1.05, 0.15);
     }
 
     sharedDish = {
@@ -1337,7 +1320,6 @@ export function createRestaurant(ctx) {
     customer.character.playAnimation?.('emote-yes');
     audio.playSfx('accept');
     showCustomerAnswer(customer);
-    setInstruction(STRINGS.orderTaken);
   }
 
   function targetQuestion(customer) {
@@ -1351,7 +1333,6 @@ export function createRestaurant(ctx) {
       onCancel: () => cancelQuestion(customer),
       onAccepted: () => acceptQuestion(customer),
     });
-    setInstruction(STRINGS.instruction);
   }
 
   // Returns false when the press must not open the microphone: the reservation
@@ -1493,7 +1474,6 @@ export function createRestaurant(ctx) {
     for (const puff of dish.mesh.userData.steam) puff.visible = true;
     audio.playSfx('interact');
     hideAction();
-    setInstruction(STRINGS.walkToDeliver);
   }
 
   function exchangeDish(dishOrId, fallbackToNearest = false) {
@@ -1543,7 +1523,6 @@ export function createRestaurant(ctx) {
     temperatureText = '';
     audio.playSfx('interact');
     hideAction();
-    setInstruction(STRINGS.walkToDeliver);
   }
 
   function returnCarriedDish() {
@@ -1592,7 +1571,6 @@ export function createRestaurant(ctx) {
       dialogueCustomer = customer;
       dialogueRemaining = 1.8;
       dialogue.show({ text: STRINGS.wrongDish, anchor: customer.character, offsetY: 1.65, speak: false });
-      setInstruction(STRINGS.thinkAgain);
       return;
     }
 
@@ -1691,14 +1669,28 @@ export function createRestaurant(ctx) {
     else if (type === 'return') returnCarriedDish();
   }
 
-  function canOccupy(x, z) {
-    if (x < -6.25 || x > 6.25 || z < -4.45 || z > 6.65) return false;
-    for (const table of TABLES) {
-      const dx = x - table.x;
-      const dz = z - table.z;
-      if (dx * dx + dz * dz < 1.12 * 1.12) return false;
+  // Rebuilt each frame from the customers that are actually settled, so a
+  // diner stops blocking the floor the moment they stand up to leave.
+  function collisionWorld() {
+    solidBodies.length = 0;
+    for (const customer of customers) {
+      if (!blocksMovement(customer.state) || !customer.character.visible) continue;
+      solidBodies.push(customer.character.position);
     }
-    return true;
+    return collisionView;
+  }
+
+  function canOccupy(x, z) {
+    return roomCanOccupy(x, z, collisionWorld());
+  }
+
+  /** Move a body one step, obeying the room. Shared by walking and auto-walk. */
+  function stepPlayer(nextX, nextZ) {
+    const moved = resolveMove(
+      player.position.x, player.position.z, nextX, nextZ, collisionWorld(),
+    );
+    player.position.x = moved.x;
+    player.position.z = moved.z;
   }
 
   function isSeated(state) {
@@ -1707,13 +1699,6 @@ export function createRestaurant(ctx) {
 
   function canBeReminded(state) {
     return state === 'awaiting';
-  }
-
-  function hasCustomerInState(state) {
-    for (const customer of customers) {
-      if (customer.state === state) return true;
-    }
-    return false;
   }
 
   function updateDirectorView() {
@@ -1785,7 +1770,6 @@ export function createRestaurant(ctx) {
       ...(roundSettings(progression?.round)?.rival ?? {}),
       registry: claimRegistry,
       conveyor,
-      total: Math.max(1, shiftTotal - claimRegistry.progress.done),
       initialPosition: rivalCharacter
         ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
         : RIVAL_ENTRANCE_END,
@@ -1793,6 +1777,16 @@ export function createRestaurant(ctx) {
       pickupWindow: BELT_PICKUP_WINDOW,
       rng: Math.random,
     });
+  }
+
+  /** Seated customers the rival is allowed to claim at this instant (debug). */
+  function eligibleUnclaimedCount() {
+    if (!claimRegistry) return 0;
+    const minSeatedAge = currentRivalConfig()?.minSeatedAge ?? RIVAL_MIN_SEATED_AGE;
+    return claimRegistry.listCustomers().filter((customer) => customer.owner === null
+      && customer.reservedBy === null
+      && customer.seated
+      && customer.seatedAge >= minSeatedAge).length;
   }
 
   // The tuning the current rival model was built with (debug and tests).
@@ -1804,7 +1798,6 @@ export function createRestaurant(ctx) {
     return {
       speed: config.speed,
       minSeatedAge: config.minSeatedAge,
-      share: config.share,
       hesitationMin: config.hesitationMin,
       hesitationMax: config.hesitationMax,
       dishNoticeSeconds: config.dishNoticeSeconds,
@@ -2375,8 +2368,7 @@ export function createRestaurant(ctx) {
       clickQuestionCustomer = null;
       const nextX = player.position.x + move.x * MOVE_SPEED * dt;
       const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
-      if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
-      if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+      stepPlayer(nextX, nextZ);
       const wantedRotation = Math.atan2(move.x, -move.y);
       const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
       player.rotation.y += turn * (1 - Math.exp(-12 * dt));
@@ -2417,8 +2409,7 @@ export function createRestaurant(ctx) {
     const aimDistance = Math.hypot(aimX, aimZ) || 1;
     const nextX = player.position.x + aimX / aimDistance * step;
     const nextZ = player.position.z + aimZ / aimDistance * step;
-    if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
-    if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+    stepPlayer(nextX, nextZ);
     const wantedRotation = Math.atan2(aimX, aimZ);
     const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
     player.rotation.y += turn * (1 - Math.exp(-12 * dt));
@@ -2613,23 +2604,15 @@ export function createRestaurant(ctx) {
     if (chosenAction === 'talk') {
       hideAction();
     } else if (chosenAction === 'return') {
-      setInstruction(STRINGS.returnDish);
       showAction(STRINGS.returnDish, 'return');
     } else if (chosenAction === 'exchange') {
-      setInstruction(STRINGS.exchangeDish);
       showAction(STRINGS.exchangeDish, 'exchange', beltDish);
     } else if (chosenAction === 'deliver') {
-      setInstruction(STRINGS.walkToDeliver);
       showAction(STRINGS.deliverDish, 'deliver', deliverTarget);
     } else if (chosenAction === 'collect') {
-      setInstruction(STRINGS.walkToConveyor);
       showAction(STRINGS.collectDish, 'collect', beltDish);
     } else {
       hideAction();
-      if (lockedQuestion) return;
-      if (carried) setInstruction(STRINGS.walkToDeliver);
-      else if (hasCustomerInState('seated')) setInstruction(STRINGS.walkToCustomer);
-      else setInstruction(STRINGS.watchConveyor);
     }
   }
 
@@ -2788,8 +2771,9 @@ export function createRestaurant(ctx) {
       },
       // What the child can see. Shift progress is data only (`progress`), never shown.
       hud: {
-        hintVisible: Boolean(instruction && !instruction.hidden),
-        hintText: instructionText,
+        // The contextual hint panel is gone; the bottom controls speak for it.
+        hintVisible: false,
+        hintText: null,
         modal: Boolean(overlay?.classList.contains('restaurant-ui--modal')),
         talkVisible: Boolean(!hud.element.hidden && !hud.talkButton.hidden),
         talkEnabled: Boolean(!hud.element.hidden && !hud.talkButton.hidden && !hud.talkButton.disabled),
@@ -2927,8 +2911,11 @@ export function createRestaurant(ctx) {
       } : null,
       rival: rival ? {
         state: rival.state,
+        // Lifetime count only. Nothing stops the rival once it reaches a total.
         claims: rival.claims,
-        claimLimit: rival.claimLimit,
+        // Customers it could walk to right now, so an idle rival can be told
+        // apart from one that simply has nobody old enough to claim.
+        eligibleUnclaimed: eligibleUnclaimedCount(),
         targetCustomer: rival.targetCustomer,
         targetDishId: rival.targetDishId,
         carriedDish: rival.carriedDish,
@@ -3194,7 +3181,6 @@ export function createRestaurant(ctx) {
     endFocus();
     speech.clearTarget();
     hud.setTalkState('accepted');
-    setInstruction(STRINGS.complete);
     playPartnerAnimation('emote-yes');
     if (finishingResultStage) player.playAnimation?.('emote-yes');
     audio.playSfx('stamp');
@@ -3215,7 +3201,6 @@ export function createRestaurant(ctx) {
     partner.rotation.y = 0;
     playPartnerAnimation('idle');
     dialogue.show({ text: LESSON.question, anchor: partner, offsetY: 1.8 });
-    setInstruction(STRINGS.turnaround);
     cameraRig
       .setTarget(partner)
       .setPreset('closeup', { offset: [0, 2.8, 4.2], lookOffset: [0, 0.72, 0], damping: 5.5 });
@@ -3244,7 +3229,6 @@ export function createRestaurant(ctx) {
     hideAction();
     setListenTarget(null);
     hud.hide();
-    setInstruction(STRINGS.roundEnd);
     if (dialogueCustomer) dialogueRemaining = Math.min(dialogueRemaining, 1.1);
     // Only a shift that had a rival gets the result moment (never Easy, never a
     // shift that ended before the rush).
@@ -3480,7 +3464,6 @@ export function createRestaurant(ctx) {
     rivalCharacter.position.y = 0;
     playPartnerAnimation('idle');
     dialogue.show({ text: LESSON.question, anchor: rivalCharacter, offsetY: 1.8 });
-    setInstruction(STRINGS.turnaround);
     cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(RESULT_QUESTION_CAMERA));
     beginFocus('restaurant-turnaround');
     promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
@@ -3647,7 +3630,6 @@ export function createRestaurant(ctx) {
       player.playAnimation?.('idle', { fade: 0 });
     }
     cameraRig.setTarget(player).setPreset('fixed', ROOM_CAMERA);
-    setInstruction(STRINGS.walkToCustomer);
     // Belt dishes were hidden for the stage; show them where they are.
     updateConveyor(0);
   }
@@ -4011,7 +3993,6 @@ export function createRestaurant(ctx) {
     actionType = '';
     actionCustomer = null;
     actionDish = null;
-    instructionText = '';
     temperatureText = '';
     listenCustomer = null;
     acceptedAnswer = null;
@@ -4245,7 +4226,6 @@ export function createRestaurant(ctx) {
     style?.remove();
     overlay = null;
     style = null;
-    instruction = null;
     actionButton = null;
     notice = null;
     temperature = null;

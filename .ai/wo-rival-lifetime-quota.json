@@ -1,0 +1,54 @@
+{
+  "task": "Restaurant rival: remove the obsolete lifetime customer quota so the rival keeps taking orders all round",
+  "notes": "Verified bug: rival.js derives `claimLimit = Math.max(1, Math.round(customerTotal * share))` and `canClaimMore()` requires `claims < claimLimit`. The Restaurant is fixed at RESTAURANT_LEVEL 2 (DIFFICULTY[2].total = 9). index.js builds the rival with `total: Math.max(1, shiftTotal - claimRegistry.progress.done)`, which is ~6 in Round 1 (the rival activates after the player's 3rd delivery) and competitiveRoundTotal(9) = 6 in Rounds 2 and 3. With RIVAL_LEVELS[2].share = 0.35 that is Math.round(6 * 0.35) = 2 in EVERY round. So the rival stops working after two customers, and Waiter 3's defining two-order memory (ROUND_THREE.rival.maxActiveOrders = 2) is capped at two claims for the whole battle. The active-order machinery (orders[], pending, taking, focus, maxActiveOrders) is already correct and must be preserved exactly as it is.",
+  "requirements": [
+    "canClaimMore() depends ONLY on current workload: `orders.length + (pending ? 1 : 0) < maxActiveOrders`. Historical completed claims must never prevent a future claim.",
+    "There is no maximum total number of customers the rival may serve in a round.",
+    "Delete `share` from RIVAL_LEVELS[2] and RIVAL_LEVELS[3], from the createRestaurantRival options and settings merge, and from currentRivalConfig() in index.js (around line 1807). No dead compatibility field is left behind.",
+    "Delete claimLimit entirely: the local const, the `get claimLimit()` accessor on the returned model, and the `claimLimit: rival.claimLimit` field in the index.js debug snapshot (around line 2931). Do not expose a misleading claimLimit after removal.",
+    "The `total` option becomes unused by the claim rule. Remove it from createRestaurantRival and from the `total:` argument in index.js activateRivalModel(), unless something else in the model genuinely needs it — if so, say which in the summary.",
+    "Keep the accumulated `claims` counter and its `get claims()` accessor as debug/statistical information only.",
+    "The index.js debug snapshot must still clearly expose `state`, `activeOrderCount`, `maxActiveOrders` and `claims`.",
+    "Every existing safeguard is preserved unchanged: the rival still physically walks to a customer before claiming (state walkingToCustomer), respects minSeatedAge, respects player reservations and player ownership via registry.longestWaitingUnclaimed / registry.claimRival, respects maxActiveOrders, carries at most one physical dish, physically intercepts dishes from the conveyor (solveInterception), physically delivers, obeys the speech-focus post-focus hold (isPostFocusHold), and uses the existing hesitation and dishNoticeSeconds timing.",
+    "The rival must NOT instantly claim every open customer: the existing choosing/hesitation path and minSeatedAge gate stay exactly as they are.",
+    "Intentional idle periods remain: no eligible customer old enough, player reservation, active-order capacity full, hesitation, dish-notice delay, waiting for matching food, speech-focus pause, round/result transition.",
+    "Update the createRestaurantRival JSDoc block: the `total` line and the `share` line are removed, and the options list matches the real signature.",
+    "Add a deterministic regression test proving Waiter 3 (maxActiveOrders 2): claims A, claims B, serves A, STILL REMEMBERS B (assert activeOrders still contains B), claims C after the slot opens, then continues enough cycles to serve more than two customers total - while never exceeding 2 simultaneous active orders at any point.",
+    "Add deterministic regression tests proving a single-order rival (maxActiveOrders 1) can claim A, serve A, claim B, serve B, claim C - i.e. more than two customers in one round - without going permanently idle. Cover this for the Waiter 1 tuning (RIVAL_LEVELS[2]) and the Waiter 2 tuning (ROUND_TWO.rival).",
+    "Add a test asserting the rival still never claims a player-owned or player-reserved customer once the lifetime cap is gone.",
+    "Update the existing tests that assert the removed behaviour: rival.test.mjs 'Challenge claim limit follows its share...' (line ~239), 'Normal is enabled with a claim limit based on its configured share' (line ~274), the TWO_ORDERS fixture (line ~360), the claimLimit assertion at line ~555, and rivalProgression.test.mjs lines ~183-185 which assert Round 2 and Round 3 do not override `share`. Rewrite them to assert the new rule rather than deleting the coverage they carried.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording that the rival's lifetime claim share was removed in favour of an active-workload limit, why (it capped every round at 2 customers and hid Waiter 3's two-order memory), and the rejected alternative (raising `share` to ~1.0, which leaves a dead knob and still caps the round)."
+  ],
+  "constraints": [
+    "Do not change maxActiveOrders values: Waiter 1 and Waiter 2 stay at 1, Waiter 3 stays at 2 (ROUND_THREE.rival.maxActiveOrders).",
+    "Do not change rival speed, minSeatedAge, hesitation, or dishNoticeSeconds tuning in RIVAL_LEVELS, ROUND_TWO or ROUND_THREE.",
+    "Do not touch collision, movement, the upper-left hint, or any talk/speech UI - those are separate work orders.",
+    "Do not touch the conveyor, director, scoring, beltTempo or rivalChallenge modules.",
+    "rival.js must stay a pure model with no scene or DOM dependency.",
+    "Preserve the current three-waiter progression, Round 3 fast-belt system, ramen vocabulary, continuous transitions and speech behaviour.",
+    "Do not commit or push.",
+    "Edit source with structured file-edit tools. If a shell-based edit hits any quoting or escaping failure, stop using the shell for that change and use a file-edit tool.",
+    "Do not add a facing requirement, dwell timer, auto-listen, or automatic microphone activation anywhere."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/rivalProgression.js",
+    "src/minigames/restaurant/rivalProgression.test.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "required": true,
+    "owner": "controller",
+    "commands": ["npm run playthrough:restaurant"]
+  },
+  "category": "game-logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "none",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

@@ -180,9 +180,12 @@ test('Round 3 gives the rival two orders without making it faster or greedier', 
   assert.equal(three.dishNoticeSeconds, two.dishNoticeSeconds);
   assert.equal(three.minSeatedAge, two.minSeatedAge);
   assert.equal(ROUND_THREE.beltTempo, true);
-  // Ownership is never rigged: no round overrides the baseline customer share.
-  assert.equal(two.share, undefined, 'Round 2 must not override the share');
-  assert.equal(three.share, undefined, 'Round 3 must not override the share');
+  // Ownership is never rigged. The obsolete lifetime claim quota is gone, and
+  // no round may quietly reintroduce one: how many orders the rival can hold
+  // at once is the only lever, and only Round 3 moves it.
+  assert.equal(two.share, undefined, 'no round may reintroduce a claim quota');
+  assert.equal(three.share, undefined, 'no round may reintroduce a claim quota');
+  assert.equal(two.maxActiveOrders, undefined, 'Round 2 keeps the default single order');
 });
 
 test('Rounds 1 and 2 share the baseline patience; only Round 3 shortens it', () => {

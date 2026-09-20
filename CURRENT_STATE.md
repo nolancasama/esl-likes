@@ -1,6 +1,53 @@
 # Current State
 
-## Latest pass (2026-09-21)
+## Latest pass (2026-09-20) — rival quota, solid room, hint removed
+
+**PUSHED LIVE 2026-09-20** at the owner's request, after the whole pass was
+tested. On top of `568bec1`. Verified before the push: `npm test` **391/391**,
+`npm run build` OK, permanent Restaurant playthrough **73/73**, plus a
+known-bad run of each new instrument. Claude viewed the room: the upper-left is
+clear and the bottom bar carries the Talk action (🎤 おして はなそう + `Space`).
+
+- **Rival lifetime quota removed.** `canClaimMore()` is now
+  `orders.length + (pending ? 1 : 0) < maxActiveOrders` — capacity, not history.
+  The old `claims < round(total * share)` resolved to **2 in every round**, so
+  the rival went idle after two customers and Waiter 3's two-order memory was
+  invisible. `share`, `claimLimit` and the unused `total` option are deleted
+  from `RIVAL_LEVELS`, `createRestaurantRival`, `currentRivalConfig()` and the
+  debug snapshot. `claims` stays as statistics; `rival.eligibleUnclaimed` is new.
+- **New pure `roomCollision.js` (+18 tests).** Owns `TABLES`, `TALK_RADIUS`,
+  `ROOM_BOUNDS`, `blocksMovement`, `canOccupy`, `resolveMove` and
+  `chairPositions` — which `index.js` now builds the chair meshes from, so mesh
+  and collision box cannot drift. Chairs 0.57 × 0.53, seated bodies r 0.50
+  (visible size + the 0.12 body padding the table always had). Only `seated` /
+  `awaiting` / `eating` are solid; walking-in and leaving customers stay soft.
+  Keyboard and click-to-walk share `resolveMove`, which lets a body already
+  inside an obstacle walk out (a customer can sit down on the player).
+- **The upper-left contextual hint is deleted** — element, CSS, `setInstruction`
+  and all 15 call sites. It duplicated the button beneath it; the Space action
+  button and the Talk button carry it. The owner ruled out replacing it with a
+  bottom line. Three moments lost their text line (turnaround, round end,
+  stamp) and rely on their existing cues — judge the turnaround in play.
+- **Two new permanent playthrough checks** (73/73): the Round 3 rival serves
+  more than the old two-customer quota, and keeps seeking work afterwards.
+  Known-bad (quota reinstated) fails exactly those two with `rival served 2,
+  claimed 2`, so they are trusted.
+
+### NEXT STEPS for a fresh session
+
+1. **Round 1 is now strictly harder.** Waiter 1 could only ever take two
+   customers a shift; it now works continuously, throttled only by
+   `minSeatedAge` 7 and 0.8–1.5 s hesitation. This stacks on the removal of
+   Easy. Watch it against a real child before tuning.
+2. **Judge the turnaround** without 「こんどは きみの ばん！」: does the close-up
+   plus the partner's question bubble read as "your turn"? If not, it belongs in
+   the temporary notice, not a restored panel.
+3. Rival steering was left alone (see DESIGN_DECISIONS); watch whether it ever
+   visibly clips a chair corner now that chairs are solid for the player.
+4. Re-run the other four minigames' playthroughs — untouched this pass, but
+   still not re-run since the earlier `lesson.js` / `main.js` edits.
+
+## Previous pass (2026-09-21)
 
 **Restaurant: one fixed difficulty, three waiters, ramen, fast belt bursts.
 PUSHED LIVE 2026-09-21** at the owner's request, after testing. Verified before
@@ -53,7 +100,10 @@ human playtest of the new curve.
 
 All five minigames are playable end to end and published at
 <https://nolancasama.github.io/esl-likes/>, deployed from `main` by
-`.github/workflows/pages.yml` (unit tests gate the deploy). Live = Restaurant
+`.github/workflows/pages.yml` (unit tests gate the deploy). **Live = the
+2026-09-20 pass at the top of this file** (rival works the whole round, solid
+chairs and seated customers, no upper-left hint), on top of the 2026-09-21
+three-waiter/ramen pass and, before that, Restaurant
 2026-09-17 passes (まってる… bubbles, patience strip, rival intro, 0–0 score,
 sign/conveyor, result moment, rival/customer turnaround partner; pushed
 2026-09-17 at the owner's request, `npm test` 255/255 + build, Challenge not run,

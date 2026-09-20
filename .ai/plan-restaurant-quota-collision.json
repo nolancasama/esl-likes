@@ -1,0 +1,57 @@
+{
+  "id": "restaurant-quota-collision-cue",
+  "task": "Restaurant pass: remove the obsolete rival lifetime claim quota, add chair and seated-customer collision, remove the upper-left contextual hint and add a customer-local talk cue",
+  "slices": [
+    {
+      "id": "design",
+      "task": "Decide the canClaimMore rule, the collision module contract, and the talk-cue trigger condition",
+      "keep": true
+    },
+    {
+      "id": "rival-quota",
+      "task": "Remove share/claimLimit from the rival model so canClaimMore depends only on active workload; add regression tests for Waiter 1/2 and Waiter 3",
+      "dependsOn": ["design"],
+      "volume": 12,
+      "bounded": true,
+      "exploration": "none",
+      "complexity": "medium",
+      "risk": "medium",
+      "startingPoints": [
+        "src/minigames/restaurant/rival.js",
+        "src/minigames/restaurant/rival.test.mjs",
+        "src/minigames/restaurant/index.js",
+        "src/minigames/restaurant/rivalProgression.test.mjs"
+      ],
+      "validation": ["npm test"]
+    },
+    {
+      "id": "collision",
+      "task": "Extract a pure roomCollision module (tables, chairs, seated customers), wire it into canOccupy and the rival/player steering, with unit tests",
+      "dependsOn": ["design"],
+      "volume": 20,
+      "bounded": true,
+      "exploration": "local",
+      "complexity": "medium",
+      "risk": "medium",
+      "startingPoints": [
+        "src/minigames/restaurant/index.js"
+      ],
+      "validation": ["npm test", "npm run build"]
+    },
+    {
+      "id": "talk-cue",
+      "task": "Remove the upper-left contextual hint during normal gameplay and add a customer-local talk cue",
+      "dependsOn": ["design", "collision"],
+      "volume": 10,
+      "bounded": true,
+      "exploration": "local",
+      "complexity": "medium",
+      "risk": "low",
+      "startingPoints": [
+        "src/minigames/restaurant/index.js",
+        "src/config/lesson.js"
+      ],
+      "validation": ["npm test", "npm run build"]
+    }
+  ]
+}

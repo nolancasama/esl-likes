@@ -236,7 +236,7 @@ test('zero and invalid service dt fully freeze the model and belt access', () =>
   assert.equal(conveyor.takeCalls, 0);
 });
 
-test('Challenge claim limit follows its share and the rival keeps claiming past three', () => {
+test('the rival works a whole room: no lifetime quota caps how many it serves', () => {
   const customers = [80, 81, 82, 83, 84, 85, 86].map((id) => makeCustomer(id, 'pizza'));
   const dishes = Array.from({ length: 8 }, (_, index) => ({
     id: 800 + index, food: 'pizza', x: index - 2,
@@ -244,12 +244,9 @@ test('Challenge claim limit follows its share and the rival keeps claiming past 
   const setup = setupRival({
     customers,
     conveyor: makeConveyor({ dishes }),
-    options: { total: 13 },
   });
   const events = runFrames(setup, 1400, 0.1);
 
-  assert.equal(RIVAL_LEVELS[3].share, 0.5);
-  assert.equal(setup.rival.claimLimit, 7);
   assert.equal(events.filter((event) => event.type === 'claimCustomer').length, 7);
   assert.equal(events.filter((event) => event.type === 'servedCustomer').length, 7);
   assert.equal(setup.rival.claims, 7);
@@ -271,21 +268,26 @@ test('level 1 and unknown levels default to inert', () => {
   }
 });
 
-test('Normal is enabled with a claim limit based on its configured share', () => {
+test('the Waiter 1 baseline is enabled and carries no lifetime claim quota', () => {
   const registry = createCustomerClaimRegistry();
-  const rival = createRestaurantRival({ level: 2, total: 9, registry, rng: () => 0 });
+  const rival = createRestaurantRival({ level: 2, registry, rng: () => 0 });
 
   assert.equal(rival.enabled, true);
   assert.deepEqual(RIVAL_LEVELS[2], {
     enabled: true,
     speed: 3.6,
     minSeatedAge: 7,
-    share: 0.35,
     hesitationMin: 0.8,
     hesitationMax: 1.5,
     dishNoticeSeconds: 1,
   });
-  assert.equal(rival.claimLimit, 3);
+  // The obsolete round-long quota is gone from the model's whole surface.
+  assert.equal('share' in RIVAL_LEVELS[2], false);
+  assert.equal('share' in RIVAL_LEVELS[3], false);
+  assert.equal('claimLimit' in rival, false);
+  // Workload is the only limit, and it starts empty.
+  assert.equal(rival.maxActiveOrders, 1);
+  assert.equal(rival.activeOrderCount, 0);
 });
 
 test('dish notice time comes from the level unless explicitly overridden', () => {
@@ -357,7 +359,7 @@ test('rival respects its configured minimum seated age', () => {
 // is why every test above still describes the Round 1 and Round 2 rival.
 // ---------------------------------------------------------------------------
 
-const TWO_ORDERS = { maxActiveOrders: 2, total: 12, share: 0.5 };
+const TWO_ORDERS = { maxActiveOrders: 2 };
 
 test('the default rival holds exactly one order, so Rounds 1 and 2 are unchanged', () => {
   const setup = setupRival({ customers: [makeCustomer(1), makeCustomer(2, 'pizza', 2)] });
@@ -548,13 +550,24 @@ test('a two-order rival respects a player reservation in progress', () => {
   );
 });
 
-test('two orders do not raise the shift claim limit', () => {
+test('two orders raise what the rival juggles, never what it may claim in total', () => {
   const customers = [];
   for (let id = 1; id <= 12; id += 1) customers.push(makeCustomer(id, 'curry', id * 0.5));
-  const setup = setupRival({ customers, options: { maxActiveOrders: 2, total: 12, share: 0.25 } });
-  assert.equal(setup.rival.claimLimit, 3);
-  runFrames(setup, 1500);
-  assert.ok(setup.rival.claims <= 3, `claimed ${setup.rival.claims}, over the limit`);
+  const setup = setupRival({ customers, options: TWO_ORDERS });
+  let peak = 0;
+  for (let frame = 0; frame < 1500; frame += 1) {
+    // A dish every 5 s, so orders can actually complete and free their slot.
+    if (frame % 50 === 0) setup.conveyor.add({ id: 700 + frame, food: 'curry', x: 0 });
+    advance(setup.rival, setup.view, setup.conveyor, 0.1);
+    peak = Math.max(peak, setup.rival.activeOrderCount);
+  }
+  // A busy belt keeps it chasing dishes rather than banking a second order, so
+  // the peak here is whatever the traffic allowed — the cap is what matters.
+  assert.ok(peak <= 2, `held ${peak} orders at once, over maxActiveOrders`);
+  assert.ok(
+    setup.rival.claims > 2,
+    `claimed ${setup.rival.claims}: the lifetime quota is still capping the round`,
+  );
 });
 
 test('losing one claimed customer does not forget the other order', () => {
@@ -590,4 +603,124 @@ test('a stopped belt is when the rival goes and takes the second order', () => {
     events.some((event) => event.type === 'claimCustomer' && event.customer === 2),
     'the rival stood frozen instead of using the downtime',
   );
+});
+
+// ---------------------------------------------------------------------------
+// No lifetime claim quota (DESIGN_DECISIONS 2026-09-20 "rival workload, not
+// quota"). The old rule was `claims < round(total * share)`, which with the
+// fixed Restaurant baseline resolved to 2 in every round: the rival served two
+// customers and then stood idle for the rest of the battle. What limits it now
+// is how many orders it is holding, so a finished order always frees a slot.
+// ---------------------------------------------------------------------------
+
+/** A room of same-food customers and a belt that keeps feeding it. */
+function busyRoom(count, options = {}) {
+  const customers = [];
+  for (let id = 1; id <= count; id += 1) customers.push(makeCustomer(id, 'curry', id * 0.4));
+  const dishes = Array.from({ length: count + 2 }, (_, index) => ({
+    id: 900 + index, food: 'curry', x: (index % 5) - 2,
+  }));
+  return setupRival({ customers, conveyor: makeConveyor({ dishes }), options });
+}
+
+for (const [name, tuning] of [
+  ['Waiter 1', { level: 2 }],
+  ['Waiter 2', { level: 2, speed: 4.2, minSeatedAge: 5, hesitationMin: 0.4, hesitationMax: 0.8, dishNoticeSeconds: 0.6 }],
+]) {
+  test(`${name} serves A, B, then claims C: history never idles a one-order rival`, () => {
+    const setup = busyRoom(4, tuning);
+    const served = [];
+    const claimed = [];
+    for (let frame = 0; frame < 2000; frame += 1) {
+      for (const event of advance(setup.rival, setup.view, setup.conveyor, 0.1)) {
+        if (event.type === 'servedCustomer') served.push(event.customer);
+        if (event.type === 'claimCustomer') claimed.push(event.customer);
+      }
+      // One order at a time, the whole way through.
+      assert.ok(setup.rival.activeOrderCount <= 1,
+        `${name} held ${setup.rival.activeOrderCount} orders at once`);
+    }
+    assert.ok(served.length >= 3,
+      `${name} served only ${served.length} customers: ${served.join(', ')}`);
+    // claim A -> serve A -> claim B -> serve B -> claim C, strictly interleaved.
+    assert.deepEqual(claimed.slice(0, 3), [1, 2, 3]);
+    assert.deepEqual(served.slice(0, 2), [1, 2]);
+    assert.equal(setup.rival.claims, claimed.length);
+  });
+}
+
+test('Waiter 3 keeps the order it did not serve and claims a third when the slot opens', () => {
+  // The belt starts empty on purpose: a rival with a dish to chase never
+  // reaches the lull where it claims, so a permanently full belt would hide
+  // the very behaviour under test.
+  const customers = [1, 2, 3, 4, 5].map((id) => makeCustomer(id, 'curry', id * 0.4));
+  const setup = setupRival({ customers, options: { maxActiveOrders: 2 } });
+  const claimed = [];
+  const served = [];
+  let heldAfterFirstServe = null;
+  let peak = 0;
+
+  function step(frames) {
+    for (let frame = 0; frame < frames; frame += 1) {
+      for (const event of advance(setup.rival, setup.view, setup.conveyor, 0.1)) {
+        if (event.type === 'claimCustomer') claimed.push(event.customer);
+        if (event.type === 'servedCustomer') {
+          served.push(event.customer);
+          // The instant the first order is served, the other must survive it.
+          if (served.length === 1) {
+            heldAfterFirstServe = setup.rival.activeOrders.map((order) => order.customer);
+          }
+        }
+      }
+      peak = Math.max(peak, setup.rival.activeOrderCount);
+      assert.ok(setup.rival.activeOrderCount <= 2,
+        `Waiter 3 held ${setup.rival.activeOrderCount} orders at once`);
+    }
+  }
+
+  // 1. claims A, 2. claims B — then stops, because two is its capacity.
+  step(200);
+  assert.deepEqual(claimed, [1, 2], 'Waiter 3 did not fill both order slots');
+  assert.equal(setup.rival.activeOrderCount, 2);
+
+  // 3. one dish arrives and it serves A.
+  setup.conveyor.add({ id: 900, food: 'curry', x: 0 });
+  step(200);
+  assert.deepEqual(served, [1]);
+  // 4. B survived A being served.
+  assert.deepEqual(heldAfterFirstServe, [2], 'serving A wiped the memory of B');
+  // 5. the freed slot goes to C, on a third claim the old quota forbade.
+  assert.deepEqual(claimed, [1, 2, 3]);
+  assert.deepEqual(setup.rival.activeOrders.map((order) => order.customer), [2, 3]);
+
+  // And it keeps going: past two served, still never past two at once.
+  for (let index = 0; index < 4; index += 1) {
+    setup.conveyor.add({ id: 910 + index, food: 'curry', x: 0 });
+    step(200);
+  }
+  assert.ok(served.length > 2, `Waiter 3 stalled after serving ${served.length}`);
+  assert.ok(claimed.length > 2, `Waiter 3 stalled after ${claimed.length} claims`);
+  assert.equal(peak, 2, 'Waiter 3 must reach, and never exceed, two live orders');
+});
+
+test('the lifted quota still never takes a player-owned or reserved customer', () => {
+  const customers = [makeCustomer(1, 'curry', 0), makeCustomer(2, 'curry', 2), makeCustomer(3, 'curry', 4)];
+  const dishes = Array.from({ length: 6 }, (_, index) => ({
+    id: 950 + index, food: 'curry', x: (index % 4) - 2,
+  }));
+  const setup = setupRival({ customers, conveyor: makeConveyor({ dishes }) });
+  // Order matters: commitPlayer is refused while a reservation on someone else
+  // is open, so take ownership of 3 first and then reserve 2.
+  assert.equal(setup.registry.commitPlayer(3), true);
+  assert.equal(setup.registry.reservePlayer(2), true);
+
+  const claimed = [];
+  for (let frame = 0; frame < 2000; frame += 1) {
+    for (const event of advance(setup.rival, setup.view, setup.conveyor, 0.1)) {
+      if (event.type === 'claimCustomer') claimed.push(event.customer);
+    }
+  }
+  assert.ok(claimed.length > 0, 'the rival never got going at all');
+  assert.equal(claimed.includes(2), false, 'claimed the customer the player reserved');
+  assert.equal(claimed.includes(3), false, 'claimed a player-owned customer');
 });

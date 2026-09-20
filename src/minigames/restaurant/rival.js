@@ -11,7 +11,6 @@ export const RIVAL_LEVELS = Object.freeze({
     enabled: true,
     speed: 3.6,
     minSeatedAge: 7,
-    share: 0.35,
     hesitationMin: 0.8,
     hesitationMax: 1.5,
     dishNoticeSeconds: 1.0,
@@ -20,7 +19,6 @@ export const RIVAL_LEVELS = Object.freeze({
     enabled: true,
     speed: 4.4,
     minSeatedAge: 3.5,
-    share: 0.5,
     hesitationMin: 0.3,
     hesitationMax: 0.8,
     dishNoticeSeconds: 0.6,
@@ -159,9 +157,10 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay, sp
  *
  * Options:
  * - `level` (default 3): level 1 and unknown levels return an inert model.
- * - `total` (default 11): shift customer count used to calculate claim share.
- * - `speed`, `minSeatedAge`, `share`, `hesitationMin`, `hesitationMax`, and
- *   `enabled`: optional overrides for the selected level settings.
+ * - `speed`, `minSeatedAge`, `hesitationMin`, `hesitationMax`, `enabled`, and
+ *   `maxActiveOrders`: optional overrides for the selected level settings.
+ *   There is no lifetime claim quota: the rival keeps taking customers for as
+ *   long as the round lasts, limited only by `maxActiveOrders`.
  * - `registry`: claim registry, advanced once per positive `advance` call.
  * - `conveyor`: shared belt exposing `take`, `snapshot`, and `predictX`.
  *   The option takes precedence over `view.conveyor`; otherwise the view belt
@@ -177,10 +176,8 @@ function solveInterception(conveyor, dish, snapshot, from, beltFrontZ, delay, sp
  */
 export function createRestaurantRival({
   level = 3,
-  total = 11,
   speed: speedOverride,
   minSeatedAge: minSeatedAgeOverride,
-  share: shareOverride,
   hesitationMin: hesitationMinOverride,
   hesitationMax: hesitationMaxOverride,
   enabled: enabledOverride,
@@ -207,7 +204,6 @@ export function createRestaurantRival({
     ...(levelConfig ?? { enabled: false }),
     ...(speedOverride === undefined ? {} : { speed: speedOverride }),
     ...(minSeatedAgeOverride === undefined ? {} : { minSeatedAge: minSeatedAgeOverride }),
-    ...(shareOverride === undefined ? {} : { share: shareOverride }),
     ...(hesitationMinOverride === undefined ? {} : { hesitationMin: hesitationMinOverride }),
     ...(hesitationMaxOverride === undefined ? {} : { hesitationMax: hesitationMaxOverride }),
     ...(enabledOverride === undefined ? {} : { enabled: enabledOverride }),
@@ -218,7 +214,6 @@ export function createRestaurantRival({
   const minSeatedAge = nonNegativeOption(
     settings.minSeatedAge, levelConfig?.minSeatedAge ?? RIVAL_MIN_SEATED_AGE,
   );
-  const share = nonNegativeOption(settings.share, levelConfig?.share ?? 0);
   const hesitationMin = nonNegativeOption(
     settings.hesitationMin, levelConfig?.hesitationMin ?? 0,
   );
@@ -226,8 +221,6 @@ export function createRestaurantRival({
     hesitationMin,
     nonNegativeOption(settings.hesitationMax, levelConfig?.hesitationMax ?? hesitationMin),
   );
-  const customerTotal = nonNegativeOption(total, 11);
-  const claimLimit = Math.max(1, Math.round(customerTotal * share));
   const start = copyPosition(initialPosition, { x: 0, z: 0 });
   const frontZ = Number.isFinite(Number(beltFrontZ)) ? Number(beltFrontZ) : DEFAULT_BELT_FRONT_Z;
   const window = nonNegativeOption(pickupWindow, DEFAULT_PICKUP_WINDOW);
@@ -255,8 +248,13 @@ export function createRestaurantRival({
   let targetDish = null;
   let carriedDish = null;
 
+  /**
+   * Capacity, not history. A customer already served frees its slot and is
+   * forgotten; only orders the rival is still carrying take up room. There is
+   * deliberately no lifetime quota — the rival works the whole round.
+   */
   function canClaimMore() {
-    return claims < claimLimit && orders.length + (pending ? 1 : 0) < maxActiveOrders;
+    return orders.length + (pending ? 1 : 0) < maxActiveOrders;
   }
 
   /** The order the rival's body is currently occupied with, if any. */
@@ -611,7 +609,6 @@ export function createRestaurantRival({
     advance,
     registry,
     get enabled() { return enabled; },
-    get claimLimit() { return claimLimit; },
     get maxActiveOrders() { return maxActiveOrders; },
     /** Claimed, unresolved orders the rival is remembering right now. */
     get activeOrders() { return orders.map((order) => ({ customer: order.customer, food: order.food })); },
@@ -621,6 +618,7 @@ export function createRestaurantRival({
     get targetCustomer() { return currentOrder()?.customer ?? null; },
     get targetDishId() { return targetDish?.dishId ?? null; },
     get carriedDish() { return carriedDish ? { ...carriedDish } : null; },
+    /** Lifetime claims. Statistics and debug only — never a limit. */
     get claims() { return claims; },
     get counts() { return registry.counts; },
   };

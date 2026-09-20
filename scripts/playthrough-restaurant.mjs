@@ -381,6 +381,11 @@ if (!ONLY || ONLY === 'progression') {
   // --- Round 3 in motion: belt tempo and rival multitasking ---------------
   let maxOrders = 0;
   let overTwo = false;
+  // The old lifetime quota stopped the rival at two customers a round. These
+  // watch that it keeps working instead of going idle with customers waiting.
+  let rivalServed = 0;
+  let rivalClaims = 0;
+  let workingPastThree = false;
   let sawFast = false;
   let zeroSpeedSeen = false;
   let firstTravel = null;
@@ -402,6 +407,10 @@ if (!ONLY || ONLY === 'progression') {
     const orders = s.rival?.activeOrderCount ?? 0;
     maxOrders = Math.max(maxOrders, orders);
     if (orders > 2) overTwo = true;
+    rivalServed = Math.max(rivalServed, s.rivalServed ?? 0);
+    rivalClaims = Math.max(rivalClaims, s.rival?.claims ?? 0);
+    if (rivalServed >= 3 && (s.rival?.eligibleUnclaimed ?? 0) > 0
+      && s.rival?.state !== 'idle') workingPastThree = true;
 
     const belt = s.beltTempo;
     const speed = s.conveyor?.speed;
@@ -436,12 +445,16 @@ if (!ONLY || ONLY === 'progression') {
 
   // Phase 2 forces mode switches so the two-order behaviour gets its chance
   // without waiting on the belt's own rhythm. Timing is no longer measured.
-  for (let sample = 0; sample < 300 && maxOrders < 2; sample += 1) {
+  for (let sample = 0; sample < 300 && (maxOrders < 2 || rivalServed < 3); sample += 1) {
     const s = await h.debug();
     if (!s || s.lifecycle !== 'service') break;
     const orders = s.rival?.activeOrderCount ?? 0;
     maxOrders = Math.max(maxOrders, orders);
     if (orders > 2) overTwo = true;
+    rivalServed = Math.max(rivalServed, s.rivalServed ?? 0);
+    rivalClaims = Math.max(rivalClaims, s.rival?.claims ?? 0);
+    if (rivalServed >= 3 && (s.rival?.eligibleUnclaimed ?? 0) > 0
+      && s.rival?.state !== 'idle') workingPastThree = true;
     if (sample % 25 === 0) await h.control('beltSwitch');
     await h.sleep(100);
   }
@@ -456,6 +469,15 @@ if (!ONLY || ONLY === 'progression') {
   // what the belt is offering. The guarantee is unit-tested in rival.test.mjs.
   info('two overlapping rival orders observed in play', maxOrders === 2,
     `highest active order count ${maxOrders}`);
+
+  // The obsolete lifetime quota resolved to two customers a round, after which
+  // the rival stood idle with customers still waiting. Both halves matter: it
+  // must get past two, and it must still be looking for work afterwards.
+  check('the Round 3 rival serves more than the old two-customer quota',
+    rivalServed >= 3, `rival served ${rivalServed}, claimed ${rivalClaims}`);
+  check('the Round 3 rival keeps seeking work after its third customer',
+    workingPastThree,
+    `served ${rivalServed}; never seen busy with an eligible customer waiting`);
 
   check('the belt enters a fast burst', sawFast, 'no fast mode observed');
   check('the belt alternates normal and fast, never anything else',

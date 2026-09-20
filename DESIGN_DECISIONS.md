@@ -1794,3 +1794,91 @@ challenger, and swaps belt stoppages for speed bursts.
   table; raising the Round 3 share; a new physical warning structure for the
   fast belt; a Japanese instruction panel on every burst; a complex new ramen
   model.
+
+## 2026-09-20 — The rival works the whole round; the room is solid; one place to look
+
+### Rival workload, not a lifetime quota
+
+- **Fixed — the round-long claim quota is gone.** `rival.js` derived
+  `claimLimit = round(total * share)` and `canClaimMore()` required
+  `claims < claimLimit`. With the fixed baseline that resolved to **2 in every
+  round**: `total` is ~6 (Round 1 activates the rival after the player's third
+  delivery; Rounds 2 and 3 use `competitiveRoundTotal(9) = 6`) and
+  `RIVAL_LEVELS[2].share` was 0.35. The rival served two customers and then
+  stood idle for the rest of the battle with customers still waiting, and it
+  capped Waiter 3's two-order memory at two claims — hiding the one thing that
+  makes Waiter 3 a different opponent.
+- **Accepted — `canClaimMore()` is capacity, not history:**
+  `orders.length + (pending ? 1 : 0) < maxActiveOrders`. A served customer frees
+  its slot. There is no maximum number of customers the rival may serve in a
+  round. Every other safeguard is untouched: it still walks to a customer before
+  claiming, respects `minSeatedAge`, player reservations and player ownership,
+  carries one dish, intercepts dishes physically, and pauses for speech focus.
+- **Accepted — `share` and `claimLimit` are deleted,** from `RIVAL_LEVELS`,
+  the `createRestaurantRival` options, `currentRivalConfig()` and the debug
+  snapshot, rather than left as a dead compatibility field. The now-unused
+  `total` option went with them. `claims` survives as debug/statistics only.
+- **Rejected:** setting `share` to 1.0. It leaves a knob that does nothing,
+  still caps the round, and would have to be re-derived every time the customer
+  total moves.
+- **Added — `rival.eligibleUnclaimed` in the debug snapshot,** so an idle rival
+  with customers waiting can be told apart from one with nobody old enough to
+  claim. `claimLimit` is gone rather than reported misleadingly.
+- **Noted — Round 1 is now strictly harder.** Waiter 1 could previously only
+  take two customers a shift; it can now work continuously. Its slow tuning
+  (`minSeatedAge` 7, hesitation 0.8–1.5 s) is the only throttle left. Judge this
+  in class before tuning it — see CURRENT_STATE Next Steps.
+
+### The room is solid
+
+- **Accepted — a new pure `roomCollision.js`** owns the room's solid geometry:
+  `TABLES`, `ROOM_BOUNDS`, chair and body footprints, `blocksMovement`,
+  `canOccupy` and `resolveMove`. `index.js` builds the chair meshes from its
+  `chairPositions`, so a chair the child can see and the box they bump into
+  cannot drift apart. It follows `claims.js` and `customerState.js`: rules the
+  game depends on live in a pure module that can be tested without a scene.
+- **Accepted — chairs and seated customers block movement.** Chair boxes are the
+  visible mesh (0.9 × 0.82) plus 0.12 of body padding — 0.57 × 0.53. Seated
+  bodies are radius 0.50. The padding matches the table, which has always
+  blocked at 1.12 around a 1.0 top. Deliberately modest: four tables' worth of
+  oversized barriers would close the aisles.
+- **Accepted — only settled customers are solid** (`seated`, `awaiting`,
+  `eating`). A customer walking in or leaving stays soft: a moving obstacle can
+  pin the player against furniture, and neither state can be talked to anyway.
+- **Accepted — `resolveMove` has an escape hatch.** A body already inside an
+  obstacle may move freely until it is clear, because a customer can sit down on
+  the spot the player is standing on and would otherwise wall them in on both
+  axes at once. Keyboard walking and click-to-walk share this one function, so
+  they cannot obey different obstacles.
+- **Noted — the seated-body footprint is contained by its chair box.** At a seat
+  the chair does all the blocking. The body rule is kept because it is what makes
+  "a settled customer is solid" true independently of the furniture, and it is
+  tested on open floor where it actually bites.
+- **Accepted — `TALK_RADIUS` moved into `roomCollision.js`.** The footprints and
+  the talk radius are one invariant: a test sweeps the floor and proves every
+  table keeps a legal standing spot inside talk range, from both sides.
+- **Unchanged — the rival keeps its existing table steering.** It is driven by
+  the pure model's timed walks, so hard-blocking it would desync it from its own
+  timing and could strand it. Seats sit inside the table's 1.45 steer radius, so
+  the existing deflection already carries it ~0.7 clear of a seated diner.
+  `setRivalApproach` already stopped it beside the table, never on the customer.
+
+### One place to look
+
+- **Accepted — the persistent upper-left contextual hint is deleted,** element,
+  CSS, `setInstruction` and all fifteen call sites. Most of what it said
+  duplicated the control directly beneath it ("go to the conveyor" beside
+  「スペースで りょうりを もつ」); the rest was navigation a child can read from
+  the room. The bottom bar already carried the real affordance: the Space action
+  button, or the Talk button with its 🎤 label and `Space` chip.
+- **Rejected — moving the hint into the bottom stack as its own line.** Tried
+  first; it is still a second thing to read. The owner asked for no extra
+  buttons, no extra text and no extra lines, which leaves the controls that were
+  already there.
+- **Noted — three moments lost their text line:** the turnaround
+  (「こんどは きみの ばん！」), the round end and the stamp. Each still has its
+  own cue — the close-up with the partner's question bubble, the result label,
+  the stamp sound and book. Judge the turnaround in play; if the role flip does
+  not read, it belongs in the temporary notice, not in a restored panel.
+- **Unchanged — no auto-listen.** No dwell timer, microphone auto-start or
+  progress ring was added. Speaking stays a deliberate press.
