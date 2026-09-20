@@ -2,19 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  BASELINE,
   RIVAL_IDS,
   ROUND_TWO,
   ROUND_THREE,
+  RESTAURANT_LEVEL,
+  ROUND_THREE_PATIENCE_SCALE,
   competitiveRoundTotal,
   createRivalProgression,
   roundSettings,
 } from './rivalProgression.js';
 import { RIVAL_LEVELS } from './rival.js';
 import { CONVEYOR_CONFIG, MIN_DISH_SPACING, createConveyor } from './conveyor.js';
-import { PATIENCE_SECONDS } from './customerState.js';
 import { RUSH_PLAYER_DELIVERIES } from './rushTrigger.js';
 
-const FOODS = ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'];
+const FOODS = ['curry', 'pizza', 'hamburger', 'ramen', 'sushi'];
 
 function snapshot(progression) {
   return {
@@ -120,7 +122,9 @@ test('winning Round 2 advances to Round 3, not to the final question', () => {
   assert.deepEqual(progression.startRound3(), { next: 'round3' });
   assert.equal(progression.phase, 'round3');
   assert.equal(progression.round, 3);
-  assert.equal(progression.rivalId, RIVAL_IDS.WAITER_2, 'Round 3 keeps Waiter 2');
+  assert.equal(progression.rivalId, RIVAL_IDS.WAITER_3, 'Round 3 brings a third waiter');
+  assert.notEqual(RIVAL_IDS.WAITER_3, RIVAL_IDS.WAITER_2);
+  assert.notEqual(RIVAL_IDS.WAITER_3, RIVAL_IDS.WAITER_1);
 });
 
 for (const outcome of ['player', 'rival', 'draw']) {
@@ -169,29 +173,39 @@ test('later rounds no longer ride on the Round 1 warm-up rush trigger', () => {
 });
 
 test('Round 3 gives the rival two orders without making it faster or greedier', () => {
-  for (const level of [2, 3]) {
-    const two = ROUND_TWO[level].rival;
-    const three = ROUND_THREE[level].rival;
-    assert.equal(three.maxActiveOrders, 2, `level ${level} rival must juggle two orders`);
-    assert.equal(three.speed, two.speed, `level ${level} Round 3 changed rival speed`);
-    assert.equal(three.share, two.share, `level ${level} Round 3 changed the customer share`);
-    assert.ok(three.share <= 0.5, `level ${level} share ${three.share} is over half the room`);
-    assert.equal(three.dishNoticeSeconds, two.dishNoticeSeconds);
-    assert.equal(three.minSeatedAge, two.minSeatedAge);
-    assert.equal(ROUND_THREE[level].beltMalfunction, true);
-  }
+  const two = ROUND_TWO.rival;
+  const three = ROUND_THREE.rival;
+  assert.equal(three.maxActiveOrders, 2, 'the Round 3 rival must juggle two orders');
+  assert.equal(three.speed, two.speed, 'Round 3 changed rival speed');
+  assert.equal(three.dishNoticeSeconds, two.dishNoticeSeconds);
+  assert.equal(three.minSeatedAge, two.minSeatedAge);
+  assert.equal(ROUND_THREE.beltTempo, true);
+  // Ownership is never rigged: no round overrides the baseline customer share.
+  assert.equal(two.share, undefined, 'Round 2 must not override the share');
+  assert.equal(three.share, undefined, 'Round 3 must not override the share');
 });
 
-test('Round 3 patience allows for the belt being stopped part of the round', () => {
-  assert.ok(ROUND_THREE[2].patience > ROUND_TWO[2].patience);
-  assert.ok(ROUND_THREE[3].patience > ROUND_TWO[3].patience);
+test('Rounds 1 and 2 share the baseline patience; only Round 3 shortens it', () => {
+  assert.equal(ROUND_TWO.patience, BASELINE.patience,
+    'Round 2 must not secretly shorten customer timers');
+  const reduction = 1 - (ROUND_THREE.patience / BASELINE.patience);
+  assert.ok(reduction >= 0.20 && reduction <= 0.25,
+    `Round 3 patience is ${(reduction * 100).toFixed(1)}% shorter, outside 20-25%`);
+  assert.equal(ROUND_THREE.patience, Math.round(BASELINE.patience * ROUND_THREE_PATIENCE_SCALE));
+});
+
+test('Round 2 keeps the baseline room: only the rival changes', () => {
+  assert.equal(ROUND_TWO.tables, BASELINE.tables);
+  assert.equal(ROUND_TWO.paceScale, BASELINE.paceScale);
+  assert.equal(ROUND_THREE.tables, BASELINE.tables);
+  assert.equal(ROUND_THREE.paceScale, BASELINE.paceScale);
 });
 
 test('roundSettings selects the right tuning and nothing for Round 1', () => {
-  assert.equal(roundSettings(1, 2), null);
-  assert.equal(roundSettings(2, 2), ROUND_TWO[2]);
-  assert.equal(roundSettings(3, 3), ROUND_THREE[3]);
-  assert.equal(roundSettings(4, 2), null, 'there is no Round 4 tuning');
+  assert.equal(roundSettings(1), null);
+  assert.equal(roundSettings(2), ROUND_TWO);
+  assert.equal(roundSettings(3), ROUND_THREE);
+  assert.equal(roundSettings(4), null, 'there is no Round 4 tuning');
 });
 
 test('unknown outcomes change nothing', () => {
@@ -206,44 +220,32 @@ test('rematches and Round 2 are the competitive part of the first shift', () => 
   assert.equal(competitiveRoundTotal(2), 1);
 });
 
-for (const level of [2, 3]) {
-  test(`Round 2 rival on level ${level} is faster and quicker, not greedier`, () => {
-    const first = RIVAL_LEVELS[level];
-    const second = ROUND_TWO[level].rival;
-    const speedUp = second.speed / first.speed;
-    assert.ok(speedUp >= 1.15 && speedUp <= 1.2, `speed ratio ${speedUp}`);
-    assert.ok(second.hesitationMin < first.hesitationMin);
-    assert.ok(second.hesitationMax < first.hesitationMax);
-    assert.ok(second.hesitationMin <= second.hesitationMax);
-    assert.ok(second.dishNoticeSeconds < first.dishNoticeSeconds);
-    assert.ok(second.minSeatedAge <= first.minSeatedAge);
-    assert.ok(second.share <= 0.5);
-    assert.ok(second.share <= RIVAL_LEVELS[3].share);
-    assert.ok(ROUND_TWO[level].patience < PATIENCE_SECONDS[level]);
-    assert.ok(ROUND_TWO[level].patience >= 25 && ROUND_TWO[level].patience <= 28);
-    assert.ok(ROUND_TWO[level].tables <= 5);
-  });
+test('the Round 2 rival is faster and quicker, not greedier', () => {
+  const first = RIVAL_LEVELS[RESTAURANT_LEVEL];
+  const second = ROUND_TWO.rival;
+  const speedUp = second.speed / first.speed;
+  assert.ok(speedUp >= 1.15 && speedUp <= 1.2, `speed ratio ${speedUp}`);
+  assert.ok(second.hesitationMin < first.hesitationMin);
+  assert.ok(second.hesitationMax < first.hesitationMax);
+  assert.ok(second.hesitationMin <= second.hesitationMax);
+  assert.ok(second.dishNoticeSeconds < first.dishNoticeSeconds);
+  assert.ok(second.minSeatedAge <= first.minSeatedAge);
+});
 
-  test(`Round 2 belt on level ${level} is 15–20% faster than the rush and keeps dish spacing`, () => {
-    const rush = CONVEYOR_CONFIG[level].rush;
-    const roundTwo = CONVEYOR_CONFIG[level].roundTwo;
-    const speedUp = roundTwo.speed / rush.speed;
-    assert.ok(speedUp >= 1.15 && speedUp <= 1.2, `belt ratio ${speedUp}`);
-    assert.ok(roundTwo.speed * roundTwo.entryInterval >= MIN_DISH_SPACING);
-    // Denser: more dishes per metre of belt than the rush.
-    assert.ok(roundTwo.speed * roundTwo.entryInterval < rush.speed * rush.entryInterval);
-  });
-}
-
-test('Round 2 patience is 28 s on Normal and 25 s on Challenge', () => {
-  assert.equal(ROUND_TWO[2].patience, 28);
-  assert.equal(ROUND_TWO[3].patience, 25);
+test('the Round 2 belt is 15-20% faster than the rush and keeps dish spacing', () => {
+  const rush = CONVEYOR_CONFIG[RESTAURANT_LEVEL].rush;
+  const roundTwo = CONVEYOR_CONFIG[RESTAURANT_LEVEL].roundTwo;
+  const speedUp = roundTwo.speed / rush.speed;
+  assert.ok(speedUp >= 1.15 && speedUp <= 1.2, `belt ratio ${speedUp}`);
+  assert.ok(roundTwo.speed * roundTwo.entryInterval >= MIN_DISH_SPACING);
+  // Denser: more dishes per metre of belt than the rush.
+  assert.ok(roundTwo.speed * roundTwo.entryInterval < rush.speed * rush.entryInterval);
 });
 
 test('startRoundTwo switches the belt from the rush, keeps its dishes and is one-shot', () => {
   const easy = createConveyor({ difficulty: 1, foods: FOODS, rng: () => 0.3 });
   assert.equal(easy.startRoundTwo(), false);
-  for (const level of [2, 3]) {
+  for (const level of [RESTAURANT_LEVEL]) {
     const conveyor = createConveyor({ difficulty: level, foods: FOODS, rng: () => 0.3 });
     conveyor.advance(6);
     assert.equal(conveyor.startRush(), true);

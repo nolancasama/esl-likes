@@ -23,7 +23,12 @@ import path from 'node:path';
 const URL = process.argv[2] || 'http://localhost:5199/';
 const ARTIFACT_DIR = process.argv[3] || '.tmp/playthrough/restaurant';
 const SAVE_KEY = 'esl-likes-save-v1';
-const LEVEL = Number(process.env.RESTAURANT_LEVEL || 2);
+// The Restaurant is fixed; this only seeds the *stored* setting, to prove
+// the game ignores it.
+const STORED_DIFFICULTY = Number(process.env.RESTAURANT_STORED_DIFFICULTY || 1);
+const FIXED_LEVEL = 2;
+const BASELINE_PATIENCE = 38;
+const ROUND_THREE_PATIENCE = 29;
 const KNOWN_BAD = process.env.RESTAURANT_KNOWN_BAD === '1';
 const ONLY = process.env.RESTAURANT_ONLY || process.argv.slice(2).find(
   (argument) => argument.startsWith('--only='),
@@ -62,7 +67,7 @@ async function openGame() {
     localStorage.setItem(key, JSON.stringify({
       version: 1, settings: { micFree: true, difficulty: level },
     }));
-  }, { key: SAVE_KEY, level: LEVEL });
+  }, { key: SAVE_KEY, level: STORED_DIFFICULTY });
 
   const page = await context.newPage();
   const errors = [];
@@ -194,9 +199,17 @@ if (!ONLY || ONLY === 'rematch') {
   scope = 'rematch';
   const h = await openGame();
   const round1 = await reachRoundOne(h);
-  check('Round 1 starts with one rival order and no belt malfunction',
-    round1?.rival?.maxActiveOrders === 1 && round1?.beltMalfunction?.enabled === false,
-    JSON.stringify({ orders: round1?.rival?.maxActiveOrders, belt: round1?.beltMalfunction?.enabled }));
+  check('Round 1 starts with one rival order and no belt bursts',
+    round1?.rival?.maxActiveOrders === 1 && round1?.beltTempo?.enabled === false,
+    JSON.stringify({ orders: round1?.rival?.maxActiveOrders, belt: round1?.beltTempo?.enabled }));
+  check('the Restaurant ignores the stored global difficulty',
+    round1?.level === FIXED_LEVEL,
+    `stored ${STORED_DIFFICULTY}, Restaurant ran at ${round1?.level}`);
+  check('Round 1 uses the fixed baseline patience',
+    round1?.progression?.roundPatience === BASELINE_PATIENCE,
+    `patience ${round1?.progression?.roundPatience}`);
+  check('Round 1 uses Waiter 1',
+    round1?.progression?.rivalId === 'waiter1', String(round1?.progression?.rivalId));
 
   const frames = await endRoundWatchingStaging(h, 'rival', null);
   checkStaging(frames, 'Round 1 loss');
@@ -305,26 +318,59 @@ if (!ONLY || ONLY === 'progression') {
     JSON.stringify({ rival: round2?.progression?.rivalId, belt: round2?.conveyor?.mode }));
   check('Round 2 keeps the one-order rival', round2?.rival?.maxActiveOrders === 1,
     `maxActiveOrders ${round2?.rival?.maxActiveOrders}`);
-  check('Round 2 has no belt malfunction', round2?.beltMalfunction?.enabled === false,
-    JSON.stringify(round2?.beltMalfunction));
+  check('Round 2 has no belt bursts', round2?.beltTempo?.enabled === false,
+    JSON.stringify(round2?.beltTempo));
+  check('Round 2 keeps the baseline patience: no secret shortening',
+    round2?.progression?.roundPatience === BASELINE_PATIENCE,
+    `patience ${round2?.progression?.roundPatience}`);
+  check('Waiter 2 wears no bow tie',
+    round2?.rivalCharacter?.bowTie === null || round2?.rivalCharacter?.bowTie === undefined,
+    `bowTie ${JSON.stringify(round2?.rivalCharacter?.bowTie)}`);
 
-  // Round 2 win -> Round 3.
+  // Round 2 win -> Waiter 2 exits -> Waiter 3 gets the full introduction.
   const r3frames = await endRoundWatchingStaging(h, 'player', 3);
   checkStaging(r3frames, 'Round 2 win');
+  check('Waiter 2 physically exits before Round 3', r3frames.transition.sawExit,
+    `exitWalking seen: ${r3frames.transition.sawExit}`);
+  check('the player walks back before Waiter 3 arrives', r3frames.transition.sawReturnWalk,
+    `returnWalking seen: ${r3frames.transition.sawReturnWalk}`);
+
+  // Waiter 3 gets the same entrance scene as every other challenger.
+  const intro3 = await h.waitFor((s) => s.rivalChallenge?.choicesVisible, 45000,
+    'Waiter 3 challenge choices');
+  check('Waiter 3 gets the full challenger introduction, not a silent start',
+    Boolean(intro3?.rivalChallenge?.choicesVisible),
+    JSON.stringify(intro3?.rivalChallenge?.phase));
+  check('Waiter 3 offers response choices', (intro3?.rivalChallenge?.choices ?? []).length === 3,
+    JSON.stringify(intro3?.rivalChallenge?.choices));
+  await h.page.locator('.restaurant-ui__challenge-replies button').nth(0).click();
+
   const round3 = await h.waitFor(
     (s) => s.progression?.round === 3 && s.lifecycle === 'service' && s.rival,
     45000, 'Round 3 service',
   );
   check('winning Round 2 unlocks Round 3', Boolean(round3), `round ${round3?.progression?.round}`);
-  check('Round 3 keeps Waiter 2 rather than adding a character',
-    round3?.progression?.rivalId === 'waiter2'
-      && (round3?.progression?.rivalCharactersBuilt ?? []).length === 2,
+  check('Round 3 is fought by a third waiter',
+    round3?.progression?.rivalId === 'waiter3',
+    String(round3?.progression?.rivalId));
+  check('Waiter 3 is a different model from Waiters 1 and 2',
+    round3?.rivalCharacter?.model && round3.rivalCharacter.model !== 'r'
+      && round3.rivalCharacter.model !== 'k',
+    `model ${round3?.rivalCharacter?.model}`);
+  check('all three waiters were built',
+    (round3?.progression?.rivalCharactersBuilt ?? []).length === 3,
     JSON.stringify(round3?.progression?.rivalCharactersBuilt));
+  check('Round 3 shortens patience by 20-25%',
+    round3?.progression?.roundPatience === ROUND_THREE_PATIENCE,
+    `patience ${round3?.progression?.roundPatience} (baseline ${BASELINE_PATIENCE})`);
   check('Round 3 gives the rival two active orders',
     round3?.rival?.maxActiveOrders === 2, `maxActiveOrders ${round3?.rival?.maxActiveOrders}`);
-  check('Round 3 runs the Round 3 belt with malfunction enabled',
-    round3?.conveyor?.mode === 'roundThree' && round3?.beltMalfunction?.enabled === true,
-    JSON.stringify({ belt: round3?.conveyor?.mode, malfunction: round3?.beltMalfunction?.enabled }));
+  check('Round 3 runs the Round 3 belt with speed bursts enabled',
+    round3?.conveyor?.mode === 'roundThree' && round3?.beltTempo?.enabled === true,
+    JSON.stringify({ belt: round3?.conveyor?.mode, tempo: round3?.beltTempo?.enabled }));
+  check('Round 3 begins in normal belt mode',
+    round3?.beltTempo?.mode === 'normal' && round3?.beltTempo?.speedMultiplier === 1,
+    JSON.stringify(round3?.beltTempo));
   check('Round 3 restarts the score at 0-0',
     round3?.competition?.score?.player === 0 && round3?.competition?.score?.rival === 0,
     JSON.stringify(round3?.competition));
@@ -332,60 +378,71 @@ if (!ONLY || ONLY === 'progression') {
     (round3?.rival?.activeOrderCount ?? 0) === 0 && !round3?.rival?.carriedDish,
     JSON.stringify(round3?.rival?.activeOrders));
 
-  // --- Round 3 in motion: belt cycle and rival multitasking ---------------
+  // --- Round 3 in motion: belt tempo and rival multitasking ---------------
   let maxOrders = 0;
-  let warningBeforeStop = null;
-  let sawWarning = false;
-  let beltMovedWhileStopped = false;
-  let lastTravel = null;
-  let lastPhase = null;
-  const stopDurations = [];
-  const runDurations = [];
-  let phaseStartedAt = null;
-  const sequences = [];
-
   let overTwo = false;
-  // Phase 1 observes the belt's own rhythm, so run and stop durations are the
-  // ones the game actually produces. Forcing stoppages here would measure the
+  let sawFast = false;
+  let zeroSpeedSeen = false;
+  let firstTravel = null;
+  let lastTravel = null;
+  let lastMode = null;
+  let modeStartedAt = null;
+  const normalDurations = [];
+  const fastDurations = [];
+  const transitions = [];
+  const fastSpeeds = [];
+  let normalSpeed = null;
+
+  // Phase 1 observes the belt's own rhythm, so the durations measured are the
+  // ones the game actually produces. Forcing bursts here would measure the
   // harness, not the game; that comes afterwards.
-  for (let sample = 0; sample < 260; sample += 1) {
+  for (let sample = 0; sample < 300; sample += 1) {
     const s = await h.debug();
     if (!s || s.lifecycle !== 'service') break;
     const orders = s.rival?.activeOrderCount ?? 0;
     maxOrders = Math.max(maxOrders, orders);
     if (orders > 2) overTwo = true;
-    const belt = s.beltMalfunction;
-    if (belt?.warningActive) sawWarning = true;
-    if (belt?.phase !== lastPhase) {
-      // Phase durations come from the game's own clock, not wall-clock.
-      if (lastPhase && phaseStartedAt !== null) {
-        const span = s.elapsed - phaseStartedAt;
-        if (lastPhase === 'stopped') stopDurations.push(span);
-        if (lastPhase === 'running') runDurations.push(span);
+
+    const belt = s.beltTempo;
+    const speed = s.conveyor?.speed;
+    if (belt?.fast) {
+      sawFast = true;
+      if (Number.isFinite(speed)) fastSpeeds.push(speed);
+    } else if (Number.isFinite(speed)) normalSpeed = speed;
+
+    if (belt?.mode !== lastMode) {
+      // Mode durations come from the game's own clock, not wall-clock.
+      if (lastMode && modeStartedAt !== null) {
+        const span = s.elapsed - modeStartedAt;
+        if (lastMode === 'normal') normalDurations.push(span);
+        if (lastMode === 'fast') fastDurations.push(span);
       }
-      if (lastPhase) sequences.push(`${lastPhase}->${belt?.phase}`);
-      if (belt?.phase === 'stopped') warningBeforeStop = lastPhase === 'warning';
-      lastPhase = belt?.phase;
-      phaseStartedAt = s.elapsed;
+      if (lastMode) transitions.push(`${lastMode}->${belt?.mode}`);
+      lastMode = belt?.mode;
+      modeStartedAt = s.elapsed;
     }
-    if (belt?.stopped) {
-      const travel = s.conveyor?.beltTravel;
-      if (lastTravel !== null && travel !== lastTravel) beltMovedWhileStopped = true;
+
+    // The belt must never have a zero speed. (Travel itself can legitimately
+    // pause when the whole simulation is frozen: speech focus, a challenge
+    // scene, the settle beat. Speed is the invariant; travel is the outcome.)
+    if (Number.isFinite(speed) && speed <= 0) zeroSpeedSeen = true;
+    const travel = s.conveyor?.beltTravel;
+    if (Number.isFinite(travel)) {
+      if (firstTravel === null) firstTravel = travel;
       lastTravel = travel;
-    } else lastTravel = null;
+    }
     await h.sleep(100);
   }
 
-  // Phase 2 induces stoppages: belt downtime is exactly when the rival is meant
-  // to go and take another order, so this is the designed trigger rather than
-  // waiting on chance. Belt timing is no longer measured here.
+  // Phase 2 forces mode switches so the two-order behaviour gets its chance
+  // without waiting on the belt's own rhythm. Timing is no longer measured.
   for (let sample = 0; sample < 300 && maxOrders < 2; sample += 1) {
     const s = await h.debug();
     if (!s || s.lifecycle !== 'service') break;
     const orders = s.rival?.activeOrderCount ?? 0;
     maxOrders = Math.max(maxOrders, orders);
     if (orders > 2) overTwo = true;
-    if (sample % 25 === 0) await h.control('beltStop');
+    if (sample % 25 === 0) await h.control('beltSwitch');
     await h.sleep(100);
   }
 
@@ -395,27 +452,39 @@ if (!ONLY || ONLY === 'progression') {
   check('the Round 3 rival is taking orders at all', maxOrders >= 1,
     `highest active order count ${maxOrders}`);
   // Emergent, so reported rather than asserted: the rival only claims a second
-  // customer when no dish matches an order it already holds. A stopped belt
-  // leaves its dishes standing still, which makes them EASIER to collect, so a
-  // stoppage often sends it to the belt rather than to another table. Whether
-  // two orders overlap in a given shift depends on what the belt offers.
-  // The guarantee itself is unit-tested in rival.test.mjs.
+  // customer when no dish matches an order it already holds, which depends on
+  // what the belt is offering. The guarantee is unit-tested in rival.test.mjs.
   info('two overlapping rival orders observed in play', maxOrders === 2,
     `highest active order count ${maxOrders}`);
-  check('a warning always precedes a stop', warningBeforeStop !== false,
-    `transitions ${sequences.slice(0, 8).join(', ')}`);
-  check('the warning is shown to the player', sawWarning, 'no warning phase observed');
-  check('the belt does not move while stopped', !beltMovedWhileStopped,
-    'belt travel changed during a stoppage');
-  check('stop durations stay inside the configured range',
-    stopDurations.length === 0 || stopDurations.every((span) => span >= 1.7 && span <= 3.2),
-    `stops ${stopDurations.map((span) => span.toFixed(2)).join(', ')}`);
-  check('a minimum run separates stoppages',
-    runDurations.length === 0 || runDurations.every((span) => span >= 7.5),
-    `runs ${runDurations.map((span) => span.toFixed(2)).join(', ')}`);
+
+  check('the belt enters a fast burst', sawFast, 'no fast mode observed');
+  check('the belt alternates normal and fast, never anything else',
+    transitions.every((step) => step === 'normal->fast' || step === 'fast->normal'),
+    `transitions ${transitions.slice(0, 8).join(', ')}`);
+  check('the belt never reaches a zero speed', !zeroSpeedSeen,
+    'the conveyor reported speed <= 0');
+  check('the belt keeps carrying dishes across the round',
+    firstTravel !== null && lastTravel > firstTravel,
+    `travel ${firstTravel} -> ${lastTravel}`);
+  check('a fast burst is about twice the normal belt speed',
+    normalSpeed !== null && fastSpeeds.length > 0
+      && fastSpeeds.every((speed) => Math.abs((speed / normalSpeed) - 2) < 0.01),
+    `normal ${normalSpeed}, fast ${[...new Set(fastSpeeds)].join(', ')}`);
+  check('normal stretches stay inside the configured range',
+    normalDurations.length === 0 || normalDurations.every((span) => span >= 4.8 && span <= 9.3),
+    `normal ${normalDurations.map((span) => span.toFixed(2)).join(', ')}`);
+  check('fast bursts stay inside the configured range',
+    fastDurations.length === 0 || fastDurations.every((span) => span >= 1.8 && span <= 4.3),
+    `fast ${fastDurations.map((span) => span.toFixed(2)).join(', ')}`);
 
   const stopped = await h.debug();
-  check('dish ids stay unique across stoppages',
+  const gaps = [...(stopped?.conveyor?.dishes ?? [])]
+    .sort((a, b) => b.x - a.x)
+    .map((dish, index, all) => (index === 0 ? Infinity : all[index - 1].x - dish.x));
+  check('dishes never bunch closer than the minimum spacing',
+    gaps.every((gap) => gap >= 1.9 - 1e-6),
+    `closest gap ${Math.min(...gaps).toFixed(3)}`);
+  check('dish ids stay unique across speed changes',
     new Set((stopped?.conveyor?.dishes ?? []).map((dish) => dish.id)).size
       === (stopped?.conveyor?.dishes ?? []).length,
     `dishes ${stopped?.conveyor?.dishes?.length}`);
@@ -456,7 +525,7 @@ for (const outcome of (!ONLY || ONLY === 'round2-end') ? ['rival', 'draw'] : [])
   check(`a Round 2 ${outcome} goes to the final question`, Boolean(final),
     `lifecycle ${final?.lifecycle}`);
   check(`a Round 2 ${outcome} never unlocks Round 3`,
-    final?.progression?.round === 2 && final?.beltMalfunction?.enabled === false,
+    final?.progression?.round === 2 && final?.beltTempo?.enabled === false,
     JSON.stringify({ round: final?.progression?.round }));
   check(`${scope}: no runtime errors`, h.errors.length === 0, h.errors.slice(0, 3).join(' | '));
   await h.context.close();
@@ -471,7 +540,8 @@ await mkdir(ARTIFACT_DIR, { recursive: true }).catch(() => {});
 await writeFile(
   path.join(ARTIFACT_DIR, 'manifest.json'),
   JSON.stringify({
-    level: LEVEL,
+    fixedLevel: FIXED_LEVEL,
+    storedDifficulty: STORED_DIFFICULTY,
     only: ONLY,
     knownBad: KNOWN_BAD,
     total: results.filter((entry) => entry.kind !== 'info').length,

@@ -43,6 +43,9 @@ export const VARIANTS = {
   sport:  ['sport', 'spot', 'sports', 'spore', 'support', 'supotsu', 'supo', 'sportu'],
   animal: ['animal', 'anime', 'animals', 'aniaml', 'enemal', 'animaru', 'animol', 'anemal'],
   wolf:   ['wolf', 'wolves', 'wolfs'],
+  // A loanword the class already says as ラーメン, so the recogniser returns the
+  // long-vowel and l/r shapes far more often than the dictionary spelling.
+  ramen:  ['ramen', 'raamen', 'rahmen', 'lamen', 'laamen', 'ramon', 'raman', 'ramenu', 'lamon'],
   what:   ['what', 'wat', 'hwat', 'watt', 'wot', 'but', 'watto', 'whatto', 'hut'],
   like:   ['like', 'lick', 'light', 'rike', 'raiku', 'laiku', 'riku'],
 };
@@ -52,7 +55,7 @@ export const VARIANTS = {
  * @type {Record<string, string[]>}
  */
 export const ANSWERS = {
-  food:   ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'],
+  food:   ['curry', 'pizza', 'hamburger', 'ramen', 'sushi'],
   color:  ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
   drink:  ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
   sport:  ['soccer', 'basketball', 'baseball', 'volleyball'],

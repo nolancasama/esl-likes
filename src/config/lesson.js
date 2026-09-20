@@ -8,7 +8,7 @@ const VOCABULARY = Object.freeze({
     say('curry', 'I like curry.'),
     say('pizza', 'I like pizza.'),
     say('hamburger', 'I like hamburgers.'),
-    say('noodles', 'I like noodles.'),
+    say('ramen', 'I like ramen.'),
     say('sushi', 'I like sushi.'),
   ]),
   color: Object.freeze([
@@ -272,11 +272,13 @@ export const UI = Object.freeze({
     rival2Challenge: 'ぼくとも {勝負|しょうぶ}しよう！\nもっと むずかしいよ！',
     rival2ChallengeReplies: Object.freeze(['いいよ！{勝負|しょうぶ}だ！', '{負|ま}けないよ！', 'やってみよう！']),
     round2Cue: 'ラウンド 2！',
-    // After winning Round 2: the bonus round. The same waiter stays, so there
-    // is no new challenge scene — just the cue and a warning that the belt is
-    // unreliable now.
+    // After winning Round 2: a third waiter, with the same full entrance.
+    rival3Title: 'さいきょうの ウェイター！',
+    rival3Challenge: 'さいごの {勝負|しょうぶ}だ！\nついてこられるかな？',
+    rival3ChallengeReplies: Object.freeze(['のぞむところ！', 'まけないぞ！', 'いくぞ！']),
     round3Cue: 'ラウンド 3！',
-    round3Hint: 'ベルトが とまるよ！',
+    // Shown once as Round 3 starts. The belt racing is the real cue.
+    round3Hint: 'ベルトが はやくなるよ！',
     // End-of-shift head-to-head result; friendly wording whoever wins.
     resultPlayer: 'きみの かち！',
     resultRival: 'ウェイターの かち！',

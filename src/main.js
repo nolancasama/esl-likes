@@ -127,6 +127,8 @@ function makeHub() {
 async function returnToHub() {
   if (routing) return;
   routing = true;
+  // Back in the hub every setting applies again.
+  settings.setDifficultyAvailable?.(true);
   try {
     await transitions.run(() => replaceController(makeHub));
   } finally {
@@ -147,12 +149,18 @@ function handleFinish(gameId, result = {}) {
   returnToHub();
 }
 
+// Minigames whose difficulty is fixed by their own design.
+const FIXED_DIFFICULTY_GAMES = new Set(['restaurant']);
+
 async function enterMinigame(id) {
   if (routing || !LESSON_BY_ID[id]?.available) return;
   const factory = minigames.get(id);
   if (!factory) return;
   routing = true;
   finishing = false;
+  // The Restaurant has one fixed baseline and ignores this setting, so the
+  // control is hidden while it is open rather than lying to the student.
+  settings.setDifficultyAvailable?.(!FIXED_DIFFICULTY_GAMES.has(id));
   try {
     await transitions.run(() => replaceController(() => {
       // This is the frozen plug-in surface for all five minigames. `transitions`

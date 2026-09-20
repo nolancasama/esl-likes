@@ -37,7 +37,7 @@ export function createSettings({ root, progression }) {
         <span class="settings-mic-free-label"></span>
       </label>
       <p class="settings-hint"></p>
-      <label class="settings-row">
+      <label class="settings-row settings-difficulty-row">
         <span class="settings-difficulty-label"></span>
         <select class="settings-difficulty"></select>
       </label>
@@ -71,6 +71,7 @@ export function createSettings({ root, progression }) {
   const volumeValue = backdrop.querySelector('.settings-volume-value');
   const micFree = backdrop.querySelector('.settings-mic-free');
   const difficulty = backdrop.querySelector('.settings-difficulty');
+  const difficultyRow = backdrop.querySelector('.settings-difficulty-row');
   const textSize = backdrop.querySelector('.settings-text-size');
 
   backdrop.querySelector('#settings-title').textContent = labels.title;
@@ -157,6 +158,16 @@ export function createSettings({ root, progression }) {
     open: show,
     close: hide,
     toggle,
+    /**
+     * A minigame with one fixed baseline hides the difficulty control while it
+     * is active, rather than showing a child a setting that does nothing. The
+     * stored value is untouched, so the other minigames keep using it.
+     */
+    setDifficultyAvailable(available) {
+      const hidden = available === false;
+      difficultyRow.hidden = hidden;
+      difficulty.disabled = hidden;
+    },
     subscribe(listener) {
       if (typeof listener !== 'function') return () => {};
       listeners.add(listener);

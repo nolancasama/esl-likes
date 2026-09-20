@@ -23,23 +23,20 @@ export const CONVEYOR_CONFIG = Object.freeze({
   // Pickups by both waiters keep the on-screen count about one lower.
   // Round 2 (after beating the first rival): +17% speed and a denser stream,
   // ≈ 6.0 (Normal) and 6.8 (Challenge) visible, still MIN_DISH_SPACING apart.
-  // Round 3 keeps Round 2's speed exactly — its difficulty is the belt failing,
-  // not the belt racing. The stream densifies only to offset the ~18% of the
-  // round the belt spends stopped, so a stoppage bunches the supply into bursts
-  // instead of starving the room. Challenge is already at MIN_DISH_SPACING, so
-  // it densifies barely at all and takes its chaos from the stoppages alone.
+  // Round 3's NORMAL belt is Round 2's belt exactly; its difficulty is the fast
+  // bursts laid over it (beltTempo.js + setTempo), not a higher base speed.
   1: difficultyConfig(0.9, 4.0, null),
   2: difficultyConfig(
     1.0, 3.6,
     { speed: 1.08, entryInterval: 2.4 },
     { speed: 1.26, entryInterval: 1.75 },
-    { speed: 1.26, entryInterval: 1.55 },
+    { speed: 1.26, entryInterval: 1.75 },
   ),
   3: difficultyConfig(
     1.05, 3.4,
     { speed: 1.18, entryInterval: 1.7 },
     { speed: 1.38, entryInterval: 1.4 },
-    { speed: 1.38, entryInterval: 1.38 },
+    { speed: 1.38, entryInterval: 1.4 },
   ),
 });
 
@@ -74,12 +71,18 @@ export function createConveyor(options = {}) {
     config[field] = Object.hasOwn(options, field) ? options[field] : defaults[field];
   }
 
-  let speed = Number(config.speed);
+  // The mode (solo/rush/roundTwo/roundThree) sets the base speed and interval;
+  // the Round 3 tempo multiplier is applied on top of them, so a fast burst
+  // never loses the mode it is a burst of.
+  let baseSpeed = Number(config.speed);
+  let baseEntryInterval = Number(config.entryInterval);
+  let tempo = 1;
+  let speed = baseSpeed;
   const direction = Number(config.direction);
   const entryX = Number(config.entryX);
   const exitX = Number(config.exitX);
   const visibleHalfWidth = Number(config.visibleHalfWidth);
-  let entryInterval = Math.max(Number(config.entryInterval), MIN_DISH_SPACING / speed);
+  let entryInterval = Math.max(baseEntryInterval, MIN_DISH_SPACING / speed);
   let mode = 'solo';
 
   let serviceTime = 0;
@@ -143,6 +146,26 @@ export function createConveyor(options = {}) {
     return removed;
   }
 
+  /**
+   * Seconds until the entry point is clear enough for another dish.
+   *
+   * The entry interval alone only guarantees spacing while the speed is
+   * constant: a dish that left the entry at the old, slower speed has not
+   * travelled MIN_DISH_SPACING yet when a faster interval says the next one is
+   * already due. Spacing is a distance rule, so it is enforced as one here, and
+   * every speed change — tempo bursts and mode switches alike — is covered.
+   */
+  function entryClearanceDelay() {
+    if (speed <= 0) return Infinity;
+    let wait = 0;
+    for (const dish of dishes) {
+      const travelled = direction < 0 ? entryX - dish.x : dish.x - entryX;
+      if (travelled >= MIN_DISH_SPACING || travelled < 0) continue;
+      wait = Math.max(wait, (MIN_DISH_SPACING - travelled) / speed);
+    }
+    return wait;
+  }
+
   function enter(events) {
     const dish = { id: nextId, food: nextFood(), x: entryX, filler: false };
     nextId += 1;
@@ -154,11 +177,32 @@ export function createConveyor(options = {}) {
 
   function switchMode(nextMode, values) {
     if (!values || mode === nextMode) return false;
-    speed = Number(values.speed);
-    entryInterval = Math.max(Number(values.entryInterval), MIN_DISH_SPACING / speed);
+    baseSpeed = Number(values.speed);
+    baseEntryInterval = Number(values.entryInterval);
+    speed = baseSpeed * tempo;
+    entryInterval = Math.max(baseEntryInterval / tempo, MIN_DISH_SPACING / speed);
     const acceleratedEntryTime = Math.max(serviceTime, lastEntryTime + entryInterval);
     if (acceleratedEntryTime < nextEntryTime) nextEntryTime = stableNumber(acceleratedEntryTime);
     mode = nextMode;
+    return true;
+  }
+
+  /**
+   * Round 3's speed burst. The interval is divided by the multiplier so the
+   * *spatial* gap between dishes is preserved: keeping the time interval would
+   * spread dishes twice as far apart and starve the belt at the very moment it
+   * should look frantic. Dish positions are untouched, so a burst accelerates
+   * what is already on the belt rather than moving or respawning anything, and
+   * `nextEntryTime` is rebuilt from the last entry at the new speed so spacing
+   * still holds across the switch in either direction.
+   */
+  function setTempo(multiplier) {
+    const next = Number(multiplier);
+    if (!Number.isFinite(next) || next <= 0 || next === tempo) return false;
+    tempo = next;
+    speed = baseSpeed * tempo;
+    entryInterval = Math.max(baseEntryInterval / tempo, MIN_DISH_SPACING / speed);
+    nextEntryTime = stableNumber(Math.max(serviceTime, lastEntryTime + entryInterval));
     return true;
   }
 
@@ -171,9 +215,8 @@ export function createConveyor(options = {}) {
     return switchMode('roundTwo', defaults.roundTwo);
   }
 
-  // Round 3 keeps Round 2's speed and densifies slightly; the stoppages that
-  // define the round live in beltMalfunction.js and reach this belt only as a
-  // withheld clock, never as a mode.
+  // Round 3 starts from Round 2's belt; the fast bursts that define the round
+  // arrive through setTempo, never as a mode of their own.
   function startRoundThree() {
     return switchMode('roundThree', defaults.roundThree);
   }
@@ -191,8 +234,14 @@ export function createConveyor(options = {}) {
       const exited = removeExited(events);
       let entered = false;
       if (foods.length > 0 && nextEntryTime <= serviceTime + SCHEDULER_EPSILON) {
-        enter(events);
-        entered = true;
+        const clearance = entryClearanceDelay();
+        if (clearance > 0) {
+          // Hold the dish at the hatch until the one ahead is far enough away.
+          nextEntryTime = stableNumber(serviceTime + clearance);
+        } else {
+          enter(events);
+          entered = true;
+        }
       }
       if (serviceTime + SCHEDULER_EPSILON >= targetTime) break;
       if (boundary === serviceTime && !exited && !entered) moveBy(targetTime - serviceTime);
@@ -250,6 +299,8 @@ export function createConveyor(options = {}) {
       visibleHalfWidth,
       entryInterval,
       mode,
+      tempo,
+      baseSpeed,
       beltTravel,
       dishes: dishes.map(copyDish),
       pending: [],
@@ -258,7 +309,7 @@ export function createConveyor(options = {}) {
   }
 
   return {
-    advance, startRush, startRoundTwo, startRoundThree,
+    advance, startRush, startRoundTwo, startRoundThree, setTempo,
     take, exchange, nearestPickable, predictX, snapshot,
   };
 }

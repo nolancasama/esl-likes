@@ -33,14 +33,15 @@ import {
 } from './resultStage.js';
 import { reactionPose } from './reactionPose.js';
 import {
+  BASELINE,
+  RESTAURANT_LEVEL,
   RIVAL_IDS,
-  ROUND_THREE,
   ROUND_TWO,
   competitiveRoundTotal,
   createRivalProgression,
   roundSettings,
 } from './rivalProgression.js';
-import { createBeltMalfunction } from './beltMalfunction.js';
+import { createBeltTempo } from './beltTempo.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
@@ -140,18 +141,27 @@ const RESULT_STINGS = Object.freeze({
   draw: [[0, 698], [0.18, 880]],
 });
 const RIVAL_MIN_SPEED = RIVAL_SPEED * 0.7;
-// Round 2 Challenge's rival (5.15) must not be slowed by the walk clamp.
-const RIVAL_MAX_SPEED = Math.max(RIVAL_SPEED * 1.3, ROUND_TWO[3].rival.speed * 1.15);
-// Two different waiters. Kenney models ignore tint, so Waiter 2 reads as a new
-// person through another face, hair and moustache (model 'k'), a black apron
-// instead of the white one (a red one vanished into k's red shirt), and a gold
-// bow tie. Neither model is the player's or a customer's.
+// The fastest rival in the ladder must not be slowed by the walk clamp.
+const RIVAL_MAX_SPEED = Math.max(RIVAL_SPEED * 1.3, ROUND_TWO.rival.speed * 1.15);
+// Three different waiters. Kenney models ignore tint, so each reads as a new
+// person through another face and hair plus its own apron colour: white, black,
+// then deep red. Waiter 2's gold bow tie was removed (2026-09-21) — it read as
+// a final boss when Waiter 2 is only the middle rung. No model here is the
+// player's or a customer's.
 const RIVAL_CAST = Object.freeze({
   [RIVAL_IDS.WAITER_1]: Object.freeze({
     model: 'r', tint: 0x4b78c5, apron: 0xffffff, apronEmissive: 0x333333, bowTie: null,
   }),
+  // No bow tie: Waiter 2 is a stronger colleague, not the final boss. Its own
+  // face, hair and moustache plus the black apron already separate it from
+  // Waiter 1 at room-camera distance.
   [RIVAL_IDS.WAITER_2]: Object.freeze({
-    model: 'k', tint: 0xd8563f, apron: 0x22252e, apronEmissive: 0x08090c, bowTie: 0xffcf33,
+    model: 'k', tint: 0xd8563f, apron: 0x22252e, apronEmissive: 0x08090c, bowTie: null,
+  }),
+  // Waiter 3: a different model again, and the only deep-red apron, so the
+  // three waiters read as white / black / red from across the room.
+  [RIVAL_IDS.WAITER_3]: Object.freeze({
+    model: 'h', tint: 0x2f7d63, apron: 0x8c1d2c, apronEmissive: 0x2c060d, bowTie: null,
   }),
 });
 // After losing Round 1, Waiter 1 leaves down the aisle it arrived by.
@@ -265,7 +275,7 @@ export function createRestaurant(ctx) {
   let completed = false;
   let finishCalled = false;
   let phase = 'service';
-  let difficulty = 1;
+  let difficulty = RESTAURANT_LEVEL;
   let elapsed = 0;
   let serviceElapsed = 0;
   let serviceDirector = null;
@@ -299,11 +309,9 @@ export function createRestaurant(ctx) {
   let roundPatience = null;
   let overlayCreates = 0;
   const rivalExit = { character: null, index: 0 };
-  // Round 3 only: the belt's run/warning/stop cycle, and the amber lamp that
-  // warns the player without asking them to read anything.
-  let beltMalfunction = null;
-  let beltWarningLight = null;
-  let beltStopCount = 0;
+  // Round 3 only: the belt's normal/fast cycle. The belt never stops.
+  let beltTempo = null;
+  let beltFastCount = 0;
   // Test-only overrides, set through window.__eslDebug.restaurantControl.
   let forcedOutcome = null;
   let forceRoundEnd = false;
@@ -313,6 +321,8 @@ export function createRestaurant(ctx) {
   // Walking back into position for a rematch or the next challenger.
   const returnWalk = { active: false, player: null, rival: null, elapsed: 0, onArrive: null };
   let settleBeatRemaining = 0;
+  // The round the incoming challenger is arriving for, during a transition.
+  let pendingRound = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
   let focusReleasedAgo = Infinity;
@@ -636,10 +646,25 @@ export function createRestaurant(ctx) {
     });
   }
 
+  // Each waiter brings its own challenge; the scene that plays it is shared.
   function encounterStrings() {
-    return progression?.rivalId === RIVAL_IDS.WAITER_2
-      ? { title: STRINGS.rival2Title, line: STRINGS.rival2Challenge, replies: STRINGS.rival2ChallengeReplies }
-      : { title: STRINGS.rivalTitle, line: STRINGS.rivalChallenge, replies: STRINGS.rivalChallengeReplies };
+    if (progression?.rivalId === RIVAL_IDS.WAITER_3) {
+      return {
+        title: STRINGS.rival3Title,
+        line: STRINGS.rival3Challenge,
+        replies: STRINGS.rival3ChallengeReplies,
+      };
+    }
+    if (progression?.rivalId === RIVAL_IDS.WAITER_2) {
+      return {
+        title: STRINGS.rival2Title,
+        line: STRINGS.rival2Challenge,
+        replies: STRINGS.rival2ChallengeReplies,
+      };
+    }
+    return {
+      title: STRINGS.rivalTitle, line: STRINGS.rivalChallenge, replies: STRINGS.rivalChallengeReplies,
+    };
   }
 
   function createDish(food, shared) {
@@ -659,7 +684,7 @@ export function createRestaurant(ctx) {
       addPart(dish, shared.pattyGeometry, shared.pattyMaterial, 0, 0.25, 0, 1, 1, 1);
       addPart(dish, shared.cheeseGeometry, shared.cheeseMaterial, 0, 0.31, 0, 1, 1, 1);
       addPart(dish, shared.bunGeometry, shared.bunMaterial, 0, 0.4, 0, 1, 0.65, 1);
-    } else if (food === 'noodles') {
+    } else if (food === 'ramen') {
       addPart(dish, shared.bowlGeometry, shared.bowlMaterial, 0, 0.2, 0, 1, 1, 1);
       for (let index = 0; index < 3; index += 1) {
         const noodle = addPart(
@@ -675,6 +700,11 @@ export function createRestaurant(ctx) {
         );
         noodle.rotation.x = Math.PI / 2;
       }
+      // Two toppings so the bowl reads as ramen rather than plain noodles at
+      // room-camera distance: a narutomaki disc and an egg half.
+      const naruto = addPart(dish, shared.narutoGeometry, shared.narutoMaterial, -0.17, 0.45, 0.1, 1, 1, 1);
+      naruto.rotation.x = Math.PI / 2.4;
+      addPart(dish, shared.eggGeometry, shared.eggMaterial, 0.18, 0.45, -0.05, 1, 1, 1);
     } else {
       for (let index = -1; index <= 1; index += 1) {
         addPart(dish, shared.sushiGeometry, shared.seaweedMaterial, index * 0.3, 0.24, 0, 1, 1, 1);
@@ -891,23 +921,6 @@ export function createRestaurant(ctx) {
       beltSlats.push(slat);
     }
 
-    // Round 3's malfunction lamps. Dark for the whole of Rounds 1 and 2, and
-    // amber only while the belt is about to stop, so "it is going to stop" is
-    // readable without reading any Japanese.
-    const warningLampMaterial = makeMaterial(0x5e2a10, { emissive: 0xffa02a, emissiveIntensity: 0 });
-    const warningLamps = [];
-    // On the front rail, facing the room: the back of the belt is occluded from
-    // the room camera, so a lamp there would never be seen. Deliberately large
-    // — at the room camera's distance a trim-sized lamp reads as belt detail,
-    // and this has to say "about to stop" to a child who reads no Japanese.
-    for (const x of [-5.2, -2.6, 0, 2.6, 5.2]) {
-      warningLamps.push(
-        addPart(world, box, warningLampMaterial, x, 1.42, BELT_CENTER_Z + 0.72, 1.5, 0.4, 0.16),
-      );
-    }
-    beltWarningLight = { material: warningLampMaterial, lamps: warningLamps, pulse: 0 };
-    setBeltWarningLight(false);
-
     for (const side of [-1, 1]) {
       const x = side * 6.67;
       addPart(world, box, recessMaterial, x, 1.4, BELT_CENTER_Z, 0.08, 2.65, 2.25);
@@ -967,6 +980,12 @@ export function createRestaurant(ctx) {
       bowlMaterial: makeMaterial(0xe9534f),
       noodleGeometry: ownGeometry(new THREE.TorusGeometry(0.37, 0.035, 5, 18)),
       noodleMaterial: makeMaterial(0xffd96b),
+      // Ramen toppings (2026-09-20): a pink-swirled narutomaki disc and a
+      // soft-boiled egg half, enough to read as ramen without a new model.
+      narutoGeometry: ownGeometry(new THREE.CylinderGeometry(0.13, 0.13, 0.04, 12)),
+      narutoMaterial: makeMaterial(0xfff2ef, { emissive: 0xff9bb0, emissiveIntensity: 0.25 }),
+      eggGeometry: ownGeometry(new THREE.SphereGeometry(0.11, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2)),
+      eggMaterial: makeMaterial(0xfff6d8, { emissive: 0xffbe3d, emissiveIntensity: 0.3 }),
       sushiGeometry: ownGeometry(new THREE.CylinderGeometry(0.15, 0.15, 0.3, 12)),
       sushiTopGeometry: ownGeometry(new THREE.CylinderGeometry(0.11, 0.11, 0.025, 12)),
       seaweedMaterial: makeMaterial(0x183f37),
@@ -1391,14 +1410,8 @@ export function createRestaurant(ctx) {
 
   function updateConveyor(serviceDt) {
     if (!conveyor) return;
-    // Round 3's stoppages reach the belt as a withheld clock and nothing else:
-    // the belt never learns it can stop, so dish positions, the entry schedule
-    // and dish spacing all survive a stoppage and resume exactly where they
-    // were (beltMalfunction.js). Everything else — patience, customers, both
-    // waiters — keeps running on its own clock.
-    const beltDt = !beltMalfunction || beltMalfunction.beltMoving ? serviceDt : 0;
     // The belt is order-blind (SPEC §4): nothing about orders reaches it.
-    const events = conveyor.advance(beltDt);
+    const events = conveyor.advance(serviceDt);
     for (const event of events) {
       if (event.type === 'enter') createBeltDish(event.dish);
       else if (event.type === 'exit') removePhysicalDish(beltDishFor(event.dish.id), 'exited');
@@ -1416,42 +1429,30 @@ export function createRestaurant(ctx) {
     }
   }
 
-  function setBeltWarningLight(on, intensity = 1) {
-    if (!beltWarningLight) return;
-    beltWarningLight.material.emissiveIntensity = on ? intensity : 0;
-    for (const lamp of beltWarningLight.lamps) lamp.visible = Boolean(beltMalfunction);
-  }
-
-  // One soft two-note cue per warning, not a beep every few seconds: this plays
-  // in a classroom, and a stoppage lands roughly every ten seconds.
-  function playBeltWarningCue() {
-    audio.playSfx('restaurant-belt-warning', {
-      type: 'square', frequency: 520, endFrequency: 390, duration: 0.22, gain: 0.07,
+  // A motor spin-up as the belt accelerates and a shorter wind-down as it
+  // settles. The belt racing is the real cue; these only confirm it, so they
+  // stay quiet and play once per change rather than throughout the burst.
+  function playBeltSpinUpCue() {
+    audio.playSfx('restaurant-belt-fast', {
+      type: 'sawtooth', frequency: 190, endFrequency: 520, duration: 0.34, gain: 0.07,
     });
   }
 
-  function playBeltRestartCue() {
-    audio.playSfx('restaurant-belt-restart', {
-      type: 'triangle', frequency: 300, endFrequency: 440, duration: 0.16, gain: 0.06,
+  function playBeltSlowDownCue() {
+    audio.playSfx('restaurant-belt-normal', {
+      type: 'sawtooth', frequency: 430, endFrequency: 230, duration: 0.22, gain: 0.05,
     });
   }
 
-  function updateBeltMalfunction(serviceDt) {
-    if (!beltMalfunction) return;
-    for (const event of beltMalfunction.advance(serviceDt)) {
-      if (event.phase === 'warning') playBeltWarningCue();
-      else if (event.phase === 'stopped') beltStopCount += 1;
-      else if (event.phase === 'running') playBeltRestartCue();
-    }
-    // Amber flashes through the warning, then holds steady while stopped.
-    if (beltMalfunction.warningActive) {
-      beltWarningLight.pulse += serviceDt;
-      setBeltWarningLight(true, Math.sin(beltWarningLight.pulse * 22) > 0 ? 1.8 : 0.15);
-    } else if (beltMalfunction.stopped) {
-      setBeltWarningLight(true, 1.4);
-    } else {
-      beltWarningLight.pulse = 0;
-      setBeltWarningLight(false);
+  function updateBeltTempo(serviceDt) {
+    if (!beltTempo || !conveyor) return;
+    for (const event of beltTempo.advance(serviceDt)) {
+      if (event.mode === 'fast') {
+        beltFastCount += 1;
+        playBeltSpinUpCue();
+      } else playBeltSlowDownCue();
+      // The belt keeps every dish exactly where it is and simply changes pace.
+      conveyor.setTempo(beltTempo.speedMultiplier);
     }
   }
 
@@ -1781,7 +1782,7 @@ export function createRestaurant(ctx) {
       level: difficulty,
       // Round 2 and Round 3 override only the tuning; movement and claim rules
       // are shared. Round 3's override is what lets it hold two orders.
-      ...(roundSettings(progression?.round, difficulty)?.rival ?? {}),
+      ...(roundSettings(progression?.round)?.rival ?? {}),
       registry: claimRegistry,
       conveyor,
       total: Math.max(1, shiftTotal - claimRegistry.progress.done),
@@ -1798,7 +1799,7 @@ export function createRestaurant(ctx) {
   function currentRivalConfig() {
     const base = RIVAL_LEVELS[difficulty];
     if (!base) return null;
-    const round = roundSettings(progression?.round, difficulty)?.rival ?? null;
+    const round = roundSettings(progression?.round)?.rival ?? null;
     const config = { ...base, ...(round ?? {}) };
     return {
       speed: config.speed,
@@ -2069,13 +2070,18 @@ export function createRestaurant(ctx) {
 
   function beginRushGameplay() {
     // The belt, director and rival AI all switch together, only now.
-    const roundTwo = progression?.round === 2;
-    if (roundTwo) conveyor.startRoundTwo();
+    const round = progression?.round ?? 1;
+    if (round === 3) conveyor.startRoundThree();
+    else if (round === 2) conveyor.startRoundTwo();
     else conveyor.startRush();
     serviceDirector.startRush();
     directorPhase = serviceDirector.phase;
     cameraRig.setPreset('fixed', ROOM_CAMERA);
-    showPhaseCue('rush', roundTwo ? STRINGS.round2Cue : STRINGS.lunchRush);
+    if (round === 3) {
+      showPhaseCue('rush', STRINGS.round3Cue);
+      // Once, as the round opens: the belt racing is the real teacher.
+      setNotice(STRINGS.round3Hint, 2.6);
+    } else showPhaseCue('rush', round === 2 ? STRINGS.round2Cue : STRINGS.lunchRush);
     rivalEmoteRemaining = 0;
     setRivalAnimation('idle');
     activateRivalModel();
@@ -2805,7 +2811,7 @@ export function createRestaurant(ctx) {
           && challengeReplies && !challengeReplies.hidden),
         roundTotal: shiftTotal,
         roundDone: claimRegistry?.progress.done ?? 0,
-        roundPatience: roundPatience ?? DIFFICULTY[difficulty].patience,
+        roundPatience: roundPatience ?? BASELINE.patience,
         exitWalking: Boolean(rivalExit.character),
         settleBeatRemaining,
         returnWalking: returnWalk.active,
@@ -2814,16 +2820,15 @@ export function createRestaurant(ctx) {
           .filter(([, character]) => character.visible).map(([id]) => id),
       } : null,
       // Round 3's chaotic belt, for acceptance checks.
-      beltMalfunction: beltMalfunction ? {
+      beltTempo: beltTempo ? {
         enabled: true,
-        phase: beltMalfunction.phase,
-        beltMoving: beltMalfunction.beltMoving,
-        warningActive: beltMalfunction.warningActive,
-        stopped: beltMalfunction.stopped,
-        stopCount: beltStopCount,
-        phaseRemaining: beltMalfunction.phaseRemaining,
-        lastRunSeconds: beltMalfunction.lastRunSeconds,
-        lastStopSeconds: beltMalfunction.lastStopSeconds,
+        mode: beltTempo.mode,
+        fast: beltTempo.fast,
+        speedMultiplier: beltTempo.speedMultiplier,
+        fastCount: beltFastCount,
+        modeRemaining: beltTempo.modeRemaining,
+        lastNormalSeconds: beltTempo.lastNormalSeconds,
+        lastFastSeconds: beltTempo.lastFastSeconds,
       } : { enabled: false },
       rivalChallenge: {
         active: rivalIntroActive(),
@@ -2942,6 +2947,8 @@ export function createRestaurant(ctx) {
         uuid: rivalCharacter.uuid,
         id: rivalCharacter.userData.restaurantRivalId ?? null,
         model: RIVAL_CAST[rivalCharacter.userData.restaurantRivalId]?.model ?? null,
+        apron: RIVAL_CAST[rivalCharacter.userData.restaurantRivalId]?.apron ?? null,
+        bowTie: RIVAL_CAST[rivalCharacter.userData.restaurantRivalId]?.bowTie ?? null,
         entering: rivalIntroActive(),
         entranceLabelVisible: Boolean(rivalEntranceLabel?.visible),
         position: { x: rivalCharacter.position.x, z: rivalCharacter.position.z },
@@ -3044,10 +3051,11 @@ export function createRestaurant(ctx) {
           }
           return false;
         },
-        beltStop() {
-          if (!beltMalfunction) return false;
-          // Jump to the end of the current phase so a stoppage arrives now.
-          beltMalfunction.advance(beltMalfunction.phaseRemaining + 1e-6);
+        // Jump to the end of the current belt mode so the next one arrives now.
+        beltSwitch() {
+          if (!beltTempo || !conveyor) return false;
+          beltTempo.advance(beltTempo.modeRemaining + 1e-6);
+          conveyor.setTempo(beltTempo.speedMultiplier);
           return true;
         },
       },
@@ -3483,8 +3491,8 @@ export function createRestaurant(ctx) {
   function beginAfterResult() {
     const decision = progression?.resolveRound(resultOutcome) ?? { next: 'final-question' };
     if (decision.next === 'choice') showRematchChoice();
-    else if (decision.next === 'round2-intro') beginRoundTwoTransition();
-    else if (decision.next === 'round3-intro') beginRoundThreeTransition();
+    else if (decision.next === 'round2-intro') beginNextRivalTransition(2);
+    else if (decision.next === 'round3-intro') beginNextRivalTransition(3);
     else beginResultQuestion();
   }
 
@@ -3525,7 +3533,7 @@ export function createRestaurant(ctx) {
   // Settings, speech mode, the overlay and its listeners are untouched.
   function resetForNextRound({
     total, patience = null, tables = DIFFICULTY[difficulty].count, paceScale = 1,
-    snapPlayer = false, malfunction = false,
+    snapPlayer = false, tempo = false,
   }) {
     clearQuestion();
     cancelFocus();
@@ -3608,11 +3616,9 @@ export function createRestaurant(ctx) {
     returnWalk.onArrive = null;
     settleBeatRemaining = 0;
     // Round 3 only: a fresh malfunction cycle, or none at all.
-    beltMalfunction = malfunction
-      ? createBeltMalfunction({ enabled: true, rng: Math.random })
-      : null;
-    beltStopCount = 0;
-    setBeltWarningLight(false);
+    beltTempo = tempo ? createBeltTempo({ enabled: true, rng: Math.random }) : null;
+    beltFastCount = 0;
+    conveyor?.setTempo(1);
     if (resultLabel) {
       resultLabel.classList.remove('restaurant-ui__result--fading');
       resultLabel.hidden = true;
@@ -3733,60 +3739,28 @@ export function createRestaurant(ctx) {
     syncHud();
   }
 
-  // A Round 1 win: Waiter 1 walks out while the player walks back to work, and
-  // only then does Waiter 2 get the full entrance. One continuous scene — the
-  // player is never reset out from under the transition.
-  function beginRoundTwoTransition() {
-    const settings = ROUND_TWO[difficulty];
+  /**
+   * Winning a round: the beaten waiter walks out while the player walks back to
+   * work, and only then does the next challenger get the full entrance. One
+   * continuous scene — the player is never reset out from under a transition
+   * they can see. Rounds 2 and 3 share this exactly; only the tuning differs.
+   */
+  function beginNextRivalTransition(nextRound) {
+    const settings = roundSettings(nextRound);
     resetForNextRound({
       total: competitiveRoundTotal(DIFFICULTY[difficulty].total),
       patience: settings.patience,
       tables: settings.tables,
       paceScale: settings.paceScale,
+      tempo: Boolean(settings.beltTempo),
     });
     phase = 'round-transition';
+    pendingRound = nextRound;
     rivalExit.character = rivalCharacter;
     rivalExit.index = 0;
     rivalCharacter.position.y = 0;
     setRivalAnimation('walk', true);
     startReturnWalk({ playerTarget: PLAYER_START, rivalTarget: null, onArrive: null });
-    syncHud();
-  }
-
-  // A Round 2 win: the same waiter stays for the bonus round, so there is no
-  // entrance cinematic — both simply walk back to their working positions and
-  // the round cue announces Round 3.
-  function beginRoundThreeTransition() {
-    const settings = ROUND_THREE[difficulty];
-    resetForNextRound({
-      total: competitiveRoundTotal(DIFFICULTY[difficulty].total),
-      patience: settings.patience,
-      tables: settings.tables,
-      paceScale: settings.paceScale,
-      malfunction: settings.beltMalfunction,
-    });
-    phase = 'round-transition';
-    rivalCharacter.visible = true;
-    startReturnWalk({
-      playerTarget: PLAYER_START,
-      rivalTarget: RIVAL_ENTRANCE_END,
-      onArrive: beginRoundThreeService,
-    });
-    syncHud();
-  }
-
-  function beginRoundThreeService() {
-    if (!progression?.startRound3()) return;
-    phase = 'service';
-    conveyor.startRoundThree();
-    competitionScore.capture(claimRegistry.counts);
-    serviceDirector.startRush();
-    directorPhase = serviceDirector.phase;
-    activateRivalModel();
-    showPhaseCue('rush', STRINGS.round3Cue);
-    setNotice(STRINGS.round3Hint, 2.6);
-    updateChallengeScore();
-    settleBeatRemaining = SETTLE_BEAT_SECONDS;
     syncHud();
   }
 
@@ -3796,7 +3770,7 @@ export function createRestaurant(ctx) {
     if (!character || !waypoint) {
       // Wait for the player to finish walking back before the next intro.
       if (returnWalk.active) return;
-      beginRoundTwoIntro();
+      beginNextRivalIntro();
       return;
     }
     const dx = waypoint.x - character.position.x;
@@ -3811,13 +3785,17 @@ export function createRestaurant(ctx) {
     if (step >= distance - 1e-6) rivalExit.index += 1;
   }
 
-  function beginRoundTwoIntro() {
+  // The outgoing waiter is gone and the player is back at work: the next
+  // challenger now walks in through the same entrance scene as every other.
+  function beginNextRivalIntro() {
     if (rivalExit.character) {
       rivalExit.character.visible = false;
       rivalExit.character.playAnimation?.('idle', { fade: 0 });
     }
     rivalExit.character = null;
-    if (!progression?.startRound2()) return;
+    const started = pendingRound === 3 ? progression?.startRound3() : progression?.startRound2();
+    pendingRound = null;
+    if (!started) return;
     phase = 'service';
     rivalChallenge = createRivalChallenge({ enabled: true });
     rivalEmoteRemaining = 0;
@@ -3988,13 +3966,13 @@ export function createRestaurant(ctx) {
   }
 
   function enter(level) {
-    const configuredLevel = Number(settings.get('difficulty'));
-    const requestedLevel = Number(level);
-    difficulty = THREE.MathUtils.clamp(
-      Math.round(Number.isFinite(requestedLevel) && requestedLevel > 0 ? requestedLevel : configuredLevel || 1),
-      1,
-      3,
-    );
+    // The Restaurant has one fixed baseline and ignores the global difficulty
+    // setting (DESIGN_DECISIONS 2026-09-21): the waiter ladder is the whole
+    // difficulty curve now, so a second, hidden curve underneath it only made
+    // the same round mean different things for different children. `level` is
+    // still accepted so the call signature matches the other minigames.
+    void level;
+    difficulty = RESTAURANT_LEVEL;
     active = true;
     completed = false;
     finishCalled = false;
@@ -4164,7 +4142,7 @@ export function createRestaurant(ctx) {
         settleBeatRemaining = Math.max(0, settleBeatRemaining - safeDt);
       }
       const playDt = intro || settleBeatRemaining > 0 ? 0 : serviceDt;
-      updateBeltMalfunction(playDt);
+      updateBeltTempo(playDt);
       updateRivalWalk(playDt);
       updateCustomers(playDt, safeDt);
       applyDirectorEvents(playDt);

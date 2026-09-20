@@ -183,14 +183,14 @@ test('rival ignores non-matching foods and dishes it cannot reach before exit', 
 });
 
 test('customer leaving while the rival carries discards the dish', () => {
-  const setup = setupRival({ customers: [makeCustomer(6, 'noodles')] });
+  const setup = setupRival({ customers: [makeCustomer(6, 'ramen')] });
   reachWatchingBelt(setup);
-  setup.conveyor.add({ id: 60, food: 'noodles', x: 0 });
+  setup.conveyor.add({ id: 60, food: 'ramen', x: 0 });
   advance(setup.rival, setup.view, setup.conveyor, 0.6);
   const target = advance(setup.rival, setup.view, setup.conveyor, 0.01)
     .find((event) => event.type === 'targetDish');
   advance(setup.rival, setup.view, setup.conveyor, target.delay + target.duration);
-  assert.deepEqual(setup.rival.carriedDish, { dishId: 60, food: 'noodles' });
+  assert.deepEqual(setup.rival.carriedDish, { dishId: 60, food: 'ramen' });
 
   setup.registry.resolveCustomer(6, { outcome: 'left' });
   const events = advance(setup.rival, setup.view, setup.conveyor, 0.01);
@@ -198,7 +198,7 @@ test('customer leaving while the rival carries discards the dish', () => {
     type: 'abandonTask',
     customer: 6,
     reason: 'left',
-    discardedDish: { dishId: 60, food: 'noodles' },
+    discardedDish: { dishId: 60, food: 'ramen' },
   });
   assert.equal(setup.rival.carriedDish, null);
   assert.equal(setup.rival.state, 'idle');
@@ -415,7 +415,7 @@ test('it never exceeds two active orders however long it waits', () => {
   const setup = setupRival({
     customers: [
       makeCustomer(1, 'curry', 0), makeCustomer(2, 'pizza', 2),
-      makeCustomer(3, 'sushi', 4), makeCustomer(4, 'noodles', 6),
+      makeCustomer(3, 'sushi', 4), makeCustomer(4, 'ramen', 6),
     ],
     options: TWO_ORDERS,
   });

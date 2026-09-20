@@ -269,7 +269,8 @@ during focus by construction rather than by a guard at each timer.
 
 Player is a waiter. Never a cook.
 
-Foods: curry, pizza, hamburger, noodles, sushi.
+Foods: curry, pizza, hamburger, ramen, sushi. (`noodles` was renamed to
+`ramen` on 2026-09-21; old saves migrate on load.)
 
 ### Identity (revised 2026-09-12)
 
@@ -583,12 +584,14 @@ stage above ends Round 1 against Waiter 1. What follows depends on the result:
   `ラウンド 2！` and Round 2 starts at 0–0 with no solo phase.
 - *Round 2.* A loss or a draw ends in the result stage with Waiter 2 and then
   Waiter 2's "What food do you like?". A win unlocks Round 3 (added 2026-09-20).
-- *Round 3.* The bonus round, reachable only by beating Round 2, so a player who
-  loses or draws it is never pushed through the hardest round. Waiter 2 stays
-  and there is no entrance scene: both waiters walk back to their working
-  positions, the cue is `ラウンド 3！` with the notice `ベルトが とまるよ！`, and
-  the round starts at 0–0. Win, loss and draw alike then lead to Waiter 2's
-  "What food do you like?". There is no Round 4.
+- *Round 3.* The last round, reachable only by beating Round 2, so a player who
+  loses or draws it is never pushed through the hardest round. Waiter 2 leaves
+  by the same exit route Waiter 1 uses, the player walks back to work, and
+  **Waiter 3** arrives with the same full entrance scene every challenger gets
+  (title `さいきょうの ウェイター！`, line `さいごの 勝負だ！ / ついてこられるかな？`,
+  three flavour replies). The cue is `ラウンド 3！` with the notice
+  `ベルトが はやくなるよ！` shown once. Win, loss and draw alike then lead to
+  Waiter 3's "What food do you like?". There is no Round 4.
 
 A rematch or Round 2 has the competitive part of the first shift as its length
 (shift total minus the three solo deliveries: 6 on Normal, 10 on Challenge).
@@ -605,26 +608,34 @@ Challenge: rival speed 5.15, seated age 3 s, share 0.5, hesitation 0.25–0.6 s,
 dish notice 0.45 s; belt 1.38 m/s every 1.4 s (≈ 6.8 visible); patience 25 s;
 freed tables refill 30% sooner (all five are already in use).
 
-**Round 3 (added 2026-09-20).** Round 3 is chaos and multitasking, not speed. It
-keeps Round 2's belt speed, rival speed, seated age, hesitation, dish notice and
-customer share unchanged, and adds exactly two things.
+**One fixed difficulty (2026-09-21).** The Restaurant ignores the global
+difficulty setting: it always runs the competitive baseline of 4 tables, 9
+customers, 38 s patience and prep scale 0.85, and the difficulty control is
+hidden while it is open. The waiter ladder is the whole difficulty curve. The
+setting still applies to the other four minigames. Rounds 1 and 2 share the
+baseline patience exactly, and no round overrides the customer share; Round 2 is
+harder only through Waiter 2's execution and the Round 2 belt.
 
-*The belt is unreliable.* It cycles running → warning → stopped → running:
-8–13 s running, a 0.6–1.0 s warning, then 2.0–2.8 s stopped, with randomness
-inside those bounds, a minimum run between stoppages, and the first stoppage
-held back at least 10 s. The warning is an amber lamp bar flashing along the
-front of the belt plus one soft two-note cue, so it is readable without
-Japanese; the lamps hold steady while stopped and a quiet clunk marks the
-restart. While stopped the belt freezes and its dishes stay exactly where they
-are, no dish enters, and nothing else pauses: patience, customers, both waiters,
-carried-dish temperature and the rival all continue. A stoppage is implemented
-as a withheld belt clock, never as a belt mode, so positions, entry schedule and
-dish spacing survive it and the restart resumes precisely where it stopped. The
-Round 3 stream is slightly denser than Round 2 (Normal 1.55 s, Challenge 1.38 s)
-purely to offset the downtime. Patience rises to 30 s on Normal, 27 s on
-Challenge, so belt downtime does not become timeouts.
+**Round 3 (added 2026-09-20, revised 2026-09-21).** Round 3 is chaos and
+multitasking, not raw speed. It keeps Round 2's rival speed, seated age,
+hesitation, dish notice and customer share unchanged, shortens patience to 29 s
+(23.7% below the baseline, the only round that does), and adds exactly two
+things.
 
-*The rival holds two orders.* In Round 3 only, the rival may keep up to two
+*The belt races in bursts.* It alternates a normal stretch (5–9 s) with a fast
+burst (2–4 s) at 2.0× speed, with randomness inside those bounds and a normal
+stretch always between bursts; the first burst never opens the round. **The belt
+never stops.** A burst accelerates the dishes already on it without moving,
+respawning or repositioning anything, and returning to normal leaves them
+exactly where they are. The entry interval is divided by the multiplier, so the
+spatial gap between dishes is preserved rather than doubling and starving the
+belt when it should look busiest. The cue is the belt visibly racing, plus a
+quiet motor spin-up and a shorter wind-down; there is no warning structure and
+no instruction panel per burst. Dish spacing is enforced as a distance rule — a
+dish is held at the hatch until the one ahead is `MIN_DISH_SPACING` clear —
+because an interval alone only guarantees spacing while the speed is constant.
+
+*The rival holds two orders.* In Round 3 only, Waiter 3 may keep up to two
 claimed customers at once. It still walks to each customer and takes each order
 under the existing claim rules — a customer the player has reserved or owns is
 untouchable, and the shift claim limit is unchanged. It claims a second customer
@@ -635,6 +646,7 @@ dish at a time, and delivers it to the customer who asked for that food; serving
 one keeps the other. A stopped belt leaves dishes standing still and therefore
 easier to collect, so a stoppage often sends the rival to the belt rather than
 to a second table — overlapping orders depend on what the belt is offering.
+Waiters 1 and 2 remain single-order rivals.
 
 **Transitions are physical (added 2026-09-20).** Where both the old and the new
 position are visible in the same room, the character walks. When a round ends

@@ -1693,3 +1693,104 @@ snap between gameplay and a presentation becomes a walk.
   is rigged); making Round 3 primarily faster; a beep on every stoppage; a
   dedicated HUD element for the rival's second order; heavyweight pathfinding for
   the staging walks (the existing table steering is reused).
+
+## 2026-09-21 — Restaurant: one fixed difficulty, three waiters, ramen
+
+Owner-authored plan, reviewed and amended before implementation. The Restaurant
+stops having two difficulty curves stacked on each other, gains a real third
+challenger, and swaps belt stoppages for speed bursts.
+
+- **Accepted — the Restaurant ignores the global difficulty setting.** The
+  waiter ladder is the difficulty curve; a second, hidden curve underneath it
+  meant the same round meant different things for different children. The one
+  baseline is the competitive configuration the ladder was tuned against (4
+  tables, 9 customers, 38 s patience, prep scale 0.85) — deliberately **not**
+  the old Easy default, which predates the ladder and has no rival at all. The
+  setting still works for the other four minigames, and the control is hidden
+  while the Restaurant is open rather than lying to the student.
+- **Known consequence — Easy is gone, and Easy was the only rival-free mode.**
+  Every student now gets the competitive baseline. The graceful path that
+  remains is real but quieter: the shift still starts solo and the rival only
+  arrives on the third correct delivery, so a struggling child never meets one.
+  Patience does drop 48 → 38 s for the weakest students and the round is nearly
+  twice as long. Watch this in class before assuming it is fine.
+- **Accepted — Rounds 1 and 2 share the baseline patience.** Round 2 previously
+  shortened it to 28 s. Difficulty there now comes only from Waiter 2's
+  execution (speed 3.6 → 4.2, hesitation 0.8–1.5 → 0.4–0.8, notice 1.0 → 0.6)
+  and the Round 2 belt. Round 2 is therefore a softer step than it was; that is
+  the intended trade for "the room is never tilted while you are not looking".
+- **Accepted — no round overrides the customer share.** Round 2 used to raise it
+  0.35 → 0.45. A rival is dangerous because it beats you to dishes, not because
+  it was handed more customers.
+- **Accepted — Round 3 is the only round that shortens patience,** to 29 s: one
+  explicit scale (`ROUND_THREE_PATIENCE_SCALE` 0.76) applied once where the
+  value is derived, so it can never drift from the baseline. 23.7% shorter.
+- **Accepted — `ROUND_TWO` and `ROUND_THREE` are single objects.** With one
+  baseline, a per-difficulty table would have been a fake index.
+- **Kept — the level-keyed tables inside the pure modules** (`CONVEYOR_CONFIG`,
+  `RIVAL_LEVELS`, `DIFFICULTY`). Those are a legitimate parameterisation of pure
+  modules and their multi-level tests are real coverage; the Restaurant simply
+  always passes `RESTAURANT_LEVEL`. Collapsing them would have churned the rival
+  test file that exists specifically to prove the ladder has not regressed.
+
+### Waiters
+
+- **Accepted — Waiter 2 loses the gold bow tie.** It read as a final boss when
+  Waiter 2 is the middle rung. Its own face, hair and moustache plus the black
+  apron already separate it from Waiter 1 at room-camera distance.
+- **Accepted — Waiter 3 is a real third character** (`RIVAL_IDS.WAITER_3`) with
+  the full challenger entrance every other waiter gets: walk in, close-up,
+  challenger pose, reveal, jingle, typewriter, replies. Round 3 previously
+  reused Waiter 2 and skipped the cinematic entirely.
+- **Accepted — the next-challenger transition is one shared path.**
+  `beginNextRivalTransition(round)` plus `beginNextRivalIntro()` serve Rounds 2
+  and 3 identically: the beaten waiter exits, the player walks back, then the
+  new challenger arrives. No one-off Round 3 scene.
+- **Accepted — Waiter 3 uses model `h` with a deep-red apron.** Claude raised
+  that `h` reads as a grey, visored figure rather than a friendly waiter and
+  offered the unused alternatives (b, c, d, g, j, l, n, o, p); the owner judged
+  it fine on 2026-09-21. The three waiters are white / black / red aprons on
+  models `r` / `k` / `h`, all distinct from the player (`a`) and the customers
+  (e, f, i, m, q).
+
+### The belt
+
+- **Accepted — speed bursts replace stoppages, one day after the stoppages
+  shipped.** The belt now alternates normal (5–9 s) and fast (2–4 s) at 2.0×,
+  and never stops. `beltMalfunction.js` and its amber warning-lamp bar are
+  deleted; the conveyor front is clean again. The cue is the belt visibly
+  racing, plus a quiet motor spin-up and wind-down.
+- **Accepted — a fast burst divides the entry interval by the multiplier.**
+  Keeping the time interval would have spread dishes twice as far apart at the
+  exact moment the belt should look frantic. Dividing it preserves the *spatial*
+  gap exactly and doubles throughput.
+- **Fixed — dish spacing is now a distance rule, not a time rule.** A speed
+  change could schedule an immediate entry while the dish ahead had only
+  travelled at the old, slower speed, bunching two dishes to 1.26 units (under
+  `MIN_DISH_SPACING` 1.9). The conveyor now holds a dish at the hatch until the
+  one ahead is genuinely clear, which also closes the same latent hole in the
+  existing rush and Round 2 mode switches.
+- **Noted — a burst invalidates the rival's interception maths.** It plans its
+  walk from the belt speed at that moment, so a burst mid-walk makes it arrive
+  to find the dish gone, and it abandons cleanly. That is fair — the player's
+  click-to-walk is surprised identically — but if it looks incompetent in play,
+  this is why.
+
+### Ramen
+
+- **Accepted — `noodles` becomes `ramen`,** a full semantic rename: vocabulary
+  id, answer sentence (`I like ramen.`), `FOODS`, prep-time key, dish geometry
+  branch and every test. The bowl gains a narutomaki disc and an egg half so it
+  reads as ramen rather than plain noodles.
+- **Accepted — old saves migrate on load.** `RENAMED_ANSWERS` in
+  `progression.js` maps a stored `noodles` answer to `ramen` in `cleanState`, so
+  a child who answered before the rename still sees their answer in the hub and
+  stamp book. `noodles` is never written back.
+- **Accepted — explicit speech variants for ramen.** The class says ラーメン, so
+  the recogniser returns the long-vowel and l/r shapes far more often than the
+  dictionary spelling; edit distance alone handles those poorly, and the
+  `VARIANTS` table exists for exactly this.
+- **Rejected:** keeping Easy as a Restaurant option; a per-difficulty Round 2/3
+  table; raising the Round 3 share; a new physical warning structure for the
+  fast belt; a Japanese instruction panel on every burst; a complex new ramen
+  model.

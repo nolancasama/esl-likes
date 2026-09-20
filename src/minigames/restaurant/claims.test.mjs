@@ -74,7 +74,7 @@ test('reserving any seated Talk target moves the single player reservation', () 
 
 test('zero service dt freezes seated age and registry state across repeated frames', () => {
   const claims = createCustomerClaimRegistry();
-  claims.registerCustomer({ id: 8, food: 'noodles', position: { x: 2, z: 3 } });
+  claims.registerCustomer({ id: 8, food: 'ramen', position: { x: 2, z: 3 } });
   claims.markSeated(8);
   const before = claims.getCustomer(8);
 

@@ -1,37 +1,53 @@
 # Current State
 
-## Latest pass (2026-09-20)
+## Latest pass (2026-09-21)
 
-**Restaurant Round 3 + physical transitions. PUSHED LIVE 2026-09-20** at the
-owner's request, after the full pass was tested. Verified before the push:
-`npm test` 361/361, `npm run build` OK, and the new permanent browser
-playthrough 55/55 with a passing known-bad run (so the harness is TRUSTED).
-Claude viewed Round 3 running, the belt warning and the stopped belt.
+**Restaurant: one fixed difficulty, three waiters, ramen, fast belt bursts.
+PUSHED LIVE 2026-09-21** at the owner's request, after testing. Verified before
+the push: `npm test` **369/369**, `npm run build` OK, permanent browser
+playthrough **71/71**, and a known-bad run that failed only on its seeded check
+(so the harness is TRUSTED). Claude viewed the Round 3 room, the Waiter 3
+challenge panel and a fast burst; the owner approved Waiter 3's look.
 
-- New pure `beltMalfunction.js` (+13 tests): Round 3's run/warning/stop cycle.
-  A stoppage is expressed as a **withheld conveyor clock**, never a belt mode —
-  `updateConveyor` passes dt 0 while stopped, so dish positions, the entry
-  schedule and spacing survive by construction.
-- `rival.js` refactored from one task to an order list behind
-  `maxActiveOrders` (**default 1**, so Rounds 1–2 are untouched and all 12
-  pre-existing rival tests pass **unmodified** — that is the regression guard).
-  13 new multitasking tests.
-- `rivalProgression.js`: `round3-intro`/`round3` phases, `ROUND_THREE` tuning,
-  `roundSettings`, `challengeGateOpen` (Round 2/3 no longer ride on
-  `rushTrigger.triggered`).
-- `resultStage.js`: opt-in `staging` phase + `markStaged` + 1.8 s safety
-  timeout, so the waiters walk to the marks instead of snapping.
-- `index.js`: Round 3 wiring, belt warning lamps, staging walk, rematch and
-  next-round return walks, 0.4 s settle beat, `restaurantControl` test-only
-  debug hook (`forceOutcome`, `endRound`, `triggerRival`, `beltStop`).
-- `scripts/playthrough-restaurant.mjs` is the new permanent playthrough;
-  the stale pre-open-seating one is now `playthrough:restaurant-legacy`
-  (known-failing, kept only for checks worth porting).
-- DESIGN_DECISIONS 2026-09-20 and SPEC "Round 3" / "Transitions are physical".
+- Restaurant ignores the global difficulty; `RESTAURANT_LEVEL = 2` is the one
+  baseline (4 tables, 9 customers, 38 s patience). The difficulty control is
+  hidden while the Restaurant is open (`settings.setDifficultyAvailable`).
+  **Easy is gone as a Restaurant mode** — see DESIGN_DECISIONS for the
+  classroom consequence.
+- `ROUND_TWO` / `ROUND_THREE` are single objects. R1 and R2 share the baseline
+  patience; R3 is 29 s (`ROUND_THREE_PATIENCE_SCALE` 0.76, 23.7% shorter). No
+  round overrides the customer share any more.
+- Waiter 2 lost the gold bow tie. **Waiter 3 is new** (`RIVAL_IDS.WAITER_3`)
+  and gets the full challenger entrance through a shared
+  `beginNextRivalTransition(round)` / `beginNextRivalIntro()` path.
+- `beltMalfunction.js` and the amber warning-lamp bar are **deleted**. New pure
+  `beltTempo.js` (+15 tests): normal 5–9 s / fast 2–4 s at 2.0×, belt never
+  stops. `conveyor.setTempo(multiplier)` divides the entry interval so spatial
+  spacing is preserved.
+- **Conveyor bug fixed:** dish spacing is now enforced as a distance rule
+  (`entryClearanceDelay`), not a time rule. A speed change could bunch dishes to
+  1.26 (under `MIN_DISH_SPACING` 1.9). This also closed the same latent hole in
+  the pre-existing rush / Round 2 mode switches.
+- `noodles` -> `ramen` everywhere, with toppings on the bowl, a saved-answer
+  migration in `progression.js` (`RENAMED_ANSWERS`) and explicit speech
+  variants. New `src/systems/progression.test.mjs` (8 tests).
 
-NOT done: Challenge (level 3) in the browser, 412 px, real unforced outcomes,
-other minigames re-run after the `lesson.js` string additions. Round 3 has not
-been playtested by a person — difficulty is unjudged.
+### NEXT STEPS for a fresh session
+
+1. **Classroom playtest of the new curve.** Removing Easy is the biggest open
+   risk: every student now meets the waiter ladder at the competitive baseline
+   (38 s patience, 9 customers) where Easy used to give 48 s, 5 customers and no
+   rival at all. The solo warm-up still shields a struggling child — the rival
+   only arrives on the third correct delivery — but that is untested in class.
+2. Judge a Round 3 fast burst by eye: dramatic but still readable? And whether
+   Waiter 3 reads as a friendly waiter to actual children.
+3. Re-run the other four minigames' playthroughs — they were not run after the
+   `lesson.js` and `main.js` edits in this pass.
+
+NOT done: Challenge/412 px (both now moot for the Restaurant, which is fixed at
+one baseline, but the other minigames still use difficulty and were not re-run
+after the `lesson.js` and `main.js` changes), real unforced outcomes, and any
+human playtest of the new curve.
 
 ## Status
 

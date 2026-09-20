@@ -1,86 +1,72 @@
 import { RUSH_PLAYER_DELIVERIES } from './rushTrigger.js';
 
 // Rival progression after the first head-to-head (DESIGN_DECISIONS 2026-09-19
-// "rival progression", extended 2026-09-20 "Round 3 chaos"). Round 1 against
-// Waiter 1; a loss or draw offers a rematch or the finish; a win brings Waiter 2
-// for Round 2. Beating Round 2 unlocks Round 3, the bonus round, against the
-// same Waiter 2 — losing or drawing Round 2 goes straight to the final
-// question, so a weaker player is never forced through it. Round 3 always ends
-// in the final question whatever its outcome. There is no Round 4.
+// "rival progression", 2026-09-20 "Round 3 chaos", 2026-09-21 "one fixed
+// Restaurant, three waiters"). Round 1 against Waiter 1; a loss or draw offers
+// a rematch or the finish; a win brings Waiter 2 for Round 2. Beating Round 2
+// unlocks Round 3 against Waiter 3 — losing or drawing Round 2 goes straight to
+// the final question, so a weaker player is never forced through it. Round 3
+// always ends in the final question whatever its outcome. There is no Round 4.
+//
+// The Restaurant has one fixed baseline, so each round's tuning is one object
+// rather than a per-difficulty table.
 
-export const RIVAL_IDS = Object.freeze({ WAITER_1: 'waiter1', WAITER_2: 'waiter2' });
+export const RIVAL_IDS = Object.freeze({
+  WAITER_1: 'waiter1', WAITER_2: 'waiter2', WAITER_3: 'waiter3',
+});
 
 /** The rounds whose intro is gated on progression rather than the warm-up rush. */
 export const PROGRESSION_ROUNDS = Object.freeze([2, 3]);
 
-// Round 2 wins on execution, not on customer share: faster feet, shorter
-// hesitation and quicker dish noticing, while the share stays at or under half.
-// Per level so a Normal player meets roughly the Challenge rival, not a jump
-// past it. Tables: Normal gains its fifth table; Challenge already uses all five,
-// so its free tables refill faster instead.
+// The Restaurant has one fixed baseline and ignores the global difficulty
+// setting. This is the competitive level the rival ladder was tuned against —
+// deliberately NOT the old Easy default, which predates the ladder entirely.
+export const RESTAURANT_LEVEL = 2;
+
+// The one fixed Restaurant baseline the rounds build from.
+export const BASELINE = Object.freeze({ patience: 38, tables: 4, paceScale: 1 });
+
+// Round 2 wins on execution alone: faster feet, shorter hesitation and quicker
+// dish noticing. Patience, tables, customer share and the director all stay at
+// the baseline — Waiter 2 is harder because it beats you to dishes, not because
+// the room was tilted while you were not looking.
 export const ROUND_TWO = Object.freeze({
-  2: Object.freeze({
-    rival: Object.freeze({
-      speed: 4.2,
-      minSeatedAge: 5,
-      share: 0.45,
-      hesitationMin: 0.4,
-      hesitationMax: 0.8,
-      dishNoticeSeconds: 0.6,
-    }),
-    patience: 28,
-    tables: 5,
-    paceScale: 1,
+  rival: Object.freeze({
+    speed: 4.2,
+    minSeatedAge: 5,
+    hesitationMin: 0.4,
+    hesitationMax: 0.8,
+    dishNoticeSeconds: 0.6,
   }),
-  3: Object.freeze({
-    rival: Object.freeze({
-      speed: 5.15,
-      minSeatedAge: 3,
-      share: 0.5,
-      hesitationMin: 0.25,
-      hesitationMax: 0.6,
-      dishNoticeSeconds: 0.45,
-    }),
-    patience: 25,
-    tables: 5,
-    paceScale: 0.7,
-  }),
+  patience: BASELINE.patience,
+  tables: BASELINE.tables,
+  paceScale: BASELINE.paceScale,
 });
 
-// Round 3 is the bonus round, and it is deliberately NOT another stat rise: the
-// rival keeps Round 2's feet, hesitation and customer share, and gains exactly
-// one thing — it can hold two claimed orders at once. The belt gains its
-// stoppages. Patience rises a little because the belt is stopped for roughly a
-// sixth of the round: holding it at the Round 2 value would quietly convert
-// belt downtime into timeouts, which is difficulty from the environment rather
-// than from the duel.
+// Round 3 is the last round and the only one that shortens patience. One
+// explicit scale, applied once here, so the value can never drift apart from
+// the baseline it is derived from.
+export const ROUND_THREE_PATIENCE_SCALE = 0.76;
+export const ROUND_THREE_PATIENCE = Math.round(BASELINE.patience * ROUND_THREE_PATIENCE_SCALE);
+
+// Waiter 3 keeps Waiter 2's feet and adds the one thing that makes it feel
+// like a different opponent: it can hold two claimed orders at once. The belt
+// gains its fast bursts (beltTempo.js).
 export const ROUND_THREE = Object.freeze({
-  2: Object.freeze({
-    rival: Object.freeze({
-      ...ROUND_TWO[2].rival,
-      maxActiveOrders: 2,
-    }),
-    patience: 30,
-    tables: 5,
-    paceScale: 1,
-    beltMalfunction: true,
+  rival: Object.freeze({
+    ...ROUND_TWO.rival,
+    maxActiveOrders: 2,
   }),
-  3: Object.freeze({
-    rival: Object.freeze({
-      ...ROUND_TWO[3].rival,
-      maxActiveOrders: 2,
-    }),
-    patience: 27,
-    tables: 5,
-    paceScale: 0.7,
-    beltMalfunction: true,
-  }),
+  patience: ROUND_THREE_PATIENCE,
+  tables: BASELINE.tables,
+  paceScale: BASELINE.paceScale,
+  beltTempo: true,
 });
 
-/** Per-round tuning, or null for Round 1 and a rematch. */
-export function roundSettings(round, difficulty) {
-  if (round === 2) return ROUND_TWO[difficulty] ?? null;
-  if (round === 3) return ROUND_THREE[difficulty] ?? null;
+/** Per-round tuning, or null for Round 1 and a rematch (both baseline). */
+export function roundSettings(round) {
+  if (round === 2) return ROUND_TWO;
+  if (round === 3) return ROUND_THREE;
   return null;
 }
 
@@ -99,7 +85,7 @@ const OUTCOMES = new Set(['player', 'rival', 'draw']);
  *   round2-intro  after a Round 1 win, before Waiter 2 arrives
  *   round2        Waiter 2 battle (from its introduction on)
  *   round3-intro  after a Round 2 win, before the bonus round starts
- *   round3        the bonus round, same Waiter 2, chaotic belt
+ *   round3        the last round, Waiter 3, fast belt bursts
  *   final         the final question; nothing further can start
  * Every call that is not valid for the current phase returns null and changes nothing.
  */
@@ -151,11 +137,11 @@ export function createRivalProgression() {
     return { next: 'round2' };
   }
 
-  // Round 3 keeps Waiter 2: the design adds no character for the bonus round.
   function startRound3() {
     if (phase !== 'round3-intro') return null;
     phase = 'round3';
     round = 3;
+    rivalId = RIVAL_IDS.WAITER_3;
     return { next: 'round3' };
   }
 

@@ -2,7 +2,7 @@ export const FOODS = Object.freeze([
   'curry',
   'pizza',
   'hamburger',
-  'noodles',
+  'ramen',
   'sushi',
 ]);
 
@@ -13,7 +13,7 @@ export const FOOD_PREP_SECONDS = Object.freeze({
   curry: 11,
   pizza: 9,
   hamburger: 7.5,
-  noodles: 6,
+  ramen: 6,
   sushi: 4.5,
 });
 

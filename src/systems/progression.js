@@ -41,6 +41,15 @@ function cleanSettings(value) {
   };
 }
 
+// Vocabulary ids that have been renamed since a save may have been written.
+// Applied on load, so a child who answered before the rename still sees their
+// answer in the hub and their stamp book rather than losing it.
+const RENAMED_ANSWERS = Object.freeze({ noodles: 'ramen' });
+
+function migrateAnswer(answer) {
+  return RENAMED_ANSWERS[answer] ?? answer;
+}
+
 function cleanState(value) {
   const source = value && typeof value === 'object' ? value : {};
   return {
@@ -53,7 +62,8 @@ function cleanState(value) {
         : undefined;
     }),
     answers: cleanRecord(source.answers, (entry) => {
-      return typeof entry === 'string' && entry.trim() ? entry.trim() : undefined;
+      if (typeof entry !== 'string' || !entry.trim()) return undefined;
+      return migrateAnswer(entry.trim());
     }),
     zooPhotos: cleanRecord(source.zooPhotos, (entry) => {
       return typeof entry === 'string' && entry ? entry : undefined;

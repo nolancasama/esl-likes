@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { CONVEYOR_CONFIG, MIN_DISH_SPACING, createConveyor } from './conveyor.js';
 
-const FOODS = ['curry', 'pizza', 'hamburger', 'noodles', 'sushi'];
+const FOODS = ['curry', 'pizza', 'hamburger', 'ramen', 'sushi'];
 
 function seededRng(seed) {
   let state = seed >>> 0;

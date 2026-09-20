@@ -189,7 +189,7 @@ test('ANSWERS has all five categories', () => {
 });
 
 test('ANSWERS food matches SPEC.md', () => {
-  assert.deepEqual(ANSWERS.food, ['curry', 'pizza', 'hamburger', 'noodles', 'sushi']);
+  assert.deepEqual(ANSWERS.food, ['curry', 'pizza', 'hamburger', 'ramen', 'sushi']);
 });
 
 test('ANSWERS color matches SPEC.md', () => {
