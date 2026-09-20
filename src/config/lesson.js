@@ -272,6 +272,11 @@ export const UI = Object.freeze({
     rival2Challenge: 'ぼくとも {勝負|しょうぶ}しよう！\nもっと むずかしいよ！',
     rival2ChallengeReplies: Object.freeze(['いいよ！{勝負|しょうぶ}だ！', '{負|ま}けないよ！', 'やってみよう！']),
     round2Cue: 'ラウンド 2！',
+    // After winning Round 2: the bonus round. The same waiter stays, so there
+    // is no new challenge scene — just the cue and a warning that the belt is
+    // unreliable now.
+    round3Cue: 'ラウンド 3！',
+    round3Hint: 'ベルトが とまるよ！',
     // End-of-shift head-to-head result; friendly wording whoever wins.
     resultPlayer: 'きみの かち！',
     resultRival: 'ウェイターの かち！',

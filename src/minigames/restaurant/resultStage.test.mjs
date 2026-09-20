@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   RESULT_STAGE_LAYOUT,
+  RESULT_STAGE_MOVEMENT,
   RESULT_STAGE_TIMING,
   createResultStage,
   reactionsFor,
@@ -14,6 +15,7 @@ const SETTLING_SECONDS = RESULT_STAGE_TIMING.labelFade
 
 test('result stage exposes the requested timing and layout', () => {
   assert.deepEqual(RESULT_STAGE_TIMING, {
+    stagingTimeout: 1.8,
     reaction: 3.6,
     labelFade: 0.3,
     scoreShrink: 0.5,
@@ -149,4 +151,77 @@ test('markAnswered is only valid from question', () => {
   assert.equal(stage.active, true, 'the stage stays active until the scene finishes');
   assert.equal(stage.markAnswered(), false);
   assert.equal(stage.phase, 'answered');
+});
+
+test('staging is opt-in: without it the reaction starts immediately as before', () => {
+  const stage = createResultStage({ outcome: 'player' });
+  assert.equal(stage.usesStaging, false);
+  stage.start();
+  assert.equal(stage.phase, 'reaction');
+  assert.equal(stage.staging, false);
+  assert.deepEqual(stage.markStaged(), [], 'markStaged is inert without staging');
+});
+
+test('a staged result walks first and holds the reaction until both arrive', () => {
+  const stage = createResultStage({ outcome: 'player', staging: true });
+  stage.start();
+  assert.equal(stage.phase, 'staging');
+  assert.equal(stage.staging, true);
+  assert.equal(stage.active, true);
+  // Nothing of the result presentation shows while they are still walking.
+  assert.equal(stage.labelVisible, false);
+  assert.equal(stage.scoreCompact, false);
+
+  assert.deepEqual(stage.advance(1.0), [], 'the reaction did not start on its own');
+  assert.equal(stage.phase, 'staging');
+
+  assert.deepEqual(stage.markStaged(), [{ type: 'phase', phase: 'reaction' }]);
+  assert.equal(stage.phase, 'reaction');
+  assert.equal(stage.phaseElapsed, 0, 'the reaction gets its full duration');
+  assert.equal(stage.labelVisible, true);
+  assert.deepEqual(stage.markStaged(), [], 'arriving twice changes nothing');
+});
+
+test('the safety timeout releases a staging that never reports arrival', () => {
+  const stage = createResultStage({ outcome: 'draw', staging: true });
+  stage.start();
+  assert.deepEqual(stage.advance(RESULT_STAGE_TIMING.stagingTimeout - 0.01), []);
+  assert.equal(stage.phase, 'staging');
+  const events = stage.advance(0.02);
+  assert.deepEqual(events, [{ type: 'phase', phase: 'reaction' }]);
+  assert.equal(stage.phase, 'reaction');
+});
+
+test('a staged result still reaches the question, just one phase later', () => {
+  const stage = createResultStage({ outcome: 'rival', staging: true });
+  stage.start();
+  stage.markStaged();
+  const events = stage.advance(RESULT_STAGE_TIMING.reaction + SETTLING_SECONDS);
+  assert.deepEqual(events.map((event) => event.phase), ['settling', 'question']);
+  assert.equal(stage.phase, 'question');
+  assert.equal(stage.markAnswered(), true);
+});
+
+test('a stuck staging still reaches the question rather than deadlocking', () => {
+  const stage = createResultStage({ outcome: 'player', staging: true });
+  stage.start();
+  const events = stage.advance(
+    RESULT_STAGE_TIMING.stagingTimeout + RESULT_STAGE_TIMING.reaction + SETTLING_SECONDS,
+  );
+  assert.deepEqual(events.map((event) => event.phase), ['reaction', 'settling', 'question']);
+  assert.equal(stage.phase, 'question');
+});
+
+test('the staging walk speed lands both waiters inside the timeout', () => {
+  // Worst case in this room: a waiter against the side wall at the front
+  // (x 6.85, z 5.7) walking to the far result mark.
+  const worstCase = Math.hypot(6.85 + Math.abs(RESULT_STAGE_LAYOUT.player.x),
+    5.7 - RESULT_STAGE_LAYOUT.player.z);
+  const walkSeconds = worstCase / RESULT_STAGE_MOVEMENT.speed;
+  assert.ok(
+    walkSeconds < RESULT_STAGE_TIMING.stagingTimeout,
+    `worst-case walk ${walkSeconds.toFixed(2)} s would trip the ${RESULT_STAGE_TIMING.stagingTimeout} s guard`,
+  );
+  // And it stays a quick beat rather than becoming a cinematic.
+  assert.ok(walkSeconds < 1.6, `worst-case walk ${walkSeconds.toFixed(2)} s is too slow to feel energetic`);
 });

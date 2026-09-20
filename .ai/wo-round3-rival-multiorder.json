@@ -1,0 +1,37 @@
+{
+  "task": "Refactor the Restaurant rival from one active customer order to up to two, behind a maxActiveOrders option that defaults to 1",
+  "requirements": [
+    "createRestaurantRival accepts maxActiveOrders (default 1). With the default, behaviour is byte-for-byte the same as today and every existing test in rival.test.mjs passes unchanged.",
+    "Internal single `task` becomes an ordered list of active orders, each {customer, food, targetPosition}. A single `activity` describes the one physical thing the body is doing and names which order it serves.",
+    "The rival claims a second customer only from the watchingBelt state when no matching dish for any active order is reachable. It never claims a second customer while walking to a dish, carrying, or delivering.",
+    "The rival never re-targets mid-walk: once walking to claim customer B, a matching dish for order A does not interrupt it. Existing abandon rules still apply.",
+    "targetMatchingDish considers dishes matching ANY active order and picks the earliest achievable interception, not FIFO.",
+    "Exactly one carried dish at a time. A carried dish is delivered to the order whose food it matches.",
+    "Serving one order leaves the other active; the freed slot allows a later claim.",
+    "Per-order loss handling: a lost or departed customer abandons only that order, not the whole list.",
+    "The existing claimLimit (round(total * share)) still caps total claims for the shift and is unchanged.",
+    "Expose observable state for acceptance: activeOrders (array of customer ids), maxActiveOrders, and keep targetCustomer/targetDishId/carriedDish/claims/state working."
+  ],
+  "constraints": [
+    "Do not change claims.js ownership rules. A player-reserved or player-owned customer can never be claimed.",
+    "Do not raise the rival share or otherwise change Round 1 or Round 2 tuning.",
+    "No teleporting, no instant belt claiming, no invisible inventory: every pickup and delivery keeps its existing physical walk and event.",
+    "Keep the module pure: no scene, DOM or three.js references.",
+    "Preserve the existing event vocabulary and payload shapes.",
+    "Edit source with structured editing tools, never with shell regex rewrites."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/rival.js",
+    "src/minigames/restaurant/rival.test.mjs",
+    "src/minigames/restaurant/claims.js"
+  ],
+  "validation": ["npm test"],
+  "behavioralAcceptance": { "required": false },
+  "category": "game-logic",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "none",
+  "risk": "high",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

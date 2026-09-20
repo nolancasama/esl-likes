@@ -1584,3 +1584,112 @@ rest quarantined). SPEC §4 "Rival progression" has the behaviour and numbers.
   hard by handing it most customers; a Round 3; one absolute Round 2 tuning for
   both levels; English REMATCH/FINISH labels (the UI is kana/furigana for
   Grade 3 readers).
+
+## 2026-09-20 — Restaurant: Round 3 chaos, and no more teleports
+
+Owner-authored plan, reviewed and amended before implementation. Round 3 is a
+bonus round for a player who has already beaten Waiter 2, and every remaining
+snap between gameplay and a presentation becomes a walk.
+
+- **Supersedes the 2026-09-19 "Rejected: a Round 3" line.** That rejection was
+  against a Round 3 that was simply more speed. This one is accepted because it
+  changes the *kind* of pressure rather than the amount.
+- **Accepted — Round 3 unlocks only by beating Round 2.** A loss or a draw in
+  Round 2 goes straight to the final question, so a weaker student is never
+  pushed through the hardest round. Round 3 ends in the final question whatever
+  its outcome; there is no Round 4.
+- **Accepted — Round 3's identity is chaos and multitasking, not speed.** It
+  reuses Round 2's belt speed, rival speed, hesitation, dish-notice time and
+  customer share exactly. It adds exactly two things: a belt that stops, and a
+  rival that can hold two orders.
+- **Accepted — a stoppage is a withheld clock, not a belt mode.** The conveyor
+  is a boundary scheduler keyed on its own service time; suppressing movement
+  inside it would leave `nextEntryTime` behind and dump a burst of dishes at the
+  entry on restart. Instead the scene simply does not advance the belt while
+  stopped, so positions, entry schedule and dish spacing survive a stoppage by
+  construction and a restart resumes exactly where it stopped. `beltMalfunction.js`
+  owns the run/warning/stop cycle and runs on the service clock, so patience,
+  customers and both waiters keep going while the belt is frozen.
+- **Accepted — belt timing 8–13 s running, 0.6–1.0 s warning, 2.0–2.8 s stopped,**
+  with the first stoppage held back at least 10 s. The owner's 6–12 s run window
+  left the belt stopped about a fifth of the round; at the longer window it is
+  nearer a sixth. The Round 3 stream densifies slightly (Normal 1.75 → 1.55 s
+  entry interval) purely to offset that downtime, so a stoppage bunches supply
+  into a scramble instead of starving the room. Challenge is already at
+  `MIN_DISH_SPACING` and barely densifies.
+- **Accepted — Round 3 patience rises** (Normal 28 → 30 s, Challenge 25 → 27 s).
+  Holding it would have quietly converted belt downtime into timeouts, which is
+  difficulty from the environment rather than from the duel.
+- **Accepted — two rival orders behind `maxActiveOrders`, defaulting to 1.** The
+  rival was a strictly linear single-task machine; the refactor is the highest
+  regression risk in the pass. Defaulting to one order means Rounds 1 and 2 take
+  the identical path, and every pre-existing rival test passes unmodified — that
+  is the regression guard, not a nicety.
+- **Accepted — the rival claims a second customer only when no dish matches an
+  order it already holds.** Claiming eagerly would make it simply twice as fast,
+  which is the thing this round is not. Restricting it to an idle belt-watch
+  makes the behaviour legible: it has nothing to carry, so it goes and takes
+  another order.
+- **Accepted — it never re-targets mid-walk.** A dish appearing for order A
+  while it walks to claim customer B does not interrupt it. Otherwise it twitches
+  and reads as psychic rather than competent.
+- **Noted — a stoppage does not reliably push the rival to a second order.** A
+  stopped belt leaves its dishes standing still, which makes them *easier* to
+  collect, so a stoppage often sends the rival to the belt rather than to another
+  table. Two overlapping orders therefore depend on what the belt is offering.
+  This is good behaviour (it grabs the easy dish) and is left alone; the
+  guarantee is unit-tested, and the browser harness reports it as an observation
+  rather than asserting it.
+- **Accepted — no new UI for the rival's two orders.** The existing black
+  ownership bubbles already mark rival-claimed customers, so two black bubbles
+  *is* the readout.
+- **Accepted — an amber lamp bar on the front of the belt is the warning,** with
+  one soft two-note cue. The lamps are deliberately large: at trim size they read
+  as belt detail from the room camera, and this has to say "about to stop" to a
+  child who reads no Japanese. A beep every ten seconds for a whole round would
+  be punishing in a classroom, so the sound plays once per warning at low gain.
+- **Accepted — Round 3 reuses Waiter 2 and skips the entrance cinematic.** The
+  same waiter is already in the room; both simply walk back to their working
+  positions and `ラウンド 3！` announces the round. Replaying the walk-in would
+  contradict the fiction.
+
+### No more teleports
+
+- **Accepted — the result stage is walked into, not cut to.** `createResultStage`
+  gains an opt-in leading `staging` phase; the waiters keep the positions the
+  round left them in and walk to their marks at 8 units/sec while the camera
+  eases to the result framing. The label, sting and reactions all wait for the
+  walk. Staging is opt-in so the existing result-stage tests keep describing the
+  reaction unchanged.
+- **Accepted — 8.0 units/sec, not 7.5.** From the far corner of the room 7.5
+  took 1.67 s, close enough to the 1.8 s deadlock guard that the guard could fire
+  on an honest walk. At 8.0 the worst case is about 1.56 s.
+- **Accepted — a safety timeout, always.** A blocked route must never strand the
+  game short of its own result. The same rule covers the return walks.
+- **Accepted — the rematch and the next challenger walk too.** A rematch walks
+  both waiters back from the result marks; a Round 1 win walks the player back
+  while Waiter 1 leaves, and the next intro waits for both. The player is no
+  longer reset out from under a transition they can see.
+- **Accepted — a 0.4 s settle beat before each round starts.** The camera is
+  still easing back when gameplay used to begin, so the player lost time they
+  could not see. Customers, belt, director and rival now all start together.
+
+### Cleanup
+
+- **Accepted — later rounds no longer ride on the Round 1 rush trigger.** Round 2
+  and Round 3 worked partly because `rushTrigger.triggered` happened to stay
+  true. The gate is now `progression.challengeGateOpen(rushTriggered)`: Round 1
+  still depends on the three-delivery warm-up, later rounds on progression alone.
+- **Accepted — a test-only `restaurantControl` debug hook.** Reaching Round 3
+  honestly costs two won rounds, which made every check of it slow and flaky and
+  pushed previous passes into monkey-patching the game from the harness. The
+  game never reads it.
+- **Accepted — the permanent Restaurant playthrough is replaced, not repaired.**
+  The old one predates open seating (raised hands, live-order limits) and scored
+  0 passes. It is kept as `playthrough:restaurant-legacy`, explicitly
+  known-failing, for the scoring and dwell checks still worth porting.
+- **Rejected:** a Round 4; a new character for Round 3; raising the Round 3 rival
+  share (the rival is dangerous because it holds two jobs, not because ownership
+  is rigged); making Round 3 primarily faster; a beep on every stoppage; a
+  dedicated HUD element for the rival's second order; heavyweight pathfinding for
+  the staging walks (the existing table steering is reused).

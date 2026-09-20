@@ -6,7 +6,11 @@ import { fileURLToPath } from 'node:url';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCENARIOS = Object.freeze({
-  restaurant: 'scripts/playthrough.mjs',
+  restaurant: 'scripts/playthrough-restaurant.mjs',
+  // Pre-open-seating harness: raised hands, the live-order limit and the
+  // three-customer cap. Known-failing against the current game; kept only for
+  // the scoring and dwell checks that may still be worth porting.
+  'restaurant-legacy': 'scripts/playthrough.mjs',
   'drink-stand': 'scripts/playthrough-drink.mjs',
   zoo: 'scripts/playthrough-zoo.mjs',
   coloring: 'scripts/playthrough-coloring.mjs',

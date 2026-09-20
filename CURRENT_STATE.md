@@ -1,5 +1,38 @@
 # Current State
 
+## Latest pass (2026-09-20)
+
+**Restaurant Round 3 + physical transitions. PUSHED LIVE 2026-09-20** at the
+owner's request, after the full pass was tested. Verified before the push:
+`npm test` 361/361, `npm run build` OK, and the new permanent browser
+playthrough 55/55 with a passing known-bad run (so the harness is TRUSTED).
+Claude viewed Round 3 running, the belt warning and the stopped belt.
+
+- New pure `beltMalfunction.js` (+13 tests): Round 3's run/warning/stop cycle.
+  A stoppage is expressed as a **withheld conveyor clock**, never a belt mode —
+  `updateConveyor` passes dt 0 while stopped, so dish positions, the entry
+  schedule and spacing survive by construction.
+- `rival.js` refactored from one task to an order list behind
+  `maxActiveOrders` (**default 1**, so Rounds 1–2 are untouched and all 12
+  pre-existing rival tests pass **unmodified** — that is the regression guard).
+  13 new multitasking tests.
+- `rivalProgression.js`: `round3-intro`/`round3` phases, `ROUND_THREE` tuning,
+  `roundSettings`, `challengeGateOpen` (Round 2/3 no longer ride on
+  `rushTrigger.triggered`).
+- `resultStage.js`: opt-in `staging` phase + `markStaged` + 1.8 s safety
+  timeout, so the waiters walk to the marks instead of snapping.
+- `index.js`: Round 3 wiring, belt warning lamps, staging walk, rematch and
+  next-round return walks, 0.4 s settle beat, `restaurantControl` test-only
+  debug hook (`forceOutcome`, `endRound`, `triggerRival`, `beltStop`).
+- `scripts/playthrough-restaurant.mjs` is the new permanent playthrough;
+  the stale pre-open-seating one is now `playthrough:restaurant-legacy`
+  (known-failing, kept only for checks worth porting).
+- DESIGN_DECISIONS 2026-09-20 and SPEC "Round 3" / "Transitions are physical".
+
+NOT done: Challenge (level 3) in the browser, 412 px, real unforced outcomes,
+other minigames re-run after the `lesson.js` string additions. Round 3 has not
+been playtested by a person — difficulty is unjudged.
+
 ## Status
 
 All five minigames are playable end to end and published at
@@ -119,6 +152,17 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 - Provenance: `public/assets/zoo/environment/README.md`.
 
 ## Next Steps
+
+000000000000. 2026-09-20 Restaurant Round 3 + no-teleport transitions
+     (Claude directly — router: Codex in a usage-limit window until 2026-09-22,
+     Gemini and the agy-* workers under the global readiness quarantine, so no
+     delegating worker was available; order
+     `.ai/wo-round3-rival-multiorder.json`). **PUSHED LIVE 2026-09-20 at the
+     owner's request**, after the whole pass was tested. See "Latest pass" at
+     the top for what changed and what was verified. NEXT: the owner judges
+     Round 3 in play — are the stoppages noticeable but not annoying, is the
+     amber warning understandable, and does the difficulty read as multitasking
+     rather than speed? Then Challenge (level 3) and 412 px in the browser.
 
 00000000000. 2026-09-19 Restaurant rival progression (PUSHED LIVE 2026-09-19 at
      the owner's request, after testing; Claude directly — router: Codex usage-limit until

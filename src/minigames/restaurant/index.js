@@ -27,16 +27,20 @@ import {
 } from './rivalChallenge.js';
 import {
   RESULT_STAGE_LAYOUT,
+  RESULT_STAGE_MOVEMENT,
   RESULT_STAGE_TIMING,
   createResultStage,
 } from './resultStage.js';
 import { reactionPose } from './reactionPose.js';
 import {
   RIVAL_IDS,
+  ROUND_THREE,
   ROUND_TWO,
   competitiveRoundTotal,
   createRivalProgression,
+  roundSettings,
 } from './rivalProgression.js';
+import { createBeltMalfunction } from './beltMalfunction.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
@@ -158,6 +162,11 @@ const RIVAL_EXIT_WAYPOINTS = Object.freeze([
 const RIVAL_EXIT_SPEED = 6;
 const REMATCH_CHOICE_GUARD_SECONDS = 0.35;
 const PLAYER_START = Object.freeze({ x: 0, z: 5.7 });
+// Between the rival's reply (or a round cue) and the simulation starting.
+const SETTLE_BEAT_SECONDS = 0.4;
+// Walking back into position for a rematch or the next round.
+const RETURN_WALK_SPEED = 6.0;
+const RETURN_WALK_TIMEOUT = 2.0;
 
 const TABLES = Object.freeze([
   Object.freeze({ x: -4.2, z: -1.0, seatX: -4.2, seatZ: -2.05 }),
@@ -247,6 +256,9 @@ export function createRestaurant(ctx) {
   let resultStageBeltTravel = null;
   let resultPoseState = null;
   let resultNextNote = 0;
+  // Stage time at which the reaction began, so the staging walk does not eat
+  // into the result sting.
+  let resultStageReactionAt = 0;
   let canvas = null;
   let autoTarget = null;
   let active = false;
@@ -287,6 +299,20 @@ export function createRestaurant(ctx) {
   let roundPatience = null;
   let overlayCreates = 0;
   const rivalExit = { character: null, index: 0 };
+  // Round 3 only: the belt's run/warning/stop cycle, and the amber lamp that
+  // warns the player without asking them to read anything.
+  let beltMalfunction = null;
+  let beltWarningLight = null;
+  let beltStopCount = 0;
+  // Test-only overrides, set through window.__eslDebug.restaurantControl.
+  let forcedOutcome = null;
+  let forceRoundEnd = false;
+  // Walking to the result marks instead of snapping there. `pending` holds the
+  // outcome until both waiters arrive (or the safety timeout fires).
+  const resultWalk = { active: false, player: null, rival: null, elapsed: 0 };
+  // Walking back into position for a rematch or the next challenger.
+  const returnWalk = { active: false, player: null, rival: null, elapsed: 0, onArrive: null };
+  let settleBeatRemaining = 0;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
   let focusReleasedAgo = Infinity;
@@ -329,6 +355,7 @@ export function createRestaurant(ctx) {
   const pointer = new THREE.Vector2();
   const steerAim = new THREE.Vector2();
   const rivalSteerAim = new THREE.Vector2();
+  const stageSteerAim = new THREE.Vector2();
   const focus = createSpeechFocus();
   const directorTableView = TABLES.map(() => ({ occupied: false, customer: null }));
   const directorCustomerView = [];
@@ -402,7 +429,8 @@ export function createRestaurant(ctx) {
     overlay.classList.toggle('restaurant-ui--modal', modal);
     // The challenge is answered with buttons, never the microphone: the Talk HUD
     // (outside this overlay) stays hidden however something tries to show it.
-    const resultPrelude = resultStage?.phase === 'reaction' || resultStage?.phase === 'settling';
+    const resultPrelude = resultStage?.phase === 'staging'
+      || resultStage?.phase === 'reaction' || resultStage?.phase === 'settling';
     if ((modal || resultPrelude) && !hud.element.hidden) hud.hide();
   }
 
@@ -862,6 +890,23 @@ export function createRestaurant(ctx) {
       slat.userData.restaurantTarget = { type: 'belt' };
       beltSlats.push(slat);
     }
+
+    // Round 3's malfunction lamps. Dark for the whole of Rounds 1 and 2, and
+    // amber only while the belt is about to stop, so "it is going to stop" is
+    // readable without reading any Japanese.
+    const warningLampMaterial = makeMaterial(0x5e2a10, { emissive: 0xffa02a, emissiveIntensity: 0 });
+    const warningLamps = [];
+    // On the front rail, facing the room: the back of the belt is occluded from
+    // the room camera, so a lamp there would never be seen. Deliberately large
+    // — at the room camera's distance a trim-sized lamp reads as belt detail,
+    // and this has to say "about to stop" to a child who reads no Japanese.
+    for (const x of [-5.2, -2.6, 0, 2.6, 5.2]) {
+      warningLamps.push(
+        addPart(world, box, warningLampMaterial, x, 1.42, BELT_CENTER_Z + 0.72, 1.5, 0.4, 0.16),
+      );
+    }
+    beltWarningLight = { material: warningLampMaterial, lamps: warningLamps, pulse: 0 };
+    setBeltWarningLight(false);
 
     for (const side of [-1, 1]) {
       const x = side * 6.67;
@@ -1346,8 +1391,14 @@ export function createRestaurant(ctx) {
 
   function updateConveyor(serviceDt) {
     if (!conveyor) return;
+    // Round 3's stoppages reach the belt as a withheld clock and nothing else:
+    // the belt never learns it can stop, so dish positions, the entry schedule
+    // and dish spacing all survive a stoppage and resume exactly where they
+    // were (beltMalfunction.js). Everything else — patience, customers, both
+    // waiters — keeps running on its own clock.
+    const beltDt = !beltMalfunction || beltMalfunction.beltMoving ? serviceDt : 0;
     // The belt is order-blind (SPEC §4): nothing about orders reaches it.
-    const events = conveyor.advance(serviceDt);
+    const events = conveyor.advance(beltDt);
     for (const event of events) {
       if (event.type === 'enter') createBeltDish(event.dish);
       else if (event.type === 'exit') removePhysicalDish(beltDishFor(event.dish.id), 'exited');
@@ -1362,6 +1413,45 @@ export function createRestaurant(ctx) {
       dish.mesh.rotation.set(0, 0, 0);
       dish.mesh.scale.setScalar(0.82);
       dish.mesh.visible = Math.abs(snapshotDish.x) < WALL_HALF_WIDTH;
+    }
+  }
+
+  function setBeltWarningLight(on, intensity = 1) {
+    if (!beltWarningLight) return;
+    beltWarningLight.material.emissiveIntensity = on ? intensity : 0;
+    for (const lamp of beltWarningLight.lamps) lamp.visible = Boolean(beltMalfunction);
+  }
+
+  // One soft two-note cue per warning, not a beep every few seconds: this plays
+  // in a classroom, and a stoppage lands roughly every ten seconds.
+  function playBeltWarningCue() {
+    audio.playSfx('restaurant-belt-warning', {
+      type: 'square', frequency: 520, endFrequency: 390, duration: 0.22, gain: 0.07,
+    });
+  }
+
+  function playBeltRestartCue() {
+    audio.playSfx('restaurant-belt-restart', {
+      type: 'triangle', frequency: 300, endFrequency: 440, duration: 0.16, gain: 0.06,
+    });
+  }
+
+  function updateBeltMalfunction(serviceDt) {
+    if (!beltMalfunction) return;
+    for (const event of beltMalfunction.advance(serviceDt)) {
+      if (event.phase === 'warning') playBeltWarningCue();
+      else if (event.phase === 'stopped') beltStopCount += 1;
+      else if (event.phase === 'running') playBeltRestartCue();
+    }
+    // Amber flashes through the warning, then holds steady while stopped.
+    if (beltMalfunction.warningActive) {
+      beltWarningLight.pulse += serviceDt;
+      setBeltWarningLight(true, Math.sin(beltWarningLight.pulse * 22) > 0 ? 1.8 : 0.15);
+    } else if (beltMalfunction.stopped) {
+      setBeltWarningLight(true, 1.4);
+    } else {
+      beltWarningLight.pulse = 0;
+      setBeltWarningLight(false);
     }
   }
 
@@ -1670,7 +1760,10 @@ export function createRestaurant(ctx) {
       }
       else if (event.type === 'phase') {
         directorPhase = event.phase;
-        if (!(event.phase === 'rush' && rushTrigger?.triggered)) showPhaseCue(event.phase);
+        // The rush cue belongs to the challenge scene once a rival is involved:
+        // Round 1 suppresses it on the warm-up trigger, later rounds always.
+        const rivalOwnsCue = (rushTrigger?.triggered ?? false) || (progression?.round ?? 1) > 1;
+        if (!(event.phase === 'rush' && rivalOwnsCue)) showPhaseCue(event.phase);
       }
     }
     directorPhase = serviceDirector.phase;
@@ -1686,8 +1779,9 @@ export function createRestaurant(ctx) {
     if (rival || !claimRegistry || !conveyor) return;
     rival = createRestaurantRival({
       level: difficulty,
-      // Round 2 overrides only the tuning; movement and claim rules are shared.
-      ...(progression?.round === 2 ? ROUND_TWO[difficulty]?.rival : {}),
+      // Round 2 and Round 3 override only the tuning; movement and claim rules
+      // are shared. Round 3's override is what lets it hold two orders.
+      ...(roundSettings(progression?.round, difficulty)?.rival ?? {}),
       registry: claimRegistry,
       conveyor,
       total: Math.max(1, shiftTotal - claimRegistry.progress.done),
@@ -1704,7 +1798,7 @@ export function createRestaurant(ctx) {
   function currentRivalConfig() {
     const base = RIVAL_LEVELS[difficulty];
     if (!base) return null;
-    const round = progression?.round === 2 ? ROUND_TWO[difficulty]?.rival : null;
+    const round = roundSettings(progression?.round, difficulty)?.rival ?? null;
     const config = { ...base, ...(round ?? {}) };
     return {
       speed: config.speed,
@@ -1713,6 +1807,7 @@ export function createRestaurant(ctx) {
       hesitationMin: config.hesitationMin,
       hesitationMax: config.hesitationMax,
       dishNoticeSeconds: config.dishNoticeSeconds,
+      maxActiveOrders: config.maxActiveOrders ?? 1,
     };
   }
 
@@ -1985,10 +2080,17 @@ export function createRestaurant(ctx) {
     setRivalAnimation('idle');
     activateRivalModel();
     updateChallengeScore();
+    // The camera is still easing back; hold the simulation for a beat so the
+    // player does not lose time they cannot see.
+    settleBeatRemaining = SETTLE_BEAT_SECONDS;
   }
 
   function updateRushSequence(serviceDt) {
-    if (serviceDt <= 0 || !rushTrigger?.triggered || !rivalChallenge) return;
+    // Round 1's intro still waits for the three-delivery warm-up rush; Round 2
+    // asks progression instead, so later rounds no longer depend on that
+    // trigger happening to still be true (SPEC §4 "Rival progression").
+    if (serviceDt <= 0 || !rivalChallenge) return;
+    if (!progression?.challengeGateOpen(rushTrigger?.triggered ?? false)) return;
     rivalEmoteRemaining = Math.max(0, rivalEmoteRemaining - serviceDt);
     if (rivalChallenge.phase === 'idle') {
       rushBeatRemaining = Math.max(0, rushBeatRemaining - serviceDt);
@@ -2083,6 +2185,34 @@ export function createRestaurant(ctx) {
       }
       result.set(table.x + sideX * STEER_CLEARANCE, table.z + sideZ * STEER_CLEARANCE);
     }
+  }
+
+  /**
+   * One step of a steered walk to a fixed mark, shared by the result staging
+   * walk and the return walks. Reuses the same table steering the rival's
+   * ordinary walk uses rather than adding any pathfinding. Returns true once
+   * the character has arrived.
+   */
+  function stepWalkToMark(character, target, speed, dt) {
+    if (!character) return true;
+    const dx = target.x - character.position.x;
+    const dz = target.z - character.position.z;
+    if (Math.hypot(dx, dz) <= RESULT_STAGE_MOVEMENT.arriveEpsilon) {
+      character.position.x = target.x;
+      character.position.z = target.z;
+      return true;
+    }
+    setWalkAim(character.position.x, character.position.z, target.x, target.z, stageSteerAim);
+    const aimX = stageSteerAim.x - character.position.x;
+    const aimZ = stageSteerAim.y - character.position.z;
+    const aimDistance = Math.hypot(aimX, aimZ);
+    const step = Math.min(aimDistance, speed * dt);
+    if (aimDistance > 1e-6) {
+      character.position.x += aimX / aimDistance * step;
+      character.position.z += aimZ / aimDistance * step;
+      character.rotation.y = Math.atan2(aimX, aimZ);
+    }
+    return false;
   }
 
   function updateRivalWalk(serviceDt) {
@@ -2677,10 +2807,24 @@ export function createRestaurant(ctx) {
         roundDone: claimRegistry?.progress.done ?? 0,
         roundPatience: roundPatience ?? DIFFICULTY[difficulty].patience,
         exitWalking: Boolean(rivalExit.character),
+        settleBeatRemaining,
+        returnWalking: returnWalk.active,
         rivalCharactersBuilt: Object.keys(rivalCharacters),
         rivalCharactersVisible: Object.entries(rivalCharacters)
           .filter(([, character]) => character.visible).map(([id]) => id),
       } : null,
+      // Round 3's chaotic belt, for acceptance checks.
+      beltMalfunction: beltMalfunction ? {
+        enabled: true,
+        phase: beltMalfunction.phase,
+        beltMoving: beltMalfunction.beltMoving,
+        warningActive: beltMalfunction.warningActive,
+        stopped: beltMalfunction.stopped,
+        stopCount: beltStopCount,
+        phaseRemaining: beltMalfunction.phaseRemaining,
+        lastRunSeconds: beltMalfunction.lastRunSeconds,
+        lastStopSeconds: beltMalfunction.lastStopSeconds,
+      } : { enabled: false },
       rivalChallenge: {
         active: rivalIntroActive(),
         phase: rivalChallenge?.phase ?? 'idle',
@@ -2783,6 +2927,10 @@ export function createRestaurant(ctx) {
         targetCustomer: rival.targetCustomer,
         targetDishId: rival.targetDishId,
         carriedDish: rival.carriedDish,
+        // Round 3: the orders it is juggling right now.
+        activeOrders: rival.activeOrders,
+        activeOrderCount: rival.activeOrderCount,
+        maxActiveOrders: rival.maxActiveOrders,
         position: rivalCharacter
           ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z }
           : rival.position,
@@ -2827,6 +2975,13 @@ export function createRestaurant(ctx) {
         scoreText: scoreText && !scoreText.hidden ? scoreText.textContent : null,
         playerPosition: player ? { x: player.position.x, z: player.position.z } : null,
         rivalPosition: rivalCharacter ? { x: rivalCharacter.position.x, z: rivalCharacter.position.z } : null,
+        // The staging walk: both waiters keep their gameplay positions and
+        // move to the marks, so a teleport shows up here as an instant arrival.
+        staging: Boolean(resultStage?.staging),
+        walking: resultWalk.active,
+        walkElapsed: resultWalk.elapsed,
+        playerAtMark: resultWalk.player === true,
+        rivalAtMark: resultWalk.rival === true,
         playerReaction: resultStage?.reactions?.player ?? null,
         rivalReaction: resultStage?.reactions?.rival ?? null,
         conveyorStopped: Boolean(resultStage?.active && resultStageBeltTravel !== null
@@ -2859,6 +3014,43 @@ export function createRestaurant(ctx) {
       configurable: true,
       enumerable: true,
       get: debugSnapshot,
+    });
+    // Test-only controls. Reaching Round 3 honestly costs two won rounds, which
+    // makes every check of it slow and flaky; these let a harness force the
+    // outcome of the round in progress and jump straight to the round it wants
+    // to inspect. Nothing in the game reads them.
+    Object.defineProperty(window.__eslDebug, 'restaurantControl', {
+      configurable: true,
+      enumerable: false,
+      value: {
+        forceOutcome(outcome) {
+          if (!['player', 'rival', 'draw'].includes(outcome)) return false;
+          forcedOutcome = outcome;
+          return true;
+        },
+        endRound() {
+          if (phase !== 'service' || !competitionScore) return false;
+          forceRoundEnd = true;
+          return true;
+        },
+        // Bring the rival on now instead of serving three customers first.
+        triggerRival() {
+          if (!rushTrigger || rushTrigger.triggered) return false;
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            if (rushTrigger.recordPlayerDelivery()) {
+              rushBeatRemaining = RUSH_BEAT_SECONDS;
+              return true;
+            }
+          }
+          return false;
+        },
+        beltStop() {
+          if (!beltMalfunction) return false;
+          // Jump to the end of the current phase so a stoppage arrives now.
+          beltMalfunction.advance(beltMalfunction.phaseRemaining + 1e-6);
+          return true;
+        },
+      },
     });
   }
 
@@ -3025,16 +3217,21 @@ export function createRestaurant(ctx) {
 
   function updateRoundEnd() {
     if (phase !== 'service') return;
-    const done = claimRegistry?.progress.done ?? records.length;
-    if (done !== shiftTotal || customers.length !== shiftTotal) return;
-    let resolved = true;
-    for (const customer of customers) {
-      if (customer.state !== 'delivered' && customer.state !== 'left') {
-        resolved = false;
-        break;
+    if (forceRoundEnd) {
+      // Test-only: end the round now, whatever the shift has left to serve.
+      forceRoundEnd = false;
+    } else {
+      const done = claimRegistry?.progress.done ?? records.length;
+      if (done !== shiftTotal || customers.length !== shiftTotal) return;
+      let resolved = true;
+      for (const customer of customers) {
+        if (customer.state !== 'delivered' && customer.state !== 'left') {
+          resolved = false;
+          break;
+        }
       }
+      if (!resolved) return;
     }
-    if (!resolved) return;
     clearQuestion();
     hideAction();
     setListenTarget(null);
@@ -3045,7 +3242,8 @@ export function createRestaurant(ctx) {
     // shift that ended before the rush).
     phase = 'round-end';
     if (rivalArrived() && claimRegistry) {
-      const outcome = competitionOutcome(competitionScore?.score(claimRegistry.counts));
+      const outcome = forcedOutcome
+        ?? competitionOutcome(competitionScore?.score(claimRegistry.counts));
       // Frozen beat in the room first, so the last delivery's thanks and combo land.
       if (outcome) {
         resultStagePendingOutcome = outcome;
@@ -3127,6 +3325,47 @@ export function createRestaurant(ctx) {
     autoTarget = null;
     clickQuestionCustomer = null;
 
+    // Both waiters keep the positions the round left them in and walk to their
+    // marks from there (beginResultWalk); nothing is snapped into place.
+    player.position.y = 0;
+    rivalCharacter.position.y = 0;
+  }
+
+  // The work stops and both waiters move into the result presentation, rather
+  // than the scene cutting to it (DESIGN_DECISIONS 2026-09-20 "no teleport").
+  function beginResultWalk() {
+    resultWalk.active = true;
+    resultWalk.elapsed = 0;
+    resultWalk.player = false;
+    resultWalk.rival = false;
+    player.playAnimation?.('walk');
+    setRivalAnimation('walk');
+  }
+
+  function updateResultWalk(dt) {
+    if (!resultWalk.active) return;
+    resultWalk.elapsed += dt;
+    if (!resultWalk.player) {
+      resultWalk.player = stepWalkToMark(
+        player, RESULT_STAGE_LAYOUT.player, RESULT_STAGE_MOVEMENT.speed, dt,
+      );
+      if (resultWalk.player) player.playAnimation?.('idle');
+    }
+    if (!resultWalk.rival) {
+      resultWalk.rival = stepWalkToMark(
+        rivalCharacter, RESULT_STAGE_LAYOUT.rival, RESULT_STAGE_MOVEMENT.speed, dt,
+      );
+      if (resultWalk.rival) setRivalAnimation('idle');
+    }
+    // A character that starts on its mark simply arrives early and waits.
+    if (!resultWalk.player || !resultWalk.rival) return;
+    resultWalk.active = false;
+    processResultStageEvents(resultStage.markStaged());
+  }
+
+  /** Face front and freeze into the pose the reaction animations build on. */
+  function poseForResult() {
+    resultWalk.active = false;
     player.position.set(RESULT_STAGE_LAYOUT.player.x, 0, RESULT_STAGE_LAYOUT.player.z);
     rivalCharacter.position.set(RESULT_STAGE_LAYOUT.rival.x, 0, RESULT_STAGE_LAYOUT.rival.z);
     player.rotation.set(0, 0, 0);
@@ -3140,6 +3379,14 @@ export function createRestaurant(ctx) {
       player: { character: player, nodes: captureNodePose(player), settlingStart: null },
       rival: { character: rivalCharacter, nodes: captureNodePose(rivalCharacter), settlingStart: null },
     };
+    if (resultLabel) {
+      resultLabel.textContent = resultOutcome === 'player'
+        ? STRINGS.resultPlayer
+        : (resultOutcome === 'rival' ? STRINGS.resultRival : STRINGS.resultDraw);
+      resultLabel.dataset.outcome = resultOutcome;
+      resultLabel.classList.remove('restaurant-ui__result--fading');
+      resultLabel.hidden = false;
+    }
   }
 
   // A narrow (portrait) viewport pulls the camera back along its view line
@@ -3160,7 +3407,7 @@ export function createRestaurant(ctx) {
 
   function beginResultStage(outcome) {
     if (resultStage?.active || !rivalCharacter) return false;
-    const nextStage = createResultStage({ outcome });
+    const nextStage = createResultStage({ outcome, staging: true });
     if (!nextStage.start()) return false;
     resultStage = nextStage;
     resultStageStartCount += 1;
@@ -3175,26 +3422,24 @@ export function createRestaurant(ctx) {
     dialogueRemaining = 0;
     stageAllCharacters();
     hud.hide();
+    // The camera rig damps toward a preset, so this reframes smoothly while
+    // the waiters walk rather than cutting to the result composition.
     cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(RESULT_CAMERA));
     if (scoreText) {
       scoreText.classList.remove('restaurant-ui__score--result', 'restaurant-ui__score--compact');
       scoreText.classList.add('restaurant-ui__score--stage');
       scoreText.hidden = false;
     }
-    if (resultLabel) {
-      resultLabel.textContent = outcome === 'player'
-        ? STRINGS.resultPlayer
-        : (outcome === 'rival' ? STRINGS.resultRival : STRINGS.resultDraw);
-      resultLabel.dataset.outcome = outcome;
-      resultLabel.classList.remove('restaurant-ui__result--fading');
-      resultLabel.hidden = false;
-    }
+    // The label, sting and reactions all wait for the waiters to arrive.
+    beginResultWalk();
     return true;
   }
 
   function updateResultSting() {
+    if (resultStage.staging) return;
     const notes = RESULT_STINGS[resultOutcome];
-    while (resultNextNote < notes.length && resultStage.elapsed >= notes[resultNextNote][0]) {
+    const since = resultStage.elapsed - resultStageReactionAt;
+    while (resultNextNote < notes.length && since >= notes[resultNextNote][0]) {
       const [, frequency] = notes[resultNextNote];
       const last = resultNextNote === notes.length - 1;
       audio.playSfx(`restaurant-result-${resultOutcome}-${resultNextNote}`, {
@@ -3239,6 +3484,7 @@ export function createRestaurant(ctx) {
     const decision = progression?.resolveRound(resultOutcome) ?? { next: 'final-question' };
     if (decision.next === 'choice') showRematchChoice();
     else if (decision.next === 'round2-intro') beginRoundTwoTransition();
+    else if (decision.next === 'round3-intro') beginRoundThreeTransition();
     else beginResultQuestion();
   }
 
@@ -3277,7 +3523,10 @@ export function createRestaurant(ctx) {
 
   // Everything one head-to-head leaves behind, so the next starts clean.
   // Settings, speech mode, the overlay and its listeners are untouched.
-  function resetForNextRound({ total, patience = null, tables = DIFFICULTY[difficulty].count, paceScale = 1 }) {
+  function resetForNextRound({
+    total, patience = null, tables = DIFFICULTY[difficulty].count, paceScale = 1,
+    snapPlayer = false, malfunction = false,
+  }) {
     clearQuestion();
     cancelFocus();
     speech.cancel();
@@ -3352,6 +3601,18 @@ export function createRestaurant(ctx) {
     resultStagePendingOutcome = null;
     resultStageBeltTravel = null;
     resultNextNote = 0;
+    resultStageReactionAt = 0;
+    // Temporary transition state never survives into the next round.
+    resultWalk.active = false;
+    returnWalk.active = false;
+    returnWalk.onArrive = null;
+    settleBeatRemaining = 0;
+    // Round 3 only: a fresh malfunction cycle, or none at all.
+    beltMalfunction = malfunction
+      ? createBeltMalfunction({ enabled: true, rng: Math.random })
+      : null;
+    beltStopCount = 0;
+    setBeltWarningLight(false);
     if (resultLabel) {
       resultLabel.classList.remove('restaurant-ui__result--fading');
       resultLabel.hidden = true;
@@ -3371,33 +3632,110 @@ export function createRestaurant(ctx) {
     turnaroundPartner = null;
     turnaroundWalk.walking = false;
 
-    player.position.set(PLAYER_START.x, 0, PLAYER_START.z);
-    player.rotation.set(0, 0, 0);
-    player.playAnimation?.('idle', { fade: 0 });
+    // The player keeps their position by default and walks back into the room
+    // (startReturnWalk). Only a caller with nowhere sensible to walk from —
+    // a fresh shift — asks for the snap.
+    if (snapPlayer) {
+      player.position.set(PLAYER_START.x, 0, PLAYER_START.z);
+      player.rotation.set(0, 0, 0);
+      player.playAnimation?.('idle', { fade: 0 });
+    }
     cameraRig.setTarget(player).setPreset('fixed', ROOM_CAMERA);
     setInstruction(STRINGS.walkToCustomer);
     // Belt dishes were hidden for the stage; show them where they are.
     updateConveyor(0);
   }
 
+  /**
+   * Both characters walk from wherever the result presentation left them to
+   * their working positions, then `onArrive` starts the round. Movement is all
+   * that happens here: the simulation stays frozen until the round begins.
+   */
+  function startReturnWalk({ playerTarget, rivalTarget, onArrive }) {
+    returnWalk.active = true;
+    returnWalk.elapsed = 0;
+    returnWalk.player = playerTarget;
+    returnWalk.rival = rivalTarget;
+    returnWalk.playerArrived = false;
+    returnWalk.rivalArrived = false;
+    returnWalk.onArrive = onArrive;
+    player.position.y = 0;
+    player.playAnimation?.('walk');
+    if (rivalTarget && rivalCharacter) {
+      rivalCharacter.position.y = 0;
+      setRivalAnimation('walk', true);
+    }
+    cameraRig.setTarget(player).setPreset('fixed', ROOM_CAMERA);
+  }
+
+  function updateReturnWalk(dt) {
+    if (!returnWalk.active) return;
+    returnWalk.elapsed += dt;
+    if (!returnWalk.playerArrived) {
+      returnWalk.playerArrived = stepWalkToMark(
+        player, returnWalk.player, RETURN_WALK_SPEED, dt,
+      );
+      if (returnWalk.playerArrived) {
+        player.rotation.set(0, 0, 0);
+        player.playAnimation?.('idle');
+      }
+    }
+    if (!returnWalk.rivalArrived) {
+      returnWalk.rivalArrived = !returnWalk.rival || stepWalkToMark(
+        rivalCharacter, returnWalk.rival, RETURN_WALK_SPEED, dt,
+      );
+      if (returnWalk.rivalArrived && returnWalk.rival && rivalCharacter) {
+        rivalCharacter.rotation.set(0, 0, 0);
+        setRivalAnimation('idle');
+      }
+    }
+    const arrived = returnWalk.playerArrived && returnWalk.rivalArrived;
+    // A blocked route must never strand the game short of the next round.
+    if (!arrived && returnWalk.elapsed < RETURN_WALK_TIMEOUT) return;
+    if (!arrived) {
+      player.position.set(returnWalk.player.x, 0, returnWalk.player.z);
+      player.rotation.set(0, 0, 0);
+      if (returnWalk.rival && rivalCharacter) {
+        rivalCharacter.position.set(returnWalk.rival.x, 0, returnWalk.rival.z);
+        rivalCharacter.rotation.set(0, 0, 0);
+      }
+    }
+    returnWalk.active = false;
+    const done = returnWalk.onArrive;
+    returnWalk.onArrive = null;
+    done?.();
+  }
+
   // Waiter 1 again at the same difficulty: no solo phase and no entrance scene.
+  // Both waiters walk back from the result marks rather than snapping there;
+  // the customer and order simulation is rebuilt while they are moving.
   function startRematchRound() {
     resetForNextRound({ total: competitiveRoundTotal(DIFFICULTY[difficulty].total) });
-    phase = 'service';
+    phase = 'round-transition';
     rivalCharacter.visible = true;
-    rivalCharacter.position.set(RIVAL_ENTRANCE_END.x, 0, RIVAL_ENTRANCE_END.z);
-    rivalCharacter.rotation.set(0, 0, 0);
-    setRivalAnimation('idle', true);
+    startReturnWalk({
+      playerTarget: PLAYER_START,
+      rivalTarget: RIVAL_ENTRANCE_END,
+      onArrive: beginRematchService,
+    });
+    syncHud();
+  }
+
+  function beginRematchService() {
+    phase = 'service';
     competitionScore.capture(claimRegistry.counts);
     serviceDirector.startRush();
     directorPhase = serviceDirector.phase;
     activateRivalModel();
     showPhaseCue('rush', STRINGS.rematchCue);
     updateChallengeScore();
+    settleBeatRemaining = SETTLE_BEAT_SECONDS;
     syncHud();
   }
 
-  // A Round 1 win: Waiter 1 walks out, then Waiter 2 gets the full entrance.
+  // A Round 1 win: Waiter 1 walks out while the player walks back to work, and
+  // only then does Waiter 2 get the full entrance. One continuous scene — the
+  // player is never reset out from under the transition.
   function beginRoundTwoTransition() {
     const settings = ROUND_TWO[difficulty];
     resetForNextRound({
@@ -3411,6 +3749,44 @@ export function createRestaurant(ctx) {
     rivalExit.index = 0;
     rivalCharacter.position.y = 0;
     setRivalAnimation('walk', true);
+    startReturnWalk({ playerTarget: PLAYER_START, rivalTarget: null, onArrive: null });
+    syncHud();
+  }
+
+  // A Round 2 win: the same waiter stays for the bonus round, so there is no
+  // entrance cinematic — both simply walk back to their working positions and
+  // the round cue announces Round 3.
+  function beginRoundThreeTransition() {
+    const settings = ROUND_THREE[difficulty];
+    resetForNextRound({
+      total: competitiveRoundTotal(DIFFICULTY[difficulty].total),
+      patience: settings.patience,
+      tables: settings.tables,
+      paceScale: settings.paceScale,
+      malfunction: settings.beltMalfunction,
+    });
+    phase = 'round-transition';
+    rivalCharacter.visible = true;
+    startReturnWalk({
+      playerTarget: PLAYER_START,
+      rivalTarget: RIVAL_ENTRANCE_END,
+      onArrive: beginRoundThreeService,
+    });
+    syncHud();
+  }
+
+  function beginRoundThreeService() {
+    if (!progression?.startRound3()) return;
+    phase = 'service';
+    conveyor.startRoundThree();
+    competitionScore.capture(claimRegistry.counts);
+    serviceDirector.startRush();
+    directorPhase = serviceDirector.phase;
+    activateRivalModel();
+    showPhaseCue('rush', STRINGS.round3Cue);
+    setNotice(STRINGS.round3Hint, 2.6);
+    updateChallengeScore();
+    settleBeatRemaining = SETTLE_BEAT_SECONDS;
     syncHud();
   }
 
@@ -3418,6 +3794,8 @@ export function createRestaurant(ctx) {
     const character = rivalExit.character;
     const waypoint = RIVAL_EXIT_WAYPOINTS[rivalExit.index];
     if (!character || !waypoint) {
+      // Wait for the player to finish walking back before the next intro.
+      if (returnWalk.active) return;
       beginRoundTwoIntro();
       return;
     }
@@ -3446,17 +3824,33 @@ export function createRestaurant(ctx) {
     beginRivalChallenge();
   }
 
-  function updateResultStage(dt) {
-    const events = resultStage.advance(dt);
-    updateResultSting();
+  // Phase events arrive either from `advance` (including the staging safety
+  // timeout) or from `markStaged` when both waiters reach their marks, so both
+  // routes are handled in one place. Returns false once the stage has handed
+  // over to something else.
+  function processResultStageEvents(events) {
     for (const event of events) {
-      if (event.phase === 'settling') beginResultSettling();
+      if (event.phase === 'reaction') {
+        resultStageReactionAt = resultStage.elapsed;
+        poseForResult();
+      } else if (event.phase === 'settling') beginResultSettling();
       else if (event.phase === 'question') {
         beginAfterResult();
-        if (phase !== 'result-stage') return;
+        if (phase !== 'result-stage') return false;
       }
     }
-    if (resultLabel && !resultStage.labelVisible
+    return true;
+  }
+
+  function updateResultStage(dt) {
+    // The walk runs first: a late arrival is released by markStaged, and a
+    // blocked one by the stage's own safety timeout.
+    updateResultWalk(dt);
+    if (phase !== 'result-stage' || !resultStage?.active) return;
+    const events = resultStage.advance(dt);
+    updateResultSting();
+    if (!processResultStageEvents(events)) return;
+    if (resultLabel && !resultStage.labelVisible && !resultStage.staging
       && resultStage.phaseElapsed >= RESULT_STAGE_TIMING.labelFade) resultLabel.hidden = true;
   }
 
@@ -3763,7 +4157,14 @@ export function createRestaurant(ctx) {
       // Re-read after the sequence: on the frame the challenge starts, the
       // context update below must not re-target a customer and re-show Talk.
       const intro = rivalIntroActive();
-      const playDt = intro ? 0 : serviceDt;
+      // A short settle beat after the rival's reply: the camera is still easing
+      // back, so nothing that can cost the player has started yet. Customers,
+      // the belt, the director and the rival all begin together when it ends.
+      if (!intro && settleBeatRemaining > 0) {
+        settleBeatRemaining = Math.max(0, settleBeatRemaining - safeDt);
+      }
+      const playDt = intro || settleBeatRemaining > 0 ? 0 : serviceDt;
+      updateBeltMalfunction(playDt);
       updateRivalWalk(playDt);
       updateCustomers(playDt, safeDt);
       applyDirectorEvents(playDt);
@@ -3793,7 +4194,11 @@ export function createRestaurant(ctx) {
       updateResultStage(safeDt);
     } else if (phase === 'round-transition') {
       input.consumeInteract();
-      updateRivalExit(safeDt);
+      // The outgoing waiter leaving and the player walking back happen at the
+      // same time; whichever finishes first waits for the other. A rematch has
+      // no outgoing waiter, and must not be handed to the next-rival path.
+      updateReturnWalk(safeDt);
+      if (rivalExit.character) updateRivalExit(safeDt);
     } else if (phase === 'round-end') {
       player.playAnimation?.('idle');
       if (resultStagePendingOutcome) setRivalAnimation('idle');

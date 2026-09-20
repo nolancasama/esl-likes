@@ -581,8 +581,14 @@ stage above ends Round 1 against Waiter 1. What follows depends on the result:
   `ぼくとも 勝負しよう！ / もっと むずかしいよ！` and the replies `いいよ！勝負だ！`,
   `負けないよ！`, `やってみよう！` (flavour only). After the reply the cue is
   `ラウンド 2！` and Round 2 starts at 0–0 with no solo phase.
-- *Round 2.* Always ends in the result stage with Waiter 2 and then Waiter 2's
-  "What food do you like?"; win, loss and draw alike. There is no Round 3.
+- *Round 2.* A loss or a draw ends in the result stage with Waiter 2 and then
+  Waiter 2's "What food do you like?". A win unlocks Round 3 (added 2026-09-20).
+- *Round 3.* The bonus round, reachable only by beating Round 2, so a player who
+  loses or draws it is never pushed through the hardest round. Waiter 2 stays
+  and there is no entrance scene: both waiters walk back to their working
+  positions, the cue is `ラウンド 3！` with the notice `ベルトが とまるよ！`, and
+  the round starts at 0–0. Win, loss and draw alike then lead to Waiter 2's
+  "What food do you like?". There is no Round 4.
 
 A rematch or Round 2 has the competitive part of the first shift as its length
 (shift total minus the three solo deliveries: 6 on Normal, 10 on Challenge).
@@ -598,6 +604,49 @@ a dish every 1.75 s (≈ 6.0 visible); patience 28 s; the fifth table opens.
 Challenge: rival speed 5.15, seated age 3 s, share 0.5, hesitation 0.25–0.6 s,
 dish notice 0.45 s; belt 1.38 m/s every 1.4 s (≈ 6.8 visible); patience 25 s;
 freed tables refill 30% sooner (all five are already in use).
+
+**Round 3 (added 2026-09-20).** Round 3 is chaos and multitasking, not speed. It
+keeps Round 2's belt speed, rival speed, seated age, hesitation, dish notice and
+customer share unchanged, and adds exactly two things.
+
+*The belt is unreliable.* It cycles running → warning → stopped → running:
+8–13 s running, a 0.6–1.0 s warning, then 2.0–2.8 s stopped, with randomness
+inside those bounds, a minimum run between stoppages, and the first stoppage
+held back at least 10 s. The warning is an amber lamp bar flashing along the
+front of the belt plus one soft two-note cue, so it is readable without
+Japanese; the lamps hold steady while stopped and a quiet clunk marks the
+restart. While stopped the belt freezes and its dishes stay exactly where they
+are, no dish enters, and nothing else pauses: patience, customers, both waiters,
+carried-dish temperature and the rival all continue. A stoppage is implemented
+as a withheld belt clock, never as a belt mode, so positions, entry schedule and
+dish spacing survive it and the restart resumes precisely where it stopped. The
+Round 3 stream is slightly denser than Round 2 (Normal 1.55 s, Challenge 1.38 s)
+purely to offset the downtime. Patience rises to 30 s on Normal, 27 s on
+Challenge, so belt downtime does not become timeouts.
+
+*The rival holds two orders.* In Round 3 only, the rival may keep up to two
+claimed customers at once. It still walks to each customer and takes each order
+under the existing claim rules — a customer the player has reserved or owns is
+untouchable, and the shift claim limit is unchanged. It claims a second customer
+only while watching the belt with no dish matching an order it already holds,
+and never re-targets mid-walk. It accepts a dish matching either order, choosing
+whichever it can actually reach first rather than the older order, carries one
+dish at a time, and delivers it to the customer who asked for that food; serving
+one keeps the other. A stopped belt leaves dishes standing still and therefore
+easier to collect, so a stoppage often sends the rival to the belt rather than
+to a second table — overlapping orders depend on what the belt is offering.
+
+**Transitions are physical (added 2026-09-20).** Where both the old and the new
+position are visible in the same room, the character walks. When a round ends
+both waiters keep the positions the round left them in and walk to the result
+marks at 8 units/sec while the camera eases to the result framing; the label,
+sting and reactions begin only once both arrive, with a 1.8 s safety timeout so
+a blocked route can never stall the game. A rematch walks both back to their
+working positions; a Round 1 win walks the player back while Waiter 1 leaves,
+and the next intro waits for both. Each round then holds a 0.4 s settle beat
+before any simulation starts, so the player loses no time to a moving camera.
+Snapping is reserved for characters that are hidden, off-camera, being spawned
+outside the room, or recovered by a safety timeout.
 
 Every seated customer has an owner: `null` (unclaimed), `player`, or `rival`.
 A newly seated customer is unclaimed and immediately talkable. Pressing Talk on

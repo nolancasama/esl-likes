@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   RIVAL_IDS,
   ROUND_TWO,
+  ROUND_THREE,
   competitiveRoundTotal,
   createRivalProgression,
+  roundSettings,
 } from './rivalProgression.js';
 import { RIVAL_LEVELS } from './rival.js';
 import { CONVEYOR_CONFIG, MIN_DISH_SPACING, createConveyor } from './conveyor.js';
@@ -91,8 +93,9 @@ test('a win after rematches still unlocks Waiter 2', () => {
   assert.equal(progression.attempt, 3);
 });
 
-for (const outcome of ['player', 'rival', 'draw']) {
-  test(`Round 2 ${outcome} always ends in the final question; no Round 3`, () => {
+// Round 3 is a reward for beating Round 2, never an obligation.
+for (const outcome of ['rival', 'draw']) {
+  test(`Round 2 ${outcome} ends in the final question and never unlocks Round 3`, () => {
     const progression = createRivalProgression();
     progression.resolveRound('player');
     progression.startRound2();
@@ -102,9 +105,94 @@ for (const outcome of ['player', 'rival', 'draw']) {
     assert.equal(progression.chooseRematch(), null);
     assert.equal(progression.chooseFinish(), null);
     assert.equal(progression.startRound2(), null);
+    assert.equal(progression.startRound3(), null, 'Round 3 cannot be reached without winning Round 2');
     assert.equal(progression.round, 2);
   });
 }
+
+test('winning Round 2 advances to Round 3, not to the final question', () => {
+  const progression = createRivalProgression();
+  progression.resolveRound('player');
+  progression.startRound2();
+  assert.deepEqual(progression.resolveRound('player'), { next: 'round3-intro' });
+  assert.equal(progression.phase, 'round3-intro');
+  assert.equal(progression.round, 2, 'the round only turns over when Round 3 starts');
+  assert.deepEqual(progression.startRound3(), { next: 'round3' });
+  assert.equal(progression.phase, 'round3');
+  assert.equal(progression.round, 3);
+  assert.equal(progression.rivalId, RIVAL_IDS.WAITER_2, 'Round 3 keeps Waiter 2');
+});
+
+for (const outcome of ['player', 'rival', 'draw']) {
+  test(`Round 3 ${outcome} always ends in the final question; there is no Round 4`, () => {
+    const progression = createRivalProgression();
+    progression.resolveRound('player');
+    progression.startRound2();
+    progression.resolveRound('player');
+    progression.startRound3();
+    assert.deepEqual(progression.resolveRound(outcome), { next: 'final-question' });
+    assert.equal(progression.phase, 'final');
+    for (const next of ['player', 'rival', 'draw']) assert.equal(progression.resolveRound(next), null);
+    assert.equal(progression.chooseRematch(), null);
+    assert.equal(progression.chooseFinish(), null);
+    assert.equal(progression.startRound2(), null);
+    assert.equal(progression.startRound3(), null);
+    assert.equal(progression.round, 3, 'the round never reaches 4');
+  });
+}
+
+test('Round 3 cannot be started out of turn', () => {
+  const progression = createRivalProgression();
+  assert.equal(progression.startRound3(), null, 'not during Round 1');
+  progression.resolveRound('rival');
+  assert.equal(progression.startRound3(), null, 'not from the rematch choice');
+  progression.chooseRematch();
+  progression.resolveRound('player');
+  assert.equal(progression.startRound3(), null, 'not from the Round 2 intro');
+  progression.startRound2();
+  assert.equal(progression.startRound3(), null, 'not during Round 2');
+});
+
+test('later rounds no longer ride on the Round 1 warm-up rush trigger', () => {
+  const progression = createRivalProgression();
+  // Round 1 still gates on the three-delivery rush trigger.
+  assert.equal(progression.challengeGateOpen(false), false);
+  assert.equal(progression.challengeGateOpen(true), true);
+
+  progression.resolveRound('player');
+  progression.startRound2();
+  assert.equal(progression.challengeGateOpen(false), true, 'Round 2 depends on progression alone');
+
+  progression.resolveRound('player');
+  progression.startRound3();
+  assert.equal(progression.challengeGateOpen(false), true, 'Round 3 depends on progression alone');
+});
+
+test('Round 3 gives the rival two orders without making it faster or greedier', () => {
+  for (const level of [2, 3]) {
+    const two = ROUND_TWO[level].rival;
+    const three = ROUND_THREE[level].rival;
+    assert.equal(three.maxActiveOrders, 2, `level ${level} rival must juggle two orders`);
+    assert.equal(three.speed, two.speed, `level ${level} Round 3 changed rival speed`);
+    assert.equal(three.share, two.share, `level ${level} Round 3 changed the customer share`);
+    assert.ok(three.share <= 0.5, `level ${level} share ${three.share} is over half the room`);
+    assert.equal(three.dishNoticeSeconds, two.dishNoticeSeconds);
+    assert.equal(three.minSeatedAge, two.minSeatedAge);
+    assert.equal(ROUND_THREE[level].beltMalfunction, true);
+  }
+});
+
+test('Round 3 patience allows for the belt being stopped part of the round', () => {
+  assert.ok(ROUND_THREE[2].patience > ROUND_TWO[2].patience);
+  assert.ok(ROUND_THREE[3].patience > ROUND_TWO[3].patience);
+});
+
+test('roundSettings selects the right tuning and nothing for Round 1', () => {
+  assert.equal(roundSettings(1, 2), null);
+  assert.equal(roundSettings(2, 2), ROUND_TWO[2]);
+  assert.equal(roundSettings(3, 3), ROUND_THREE[3]);
+  assert.equal(roundSettings(4, 2), null, 'there is no Round 4 tuning');
+});
 
 test('unknown outcomes change nothing', () => {
   const progression = createRivalProgression();

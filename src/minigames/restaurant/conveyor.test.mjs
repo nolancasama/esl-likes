@@ -265,3 +265,49 @@ test('snapshot reports effective solo overrides and rush state', () => {
   assert.equal(conveyor.snapshot().entryInterval, 2.4);
   assert.equal(conveyor.snapshot().mode, 'rush');
 });
+
+test('Round 3 keeps Round 2 speed and only densifies the stream', () => {
+  for (const difficulty of [2, 3]) {
+    const { roundTwo, roundThree } = CONVEYOR_CONFIG[difficulty];
+    assert.equal(roundThree.speed, roundTwo.speed, `level ${difficulty} changed speed for Round 3`);
+    assert.ok(
+      roundThree.entryInterval <= roundTwo.entryInterval,
+      `level ${difficulty} thinned the Round 3 stream`,
+    );
+    assert.ok(
+      roundThree.entryInterval >= MIN_DISH_SPACING / roundThree.speed - 1e-9,
+      `level ${difficulty} Round 3 would bunch dishes closer than MIN_DISH_SPACING`,
+    );
+  }
+});
+
+test('startRoundThree switches once and keeps the dishes already on the belt', () => {
+  const conveyor = createConveyor({ difficulty: 2, foods: FOODS, rng: seededRng(77) });
+  conveyor.advance(30);
+  const before = conveyor.snapshot();
+  assert.equal(before.mode, 'solo');
+
+  assert.equal(conveyor.startRoundThree(), true);
+  const after = conveyor.snapshot();
+  assert.equal(after.mode, 'roundThree');
+  assert.deepEqual(after.dishes, before.dishes, 'the belt kept its dishes across the switch');
+  assert.equal(after.speed, CONVEYOR_CONFIG[2].roundThree.speed);
+  assert.equal(conveyor.startRoundThree(), false, 'the switch is one-shot');
+});
+
+test('Round 3 never runs at Round 2 mode: the two switches are distinct', () => {
+  const conveyor = createConveyor({ difficulty: 3, foods: FOODS, rng: seededRng(83) });
+  conveyor.advance(20);
+  conveyor.startRoundTwo();
+  assert.equal(conveyor.snapshot().mode, 'roundTwo');
+  assert.equal(conveyor.startRoundThree(), true);
+  assert.equal(conveyor.snapshot().mode, 'roundThree');
+  assert.equal(conveyor.snapshot().entryInterval, CONVEYOR_CONFIG[3].roundThree.entryInterval);
+});
+
+test('level 1 has no Round 3 belt, so the switch is inert', () => {
+  const conveyor = createConveyor({ difficulty: 1, foods: FOODS, rng: seededRng(91) });
+  conveyor.advance(10);
+  assert.equal(conveyor.startRoundThree(), false);
+  assert.equal(conveyor.snapshot().mode, 'solo');
+});

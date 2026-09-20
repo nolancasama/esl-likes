@@ -184,6 +184,7 @@ export function createRestaurantRival({
   hesitationMin: hesitationMinOverride,
   hesitationMax: hesitationMaxOverride,
   enabled: enabledOverride,
+  maxActiveOrders: maxActiveOrdersOverride,
   registry = createCustomerClaimRegistry(),
   conveyor = null,
   initialPosition = { x: 5.5, z: -5.6 },
@@ -210,6 +211,7 @@ export function createRestaurantRival({
     ...(hesitationMinOverride === undefined ? {} : { hesitationMin: hesitationMinOverride }),
     ...(hesitationMaxOverride === undefined ? {} : { hesitationMax: hesitationMaxOverride }),
     ...(enabledOverride === undefined ? {} : { enabled: enabledOverride }),
+    ...(maxActiveOrdersOverride === undefined ? {} : { maxActiveOrders: maxActiveOrdersOverride }),
   };
   const enabled = Boolean(levelConfig && settings.enabled);
   const speed = nonNegativeOption(settings.speed, levelConfig?.speed ?? RIVAL_SPEED);
@@ -233,15 +235,34 @@ export function createRestaurantRival({
     dishNoticeSeconds,
     levelConfig?.dishNoticeSeconds ?? DEFAULT_DISH_NOTICE_SECONDS,
   );
+  // Round 3 lets the rival hold two claimed orders at once. It defaults to one,
+  // so Rounds 1 and 2 take exactly the path they always did.
+  const maxActiveOrders = Math.max(
+    1, Math.round(nonNegativeOption(settings.maxActiveOrders, 1)),
+  );
   const firstSeenAt = new Map();
 
   let state = 'idle';
   let position = start;
   let remaining = 0;
   let claims = 0;
-  let task = null;
+  // The rival's memory: claimed, unresolved orders. Its body can only do one
+  // physical thing at a time, and these three say which order that thing is for.
+  const orders = [];
+  let pending = null; // being walked to and claimed; not yet an active order
+  let taking = null;  // claimed, currently having its order taken
+  let focus = null;   // the order the current pickup or delivery serves
   let targetDish = null;
   let carriedDish = null;
+
+  function canClaimMore() {
+    return claims < claimLimit && orders.length + (pending ? 1 : 0) < maxActiveOrders;
+  }
+
+  /** The order the rival's body is currently occupied with, if any. */
+  function currentOrder() {
+    return pending ?? focus ?? taking ?? orders[0] ?? null;
+  }
 
   function hesitation() {
     return randomBetween(rng, hesitationMin, hesitationMax);
@@ -263,40 +284,69 @@ export function createRestaurantRival({
     return carriedDish ? { dishId: carriedDish.dishId, food: carriedDish.food } : null;
   }
 
-  function abandonClaimedTask(events, reason) {
-    events.push({
-      type: 'abandonTask', customer: task.customer, reason, discardedDish: discardedDish(),
-    });
-    task = null;
-    targetDish = null;
-    carriedDish = null;
-    state = 'idle';
+  /**
+   * Forget one order. Anything the body was doing *for that order* is dropped
+   * with it; work for a different remembered order carries on untouched.
+   */
+  function dropOrder(order) {
+    const index = orders.indexOf(order);
+    if (index >= 0) orders.splice(index, 1);
+    if (taking === order) taking = null;
+    if (focus === order) {
+      focus = null;
+      targetDish = null;
+      carriedDish = null;
+    }
+  }
+
+  /** Where to go once an order ends, if the body is not already committed. */
+  function resumeAfterOrder() {
+    if (focus || pending || taking) return;
+    state = orders.length > 0 ? 'watchingBelt' : 'idle';
     remaining = 0;
   }
 
-  function taskLossReason() {
-    if (!task || ['idle', 'choosing', 'walkingToCustomer'].includes(state)) return null;
-    const customer = registry.getCustomer(task.customer);
-    if (!customer) return 'left';
-    return customer.owner === RESTAURANT_OWNERS.RIVAL ? null : 'ownershipLost';
+  function abandonOrder(order, events, reason) {
+    events.push({
+      type: 'abandonTask',
+      customer: order.customer,
+      reason,
+      discardedDish: focus === order ? discardedDish() : null,
+    });
+    dropOrder(order);
+    resumeAfterOrder();
+  }
+
+  /** Claimed orders whose customer has left or is no longer the rival's. */
+  function lostOrders() {
+    const lost = [];
+    for (const order of orders) {
+      const customer = registry.getCustomer(order.customer);
+      if (!customer) lost.push({ order, reason: 'left' });
+      else if (customer.owner !== RESTAURANT_OWNERS.RIVAL) {
+        lost.push({ order, reason: 'ownershipLost' });
+      }
+    }
+    return lost;
   }
 
   function chooseNext(viewCustomers, events) {
-    if (claims >= claimLimit) {
-      state = 'idle';
-      remaining = 0;
+    if (!canClaimMore()) {
+      resumeAfterOrder();
       return;
     }
+    // longestWaitingUnclaimed already excludes player-reserved and player-owned
+    // customers, so a second order can never be taken off the player.
     const target = registry.longestWaitingUnclaimed(minSeatedAge);
     const viewCustomer = target ? findCustomer(viewCustomers, target.id) : null;
     const targetPosition = copyPosition(viewCustomer?.position, target?.position);
     if (!target || !targetPosition) {
-      state = 'idle';
+      state = orders.length > 0 ? 'watchingBelt' : 'idle';
       remaining = 0;
       return;
     }
     const walk = walkData(targetPosition);
-    task = { customer: target.id, food: viewCustomer?.food ?? target.food, targetPosition };
+    pending = { customer: target.id, food: viewCustomer?.food ?? target.food, targetPosition };
     state = 'walkingToCustomer';
     remaining = walk.duration;
     events.push({ type: 'targetCustomer', customer: target.id, delay: 0, ...walk });
@@ -320,13 +370,22 @@ export function createRestaurantRival({
     }
   }
 
+  /**
+   * Looks for a dish matching ANY remembered order and goes for whichever can
+   * actually be reached first — not the oldest order. Returns true when there
+   * was something worth chasing, which is how `watchingBelt` knows whether the
+   * lull is free for taking another order.
+   */
   function targetMatchingDish(activeConveyor, snapshot, events, now = registry.serviceTime) {
-    if (!activeConveyor || !snapshot) return;
+    if (!activeConveyor || !snapshot || orders.length === 0) return false;
+    const wantedBy = new Map();
+    for (const order of orders) if (!wantedBy.has(order.food)) wantedBy.set(order.food, order);
+
     // Epsilon: accumulated service-time sums (0.1 × 6) must still count as 0.6.
-    const matching = snapshot.dishes.filter((dish) => dish?.food === task.food
+    const matching = snapshot.dishes.filter((dish) => wantedBy.has(dish?.food)
       && firstSeenAt.has(dish.id)
       && now - firstSeenAt.get(dish.id) + 1e-9 >= noticeSeconds);
-    if (matching.length === 0) return;
+    if (matching.length === 0) return false;
 
     const delay = hesitation();
     let selected = null;
@@ -340,9 +399,12 @@ export function createRestaurantRival({
     }
     if (!selected) {
       remaining = delay;
-      return;
+      return true;
     }
 
+    // The order this dish is for is settled now and does not change en route,
+    // so the food can only ever reach the customer who asked for it.
+    focus = wantedBy.get(selected.dish.food);
     const walk = walkData(selected.intercept.position, delay, selected.intercept.duration);
     targetDish = {
       dishId: selected.dish.id,
@@ -353,16 +415,19 @@ export function createRestaurantRival({
     state = 'walkingToDish';
     remaining = walk.delay + walk.duration;
     events.push({
-      type: 'targetDish', customer: task.customer, dishId: targetDish.dishId,
+      type: 'targetDish', customer: focus.customer, dishId: targetDish.dishId,
       food: targetDish.food, ...walk,
     });
+    return true;
   }
 
   function abandonDish(events, reason) {
     events.push({
-      type: 'abandonDish', customer: task.customer, dishId: targetDish.dishId, reason,
+      type: 'abandonDish', customer: focus.customer, dishId: targetDish.dishId, reason,
     });
     targetDish = null;
+    // Releasing the focus lets the next look at the belt serve either order.
+    focus = null;
     state = 'watchingBelt';
     remaining = randomBetween(rng, ABANDON_MIN, ABANDON_MAX);
   }
@@ -390,14 +455,18 @@ export function createRestaurantRival({
     const snapshot = beltSnapshot(activeConveyor);
     recordVisibleDishes(snapshot, frameStart);
 
-    const lostReason = taskLossReason();
-    if (lostReason) {
-      abandonClaimedTask(events, lostReason);
+    const lost = lostOrders();
+    if (lost.length > 0) {
+      for (const { order, reason } of lost) abandonOrder(order, events, reason);
       return events;
     }
 
     if (state === 'idle') {
-      if (claims < claimLimit) beginChoosing();
+      if (orders.length > 0) {
+        // An order survived whatever ended the last one: go back to watching.
+        state = 'watchingBelt';
+        remaining = 0;
+      } else if (canClaimMore()) beginChoosing();
       return events;
     }
 
@@ -407,47 +476,57 @@ export function createRestaurantRival({
       return events;
     }
 
+    // The rival never re-targets mid-walk: a dish for a remembered order
+    // appearing now does not interrupt the walk to claim this customer.
     if (state === 'walkingToCustomer') {
-      const customerBeforeArrival = registry.getCustomer(task.customer);
+      const customerBeforeArrival = registry.getCustomer(pending.customer);
       if (!customerBeforeArrival) {
-        events.push({ type: 'abandonTarget', customer: task.customer, reason: 'missing' });
-        task = null;
+        events.push({ type: 'abandonTarget', customer: pending.customer, reason: 'missing' });
+        pending = null;
         beginChoosing(randomBetween(rng, ABANDON_MIN, ABANDON_MAX));
         return events;
       }
       remaining = Math.max(0, remaining - dt);
       if (remaining > 0) return events;
-      position = copyPosition(task.targetPosition);
+      position = copyPosition(pending.targetPosition);
       if (isPostFocusHold(view.focusReleasedAgo)) return events;
-      if (!registry.claimRival(task.customer, { minSeatedAge })) {
+      if (!registry.claimRival(pending.customer, { minSeatedAge })) {
         events.push({
-          type: 'abandonTarget', customer: task.customer,
-          reason: targetFailureReason(registry.getCustomer(task.customer)),
+          type: 'abandonTarget', customer: pending.customer,
+          reason: targetFailureReason(registry.getCustomer(pending.customer)),
         });
-        task = null;
+        pending = null;
         beginChoosing(randomBetween(rng, ABANDON_MIN, ABANDON_MAX));
         return events;
       }
       claims += 1;
+      taking = pending;
+      orders.push(taking);
+      pending = null;
       state = 'takingOrder';
       remaining = TAKE_ORDER_SECONDS;
-      events.push({ type: 'claimCustomer', customer: task.customer, owner: RESTAURANT_OWNERS.RIVAL });
+      events.push({ type: 'claimCustomer', customer: taking.customer, owner: RESTAURANT_OWNERS.RIVAL });
       return events;
     }
 
     if (state === 'takingOrder') {
       remaining = Math.max(0, remaining - dt);
       if (remaining > 0) return events;
+      const taken = taking;
+      taking = null;
       state = 'watchingBelt';
       remaining = 0;
-      events.push({ type: 'orderTaken', customer: task.customer, food: task.food });
+      events.push({ type: 'orderTaken', customer: taken.customer, food: taken.food });
       return events;
     }
 
     if (state === 'watchingBelt') {
       remaining = Math.max(0, remaining - dt);
       if (remaining > 0) return events;
-      targetMatchingDish(activeConveyor, snapshot, events, frameStart);
+      const chasing = targetMatchingDish(activeConveyor, snapshot, events, frameStart);
+      // Nothing worth walking for — including while the belt is stopped. Use
+      // the lull to go and take another order instead of standing still.
+      if (!chasing && canClaimMore()) beginChoosing();
       return events;
     }
 
@@ -470,9 +549,10 @@ export function createRestaurantRival({
         abandonDish(events, 'taken');
         return events;
       }
+      // One physical dish at a time, always.
       carriedDish = { dishId: targetDish.dishId, food: taken.food ?? targetDish.food };
       events.push({
-        type: 'pickUpDish', customer: task.customer, dishId: carriedDish.dishId,
+        type: 'pickUpDish', customer: focus.customer, dishId: carriedDish.dishId,
         food: carriedDish.food, position: copyPosition(position),
       });
       targetDish = null;
@@ -484,31 +564,31 @@ export function createRestaurantRival({
     if (state === 'carrying') {
       remaining = Math.max(0, remaining - dt);
       if (remaining > 0) return events;
-      const current = findCustomer(viewCustomers, task.customer);
-      const registered = registry.getCustomer(task.customer);
+      const current = findCustomer(viewCustomers, focus.customer);
+      const registered = registry.getCustomer(focus.customer);
       const destination = copyPosition(current?.position, registered?.position);
       if (!destination) {
-        abandonClaimedTask(events, 'left');
+        abandonOrder(focus, events, 'left');
         return events;
       }
       const walk = walkData(destination);
       state = 'delivering';
       remaining = walk.duration;
-      task.targetPosition = destination;
-      events.push({ type: 'deliverToCustomer', customer: task.customer, delay: 0, ...walk });
+      focus.targetPosition = destination;
+      events.push({ type: 'deliverToCustomer', customer: focus.customer, delay: 0, ...walk });
       return events;
     }
 
     if (state === 'delivering') {
       remaining = Math.max(0, remaining - dt);
       if (remaining > 0) return events;
-      const customer = registry.getCustomer(task.customer);
+      const customer = registry.getCustomer(focus.customer);
       if (!customer || customer.owner !== RESTAURANT_OWNERS.RIVAL) {
-        abandonClaimedTask(events, customer ? 'ownershipLost' : 'left');
+        abandonOrder(focus, events, customer ? 'ownershipLost' : 'left');
         return events;
       }
-      position = copyPosition(task.targetPosition);
-      const servedCustomer = task.customer;
+      position = copyPosition(focus.targetPosition);
+      const servedCustomer = focus.customer;
       const servedFood = carriedDish.food;
       registry.resolveCustomer(servedCustomer, { outcome: 'served' });
       const counts = registry.counts;
@@ -517,10 +597,12 @@ export function createRestaurantRival({
         owner: RESTAURANT_OWNERS.RIVAL, playerServed: counts.playerServed,
         rivalServed: counts.rivalServed,
       });
-      task = null;
+      // Serving one customer frees a slot; any other remembered order stays.
+      dropOrder(focus);
       carriedDish = null;
       state = 'idle';
       remaining = 0;
+      resumeAfterOrder();
     }
     return events;
   }
@@ -530,9 +612,13 @@ export function createRestaurantRival({
     registry,
     get enabled() { return enabled; },
     get claimLimit() { return claimLimit; },
+    get maxActiveOrders() { return maxActiveOrders; },
+    /** Claimed, unresolved orders the rival is remembering right now. */
+    get activeOrders() { return orders.map((order) => ({ customer: order.customer, food: order.food })); },
+    get activeOrderCount() { return orders.length; },
     get state() { return state; },
     get position() { return copyPosition(position); },
-    get targetCustomer() { return task?.customer ?? null; },
+    get targetCustomer() { return currentOrder()?.customer ?? null; },
     get targetDishId() { return targetDish?.dishId ?? null; },
     get carriedDish() { return carriedDish ? { ...carriedDish } : null; },
     get claims() { return claims; },

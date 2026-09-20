@@ -7,13 +7,14 @@ const SHARED_CONFIG = Object.freeze({
 const SCHEDULER_EPSILON = 1e-10;
 export const MIN_DISH_SPACING = 1.9;
 
-function difficultyConfig(speed, entryInterval, rush, roundTwo = null) {
+function difficultyConfig(speed, entryInterval, rush, roundTwo = null, roundThree = null) {
   return Object.freeze({
     ...SHARED_CONFIG,
     speed,
     entryInterval,
     rush: rush ? Object.freeze(rush) : null,
     roundTwo: roundTwo ? Object.freeze(roundTwo) : null,
+    roundThree: roundThree ? Object.freeze(roundThree) : null,
   });
 }
 
@@ -22,9 +23,24 @@ export const CONVEYOR_CONFIG = Object.freeze({
   // Pickups by both waiters keep the on-screen count about one lower.
   // Round 2 (after beating the first rival): +17% speed and a denser stream,
   // ≈ 6.0 (Normal) and 6.8 (Challenge) visible, still MIN_DISH_SPACING apart.
+  // Round 3 keeps Round 2's speed exactly — its difficulty is the belt failing,
+  // not the belt racing. The stream densifies only to offset the ~18% of the
+  // round the belt spends stopped, so a stoppage bunches the supply into bursts
+  // instead of starving the room. Challenge is already at MIN_DISH_SPACING, so
+  // it densifies barely at all and takes its chaos from the stoppages alone.
   1: difficultyConfig(0.9, 4.0, null),
-  2: difficultyConfig(1.0, 3.6, { speed: 1.08, entryInterval: 2.4 }, { speed: 1.26, entryInterval: 1.75 }),
-  3: difficultyConfig(1.05, 3.4, { speed: 1.18, entryInterval: 1.7 }, { speed: 1.38, entryInterval: 1.4 }),
+  2: difficultyConfig(
+    1.0, 3.6,
+    { speed: 1.08, entryInterval: 2.4 },
+    { speed: 1.26, entryInterval: 1.75 },
+    { speed: 1.26, entryInterval: 1.55 },
+  ),
+  3: difficultyConfig(
+    1.05, 3.4,
+    { speed: 1.18, entryInterval: 1.7 },
+    { speed: 1.38, entryInterval: 1.4 },
+    { speed: 1.38, entryInterval: 1.38 },
+  ),
 });
 
 function sample(rng) {
@@ -155,6 +171,13 @@ export function createConveyor(options = {}) {
     return switchMode('roundTwo', defaults.roundTwo);
   }
 
+  // Round 3 keeps Round 2's speed and densifies slightly; the stoppages that
+  // define the round live in beltMalfunction.js and reach this belt only as a
+  // withheld clock, never as a mode.
+  function startRoundThree() {
+    return switchMode('roundThree', defaults.roundThree);
+  }
+
   function advance(serviceDt, view = {}) { // view remains accepted but intentionally unused.
     void view;
     const dt = Number(serviceDt);
@@ -234,5 +257,8 @@ export function createConveyor(options = {}) {
     };
   }
 
-  return { advance, startRush, startRoundTwo, take, exchange, nearestPickable, predictX, snapshot };
+  return {
+    advance, startRush, startRoundTwo, startRoundThree,
+    take, exchange, nearestPickable, predictX, snapshot,
+  };
 }
