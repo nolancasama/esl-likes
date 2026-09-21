@@ -44,6 +44,28 @@ export const ENVIRONMENT_MODELS = deepFreeze([
   { key: 'common-tree', folder: 'quaternius-nature', file: 'CommonTree_1.gltf', height: 6.2 },
   { key: 'pine', folder: 'quaternius-nature', file: 'Pine_1.gltf', height: 6.4 },
   { key: 'rock', folder: 'quaternius-nature', file: 'Rock_Medium_1.gltf', height: 1.05 },
+
+  // Available in the scene editor's palette but placed nowhere yet. The park's
+  // *planted* palette is still the short one above — see DESIGN_DECISIONS on why
+  // it was narrowed — and these do not change what a student sees until someone
+  // actually places one. They are here so the editor can offer a wider kit
+  // without a download: the files already ship in the assets folder.
+  { key: 'bush-flowering', folder: 'quaternius-nature', file: 'Bush_Common_Flowers.gltf', height: 1.05 },
+  { key: 'common-tree-b', folder: 'quaternius-nature', file: 'CommonTree_3.gltf', height: 6.2 },
+  { key: 'dead-tree', folder: 'quaternius-nature', file: 'DeadTree_3.gltf', height: 5.4 },
+  { key: 'fern', folder: 'quaternius-nature', file: 'Fern_1.gltf', height: 0.8 },
+  { key: 'flower-cluster', folder: 'quaternius-nature', file: 'Flower_3_Group.gltf', height: 0.45 },
+  { key: 'flower-patch', folder: 'quaternius-nature', file: 'Flower_4_Group.gltf', height: 0.45 },
+  { key: 'leafy-plant', folder: 'quaternius-nature', file: 'Plant_1_Big.gltf', height: 1.2 },
+  { key: 'pebble', folder: 'quaternius-nature', file: 'Pebble_Round_1.gltf', height: 0.35 },
+  { key: 'pebble-flat', folder: 'quaternius-nature', file: 'Pebble_Round_2.gltf', height: 0.4 },
+  { key: 'pine-b', folder: 'quaternius-nature', file: 'Pine_2.gltf', height: 6.4 },
+  { key: 'pine-c', folder: 'quaternius-nature', file: 'Pine_5.gltf', height: 5.8 },
+  { key: 'rock-b', folder: 'quaternius-nature', file: 'Rock_Medium_2.gltf', height: 1.05 },
+  { key: 'rock-c', folder: 'quaternius-nature', file: 'Rock_Medium_3.gltf', height: 1.2 },
+  // The park's paths are flat coloured slabs; this is the one genuinely new
+  // capability in the kit rather than more scatter.
+  { key: 'rock-path', folder: 'quaternius-nature', file: 'RockPath_Round_Thin.gltf', height: 0.12 },
   { key: 'planter', folder: 'kenney-suburban', file: 'planter.glb', height: 0.85 },
   { key: 'low-fence', folder: 'kenney-suburban', file: 'fence-low.glb', height: 0.85 },
   { key: 'long-fence', folder: 'kenney-suburban', file: 'fence-1x3.glb', height: 1.05 },

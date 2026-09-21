@@ -46,6 +46,21 @@ const CATEGORY_BY_ASSET = Object.freeze({
   'farm-barn': 'farm',
   'farm-well': 'farm',
   'water-tower': 'farm',
+  // Palette-only: shipped in the assets folder, placed nowhere yet.
+  'bush-flowering': 'vegetation',
+  'common-tree-b': 'vegetation',
+  'dead-tree': 'vegetation',
+  fern: 'vegetation',
+  'flower-cluster': 'vegetation',
+  'flower-patch': 'vegetation',
+  'leafy-plant': 'vegetation',
+  'pine-b': 'vegetation',
+  'pine-c': 'vegetation',
+  pebble: 'rocks',
+  'pebble-flat': 'rocks',
+  'rock-b': 'rocks',
+  'rock-c': 'rocks',
+  'rock-path': 'rocks',
 });
 
 const DISPLAY_NAMES = Object.freeze({
@@ -64,6 +79,20 @@ const DISPLAY_NAMES = Object.freeze({
   'farm-barn': 'Barn',
   'farm-well': 'Well',
   'water-tower': 'Water tower',
+  'bush-flowering': 'Bush (flowering)',
+  'common-tree-b': 'Common tree B',
+  'dead-tree': 'Dead tree',
+  fern: 'Fern',
+  'flower-cluster': 'Flowers (pink)',
+  'flower-patch': 'Flowers (yellow)',
+  'leafy-plant': 'Leafy plant',
+  'pine-b': 'Pine B',
+  'pine-c': 'Pine C',
+  pebble: 'Pebble',
+  'pebble-flat': 'Pebble (flat)',
+  'rock-b': 'Rock B',
+  'rock-c': 'Rock C',
+  'rock-path': 'Rock path stone',
 });
 
 /**

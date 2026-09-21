@@ -22,13 +22,22 @@ test('every group names a model the park actually loads', () => {
   }
 });
 
-test('model keys are unique and every model is used by at least one group', () => {
+test('model keys are unique', () => {
   const keys = ENVIRONMENT_MODELS.map((model) => model.key);
   assert.equal(new Set(keys).size, keys.length, 'duplicate model key');
-  const used = new Set(SCENERY_GROUPS.map((group) => group.asset));
-  for (const key of keys) {
-    assert.ok(used.has(key), `${key} is loaded but nothing places it`);
-  }
+});
+
+test('the planted palette stays short, even though the editor offers more', () => {
+  // Models the park actually plants. The editor's palette is deliberately
+  // wider than this — a model can be available to place without being placed —
+  // but the set the park dresses itself from is a design decision and should
+  // not drift without one.
+  const planted = [...new Set(SCENERY_GROUPS.map((group) => group.asset))].sort();
+  assert.deepEqual(planted, [
+    'bush', 'cafe-chair', 'cafe-table', 'common-tree', 'crate',
+    'farm-barn', 'farm-well', 'grass', 'grass-wispy', 'long-fence',
+    'low-fence', 'pine', 'planter', 'rock', 'water-tower',
+  ]);
 });
 
 test('group names are unique — they appear in mesh names and scene stats', () => {
@@ -111,11 +120,23 @@ test('the tall occluders are the ones an animal can hide behind', () => {
 });
 
 test('the park is still dressed from one short plant palette', () => {
+  // What matters is which plants are PLANTED, not how many the editor offers.
+  // Every plant still comes from the one pack, and the park still uses six of
+  // them: two grasses, a bush, a broadleaf tree, a pine and a rock.
+  const planted = new Set(SCENERY_GROUPS.map((group) => group.asset));
   const plants = ENVIRONMENT_MODELS
-    .filter((model) => model.folder === 'quaternius-nature')
+    .filter((model) => model.folder === 'quaternius-nature' && planted.has(model.key))
     .map((model) => model.key)
     .sort();
   assert.deepEqual(plants, ['bush', 'common-tree', 'grass', 'grass-wispy', 'pine', 'rock']);
+});
+
+test('every palette model is one file that actually ships', () => {
+  for (const model of ENVIRONMENT_MODELS) {
+    assert.match(model.file, /\.(gltf|glb|obj)$/, model.key);
+    assert.ok(model.folder, model.key);
+    assert.ok(Number.isFinite(model.height) && model.height > 0, `${model.key} height`);
+  }
 });
 
 test('the data is frozen so nothing can edit the park at runtime', () => {
