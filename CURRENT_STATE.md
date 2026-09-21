@@ -82,9 +82,22 @@ rather than risk stopping half-way through a rendering rewrite.
   NOT_READY and **INCOMPLETE**. The fourth is the important one: everything
   required is correct, the robot just wants more decoration. Folding that into
   ALMOST would send a child hunting for a colour mistake that does not exist.
+- `robotRenderer.js` — the one renderer both halves use. The colouring page
+  draws the whole robot; each puppet piece draws only its own regions, with the
+  same code and the same colours, which is what makes the puppet *be* the
+  child's drawing rather than a reconstruction of it. Fills go back to front by
+  `order`, the black line art redraws over every fill, and the eyes are drawn
+  last so a dark face can never swallow them. It takes a 2D context rather than
+  making one, so a recording stub tests the whole draw without a canvas.
 - **Nothing is wired yet.** `index.js`, `picture.js` and `scoring.js` are
-  untouched, so the Coloring minigame still plays exactly as it did. 46 new
-  tests, suite at 521/521.
+  untouched, so the Coloring minigame still plays exactly as it did. 60 new
+  tests, suite at 535/535.
+
+**Not yet seen on screen.** `robotRenderer.js` is verified by unit tests only —
+no browser has drawn it. Its geometry is authored, not judged, so the first
+person to run it should expect to adjust proportions. That is the one piece of
+this foundation that has not met the project's usual bar of judging visual work
+by looking at it; there was not enough weekly quota left to run a browser.
 
 ### The decision worth knowing before continuing
 
@@ -101,6 +114,10 @@ canvas cropping, no texture atlas, and no crop-bounds arithmetic to get wrong.
 1. **Hand `.ai/wo-coloring-robot.json` to the router.** Codex's usage-limit
    window ends 2026-09-22T11:00. Do not edit `robotDefinition.js`,
    `colorState.js` or `robotScoring.js` — they are the frozen interface.
+   `robotRenderer.js` now exists too, so the brief's "rewrite picture.js" item
+   is largely done: what remains there is wiring the renderer to a real canvas,
+   pointer hit-testing through `regionAt`, and deleting the old freehand path.
+   **Look at the robot first** and fix its proportions before building on it.
 2. **Owner acceptance of the scene editor.** Open the Zoo with `npm run dev`,
    press `P`, and judge it by using it. The demo at
    `/src/dev/scene-editor/demo/` is the same tool with no game code.
