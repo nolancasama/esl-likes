@@ -21,27 +21,30 @@ test('natural plurals are defined per item, never inferred from the label', () =
   assert.equal(answerFor(LESSON_BY_ID.restaurant, 'hamburger'), 'I like hamburgers.');
   assert.equal(answerFor(LESSON_BY_ID.restaurant, 'curry'), 'I like curry.');
   assert.equal(answerFor(LESSON_BY_ID.restaurant, 'ramen'), 'I like ramen.');
-  assert.equal(answerFor(LESSON_BY_ID.zoo, 'elephant'), 'I like elephants.');
+  assert.equal(answerFor(LESSON_BY_ID.zoo, 'chicken'), 'I like chickens.');
   assert.equal(answerFor(LESSON_BY_ID.zoo, 'deer'), 'I like deer.');
   assert.equal(answerFor(LESSON_BY_ID.coloring, 'blue'), 'I like blue.');
 });
 
-test('the Zoo keeps its frozen animal order and exact sentences', () => {
+test('the animal park keeps its frozen animal order and exact sentences', () => {
   assert.deepEqual(LESSON_BY_ID.zoo.vocabulary.map(({ id, answer }) => ({ id, answer })), [
-    { id: 'elephant', answer: 'I like elephants.' },
-    { id: 'giraffe', answer: 'I like giraffes.' },
-    { id: 'penguin', answer: 'I like penguins.' },
     { id: 'tiger', answer: 'I like tigers.' },
-    { id: 'deer', answer: 'I like deer.' },
-    { id: 'alpaca', answer: 'I like alpacas.' },
     { id: 'horse', answer: 'I like horses.' },
-    { id: 'fox', answer: 'I like foxes.' },
-    { id: 'wolf', answer: 'I like wolves.' },
-    { id: 'stag', answer: 'I like stags.' },
-    { id: 'bull', answer: 'I like bulls.' },
-    { id: 'cow', answer: 'I like cows.' },
-    { id: 'donkey', answer: 'I like donkeys.' },
+    { id: 'dog', answer: 'I like dogs.' },
+    { id: 'deer', answer: 'I like deer.' },
+    { id: 'cat', answer: 'I like cats.' },
+    { id: 'penguin', answer: 'I like penguins.' },
+    { id: 'chicken', answer: 'I like chickens.' },
+    { id: 'giraffe', answer: 'I like giraffes.' },
   ]);
+});
+
+test('the removed zoo animals are gone from the vocabulary', () => {
+  const ids = new Set(LESSON_BY_ID.zoo.answers);
+  for (const removed of ['elephant', 'alpaca', 'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey']) {
+    assert.ok(!ids.has(removed), `${removed} is still requestable`);
+  }
+  assert.equal(ids.size, 8);
 });
 
 test('the matcher answer tables match the lesson vocabulary', () => {

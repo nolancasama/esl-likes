@@ -6,7 +6,6 @@ import {
   bounds,
   canOccupy,
   colliders,
-  habitats,
   landmarks,
   nearestNode,
   pathEdges,
@@ -15,46 +14,32 @@ import {
   shortestPath,
 } from './layout.js';
 
-const ANIMALS = [
-  'elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
-  'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey',
-];
-const HABITAT_REGIONS = ['savanna', 'forest', 'farm', 'penguinCove'];
+const AREA_IDS = ['grassland', 'woodland', 'farm', 'cove'];
 const nodesById = new Map(pathNodes.map((node) => [node.id, node]));
 
-test('the campus contains every animal exactly once in its specified region', () => {
-  assert.deepEqual([...habitats.map(({ id }) => id)].sort(), [...ANIMALS].sort());
-  assert.equal(new Set(habitats.map(({ id }) => id)).size, ANIMALS.length);
-  assert.deepEqual(
-    Object.fromEntries(habitats.map(({ id, region }) => [id, region])),
-    {
-      elephant: 'savanna', giraffe: 'savanna', tiger: 'savanna',
-      deer: 'forest', fox: 'forest', wolf: 'forest', stag: 'forest',
-      horse: 'farm', alpaca: 'farm', cow: 'farm', bull: 'farm', donkey: 'farm',
-      penguin: 'penguinCove',
-    },
-  );
-  const regionIds = new Set(regions.map(({ id }) => id));
-  for (const habitat of habitats) assert.ok(regionIds.has(habitat.region), habitat.id);
+test('the park has no enclosures, viewpoints or habitat colliders left', () => {
+  // The pens are gone; nothing invisible may be left standing where they were.
+  for (const collider of colliders) {
+    assert.notEqual(collider.role, 'habitatFence', `${collider.id} is a leftover pen`);
+    assert.equal(collider.habitatId, undefined, `${collider.id} still names a habitat`);
+  }
+  for (const node of pathNodes) {
+    assert.notEqual(node.kind, 'viewpoint', `${node.id} is a leftover viewpoint`);
+    assert.doesNotMatch(node.id, /viewpoint/, `${node.id} is a leftover viewpoint`);
+  }
 });
 
-test('every habitat viewpoint is a reachable path node and every region reaches the plaza', () => {
-  for (const habitat of habitats) {
-    const node = nodesById.get(`${habitat.id}-viewpoint`);
-    assert.ok(node, `${habitat.id} is missing a viewpoint node`);
-    assert.equal(node.kind, 'viewpoint');
-    assert.deepEqual({ x: node.x, z: node.z }, habitat.viewpoint);
-    const route = shortestPath('plaza', node.id);
-    assert.equal(route.nodeIds[0], 'plaza');
-    assert.equal(route.nodeIds.at(-1), node.id);
-    assert.ok(Number.isFinite(route.length));
-  }
+test('the broad areas are named and nothing is called a zoo region', () => {
+  const ids = regions.map(({ id }) => id);
+  for (const area of AREA_IDS) assert.ok(ids.includes(area), `${area} is missing`);
+  assert.ok(!ids.includes('savanna'));
+  assert.ok(!ids.includes('penguinCove'));
+});
 
-  for (const region of HABITAT_REGIONS) {
-    const habitat = habitats.find((candidate) => candidate.region === region);
-    const route = shortestPath(`${habitat.id}-viewpoint`, 'plaza');
-    assert.equal(route.nodeIds.at(-1), 'plaza', `${region} cannot reach the plaza`);
-  }
+test('the map is the size it always was', () => {
+  // The search challenge comes from animals moving, not from longer walks.
+  assert.equal(bounds.maxX - bounds.minX, 82);
+  assert.equal(bounds.maxZ - bounds.minZ, 70);
 });
 
 test('the undirected path graph is connected', () => {
@@ -73,31 +58,24 @@ test('the undirected path graph is connected', () => {
   assert.equal(visited.size, pathNodes.length);
 });
 
-test('only one-edge viewpoint spurs are dead ends', () => {
+test('no path node is a dead end', () => {
+  // The spokes that used to lead to a pen are gone, and with them the shape
+  // that told a child exactly where an animal stood.
   const degree = new Map(pathNodes.map(({ id }) => [id, 0]));
   for (const [fromId, toId] of pathEdges) {
     degree.set(fromId, degree.get(fromId) + 1);
     degree.set(toId, degree.get(toId) + 1);
   }
   for (const node of pathNodes) {
-    if (degree.get(node.id) !== 1) continue;
-    assert.equal(node.kind, 'viewpoint', `${node.id} begins a non-viewpoint dead-end chain`);
-    const edge = pathEdges.find(([fromId, toId]) => fromId === node.id || toId === node.id);
-    const neighbourId = edge[0] === node.id ? edge[1] : edge[0];
-    assert.ok(degree.get(neighbourId) > 1, `${node.id} is on a longer dead-end chain`);
+    assert.ok(degree.get(node.id) >= 2, `${node.id} is a dead-end spur`);
   }
 });
 
-test('all path nodes and viewpoints are valid player positions inside the bounds', () => {
-  const inBounds = ({ x, z }) => x >= bounds.minX && x <= bounds.maxX
-    && z >= bounds.minZ && z <= bounds.maxZ;
+test('every path node is a valid player position inside the bounds', () => {
   for (const node of pathNodes) {
-    assert.ok(inBounds(node), `${node.id} is outside bounds`);
+    assert.ok(node.x >= bounds.minX && node.x <= bounds.maxX, `${node.id} is outside bounds`);
+    assert.ok(node.z >= bounds.minZ && node.z <= bounds.maxZ, `${node.id} is outside bounds`);
     assert.ok(canOccupy(node.x, node.z, PLAYER_RADIUS), `${node.id} is blocked`);
-  }
-  for (const habitat of habitats) {
-    assert.ok(inBounds(habitat.viewpoint), `${habitat.id} viewpoint is outside bounds`);
-    assert.ok(canOccupy(habitat.viewpoint.x, habitat.viewpoint.z, PLAYER_RADIUS), `${habitat.id} viewpoint is blocked`);
   }
 });
 
@@ -154,39 +132,18 @@ test('no collider overlaps a path edge centreline', () => {
   }
 });
 
-test('the farthest habitat is comfortably within the travel budget', () => {
-  const routes = habitats.map(({ id }) => shortestPath('plaza', `${id}-viewpoint`));
-  const farthest = Math.max(...routes.map(({ length }) => length));
-  assert.ok(farthest <= 135, `farthest route is ${farthest.toFixed(2)} units`);
+test('the path network still reaches every corner of the park from the plaza', () => {
+  for (const area of AREA_IDS) {
+    const region = regions.find((candidate) => candidate.id === area);
+    const node = nearestNode(region.center.x, region.center.z);
+    const route = shortestPath('plaza', node.id);
+    assert.equal(route.nodeIds[0], 'plaza', `${area} does not start at the plaza`);
+    assert.ok(Number.isFinite(route.length), `${area} is unreachable`);
+    assert.ok(route.length <= 135, `${area} route is ${route.length.toFixed(1)} units`);
+  }
 });
 
-function pointInPolygon(point, polygon) {
-  let inside = false;
-  for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
-    const a = polygon[index];
-    const b = polygon[previous];
-    const crosses = ((a.z > point.z) !== (b.z > point.z))
-      && point.x < (b.x - a.x) * (point.z - a.z) / (b.z - a.z) + a.x;
-    if (crosses) inside = !inside;
-  }
-  return inside;
-}
-
-test('the campus has interior exhibits, a bent entrance, and place-like junctions', () => {
-  const polygon = (ids) => ids.map((id) => nodesById.get(id));
-  const westLoop = polygon([
-    'fountain-hub', 'savanna-south', 'savanna-bend', 'savanna-forest-junction',
-    'forest-bend', 'forest-north', 'north-cross',
-  ]);
-  const eastLoop = polygon([
-    'fountain-hub', 'farm-south', 'farm-bend', 'farm-east', 'cove-bend',
-    'farm-north', 'north-cross',
-  ]);
-  const interior = habitats.filter((candidate) => (
-    pointInPolygon(candidate, westLoop) || pointInPolygon(candidate, eastLoop)
-  ));
-  assert.ok(interior.length >= 3, `only ${interior.length} habitats are inside a loop`);
-
+test('the entrance still bends rather than running straight to the fountain', () => {
   const plaza = nodesById.get('plaza');
   const bend = nodesById.get('entrance-bend');
   const hub = nodesById.get('fountain-hub');
@@ -199,41 +156,8 @@ test('the campus has interior exhibits, a bent entrance, and place-like junction
   assert.ok(degree('fountain-hub') >= 3 && degree('fountain-hub') <= 4);
 });
 
-test('the donkey is spaced inside the Farm and deer is separated from stag', () => {
-  const donkey = habitats.find(({ id }) => id === 'donkey');
-  assert.equal(donkey.region, 'farm');
-  for (const other of habitats.filter(({ region, id }) => region === 'farm' && id !== 'donkey')) {
-    assert.ok(Math.hypot(donkey.x - other.x, donkey.z - other.z) >= 14.5,
-      `donkey fence is too close to ${other.id}`);
-  }
-  const penguin = habitats.find(({ id }) => id === 'penguin');
-  assert.ok(Math.hypot(donkey.x - penguin.x, donkey.z - penguin.z) >= 16);
-  const deer = habitats.find(({ id }) => id === 'deer');
-  const stag = habitats.find(({ id }) => id === 'stag');
-  assert.ok(Math.hypot(deer.x - stag.x, deer.z - stag.z) >= 16);
-});
-
-test('Penguin Cove is well separated from the giraffe', () => {
-  const penguin = habitats.find(({ id }) => id === 'penguin');
-  const giraffe = habitats.find(({ id }) => id === 'giraffe');
-  assert.ok(Math.hypot(penguin.x - giraffe.x, penguin.z - giraffe.z) >= 25);
-});
-
-test('each viewpoint has a useful photo distance and faces the habitat correctly', () => {
-  for (const habitat of habitats) {
-    const dx = habitat.viewpoint.x - habitat.x;
-    const dz = habitat.viewpoint.z - habitat.z;
-    const distance = Math.hypot(dx, dz);
-    assert.ok(distance >= 4 && distance <= 9, `${habitat.id} photo distance is ${distance}`);
-    const facingX = Math.sin(habitat.facing);
-    const facingZ = Math.cos(habitat.facing);
-    const alignment = (facingX * dx + facingZ * dz) / distance;
-    assert.ok(alignment >= 0.85, `${habitat.id} does not face its viewpoint`);
-  }
-});
-
 test('layout navigation data is frozen and never refers to a current request', () => {
-  for (const value of [regions, habitats, pathNodes, pathEdges, colliders, bounds, landmarks]) {
+  for (const value of [regions, pathNodes, pathEdges, colliders, bounds, landmarks]) {
     assert.ok(Object.isFrozen(value));
   }
   assert.doesNotMatch(JSON.stringify({ landmarks }), /current[ _-]?request|requested|targetAnimal/i);

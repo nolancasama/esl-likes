@@ -1,17 +1,12 @@
 export const ANIMALS = Object.freeze([
-  'elephant',
-  'giraffe',
-  'penguin',
   'tiger',
-  'deer',
-  'alpaca',
   'horse',
-  'fox',
-  'wolf',
-  'stag',
-  'bull',
-  'cow',
-  'donkey',
+  'dog',
+  'deer',
+  'cat',
+  'penguin',
+  'chicken',
+  'giraffe',
 ]);
 
 function randomIndex(length, rng) {
@@ -19,7 +14,7 @@ function randomIndex(length, rng) {
   return Math.min(length - 1, Math.max(0, Math.floor(sample * length)));
 }
 
-/** Pick from all thirteen animals without removing an option. */
+/** Pick from all eight animals without removing an option. */
 export function pickAnimal(rng = Math.random) {
   return ANIMALS[randomIndex(ANIMALS.length, rng)];
 }

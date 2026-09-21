@@ -1,0 +1,51 @@
+{
+  "task": "Build an offline asset pipeline that extracts the ITHappy idle/walk/run animation clips from their source FBX files and a retargeted giraffe walk from the styloo Cow, and emit them as a single runtime clip bundle the Zoo can load alongside the existing, unmodified Animals.glb and giraffe.glb.",
+  "context": "The Zoo minigame is being rebuilt into a roaming animal park with eight animals (tiger, horse, dog, deer, cat, penguin, chicken, giraffe). Roaming animals must play a real Idle clip when stopped and a real Walk clip when moving. The shipped public/assets/animals/Animals.glb contains SEVEN RIGGED SKINS BUT ZERO ANIMATION CLIPS, so the clips must come from the original source packs. All of the findings in .tmp/zoo-park/ASSET_FINDINGS.md were measured by Claude, not assumed - read that file first and trust its clip names and bind analysis. This slice produces ONLY the pipeline and the generated asset; the roaming/gameplay rebuild is a separate slice and you must not touch the Zoo gameplay code.",
+  "requirements": [
+    "Read .tmp/zoo-park/ASSET_FINDINGS.md first. It gives the exact source paths, the exact per-animal clip names, and the measured bone-binding result. Do not re-derive them by guessing; verify them if you wish, but the names there are correct.",
+    "Add a committed Node build script (suggested scripts/build-animal-clips.mjs) that regenerates the asset from the source packs, so this is reproducible and not a mystery binary. It must be runnable via an npm script (suggested: npm run build:animal-clips).",
+    "The script extracts the ITHappy FBX from C:/Users/nolan/Downloads/Unity_2021_Animals_FREE_v2.3.unitypackage. That file is a gzip tar: each top-level entry directory contains a 'pathname' file naming the asset and an 'asset' file holding its bytes. The seven meshes live at Assets/ithappy/Animals_FREE/Meshes/{Tiger,Horse,Dog,Deer,Kitty,Pinguin,Chicken}_001.fbx.",
+    "Load each FBX with three/examples/jsm/loaders/FBXLoader.js. Under Node this needs a small DOM shim for texture handling - a working one already exists at .tmp/domshim.mjs; reuse or adapt it. Only the animation clips are wanted from the FBX; its meshes and materials are discarded.",
+    "Extract per animal exactly the idle, walk and run clips named in ASSET_FINDINGS.md. Note chicken's irregular numbering: Chicken_001_idle, Chicken_003_walk, Chicken_002_run. Do not hardcode a naming pattern that assumes _001_ for all three.",
+    "DROP every track whose target node name ends in '_rig' or '_end'. The '_rig' track is the FBX armature wrapper: dropping it is REQUIRED, because it carries the armature root motion and would make animals drift away from the position the gameplay code sets. The '_end' tracks target leaf tip bones that do not exist in the glb.",
+    "Do NOT modify, re-export or duplicate public/assets/animals/Animals.glb or public/assets/animals/giraffe.glb. Their meshes, materials and shared texture atlas already work and the Zoo's tuned targetHeight/yawOffset values depend on them being unchanged. The clips ship as separate data and are attached to the loaded models at runtime.",
+    "Track names must bind to the glb skeletons with no renaming. GLTFLoader runs PropertyBinding.sanitizeNodeName on every node, which strips '.', so glb bones 'spine.007'/'thigh.R' load as 'spine007'/'thighR' - exactly what the FBX bones are already called. Confirm the bind rate in the script and fail loudly if it regresses.",
+    "Giraffe walk: giraffe.glb has only the misspelled clip 'iddle' and no walk. Extract the 'walk' clip from stylooanimalassetpack/glb/Cow.glb inside C:/Users/nolan/Downloads/stylooanimalassetpack.zip. The cow and the giraffe share an identical 48-node Rigify rig and the cow walk's 46 bone targets are ALL present on the giraffe, so this is a name-for-name retarget.",
+    "For the giraffe retarget keep ROTATION (quaternion) tracks only. Drop translation and scale tracks so the giraffe keeps its own bone offsets - its neck and legs are far longer than the cow's and inheriting cow translations would deform it.",
+    "Emit one generated asset under public/assets/animals/ (suggested animal-clips.json, using THREE.AnimationClip.toJSON so it round-trips through THREE.AnimationClip.parse). Keep the file as small as is reasonable - prefer rounding float keyframe data to a sane precision over shipping full float64 text. Report the final byte size.",
+    "Export a small pure ES module (suggested src/minigames/zoo/animalClips.js) mapping each of the eight animal ids to its source file, its glb node, and its idle/walk/run clip names, plus a loader helper that fetches and parses the bundle. This is the interface the gameplay slice will consume, so keep it minimal and documented.",
+    "Add deterministic tests (a new *.test.mjs under src/) that assert, against the GENERATED asset: all eight animals are present; each of the seven ITHappy animals has a non-empty idle and walk clip with a positive duration; the giraffe has an idle clip and a walk clip; no track in any clip targets a name ending in '_rig' or '_end'; and the giraffe walk contains only quaternion tracks.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording that the clips come from the original ITHappy FBX rather than a Unity re-export, that Animals.glb is deliberately left unmodified with clips attached at runtime, and that the giraffe's walk is retargeted from the styloo cow because no giraffe walk exists in the source pack. Note the rejected alternative (importing the unitypackage into Unity and re-exporting per-animal GLBs).",
+    "Update public/assets/animals/README.md to describe the new clip bundle and the fact that Animals.glb carries no clips of its own."
+  ],
+  "constraints": [
+    "Do not touch src/minigames/zoo/index.js, world.js, layout.js or scoring.js. A separate slice rebuilds those and the two must not collide.",
+    "Do not change the lesson vocabulary in src/config/lesson.js. That belongs to the other slice.",
+    "Do not delete public/assets/animals/elephant.glb, alpaca.gltf or the obj/ folder in this slice, even though the new roster stops using them. Removing assets is the other slice's call.",
+    "Source edits go through structured file writes. If a shell quoting or escaping attempt fails once while editing a file, stop using the shell for that edit and write the file directly.",
+    "The unitypackage and the styloo zip are large build-time inputs that live outside the repo. Do not copy them into the repository; extract to a temp directory at build time.",
+    "No new runtime dependencies. three is already a dependency; playwright and vite are dev dependencies."
+  ],
+  "startingPoints": [
+    ".tmp/zoo-park/ASSET_FINDINGS.md",
+    ".tmp/domshim.mjs",
+    "public/assets/animals/README.md",
+    "src/minigames/zoo/world.js",
+    "package.json",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": [
+    "npm run build:animal-clips",
+    "npm test"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "notes": "Claude will confirm in a real browser that the clips bind to the Animals.glb skeletons and that the retargeted giraffe walk does not deform the model. The worker cannot start the preview in this project."
+  },
+  "category": "build-tooling",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

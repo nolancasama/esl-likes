@@ -21,43 +21,16 @@ export const bounds = deepFreeze({
   maxZ: 39,
 });
 
+// Broad areas of the park. These are orientation only: nothing is fenced and
+// no sign names them. Animals roam territories inside them (see territories.js).
 export const regions = deepFreeze([
   { id: 'entrance', name: 'エントランス', center: { x: 0, z: 31 } },
   { id: 'hub', name: '中央広場', center: { x: 0, z: 10 } },
-  { id: 'savanna', name: 'サバンナ', center: { x: -25, z: 12 } },
-  { id: 'forest', name: '森のどうぶつ', center: { x: -18, z: -17 } },
-  { id: 'farm', name: 'ぼくじょう', center: { x: 22, z: 10 } },
-  { id: 'penguinCove', name: 'ペンギン入り江', center: { x: 32, z: -13 } },
+  { id: 'grassland', name: 'くさはら', center: { x: -25, z: 10 } },
+  { id: 'woodland', name: 'もり', center: { x: -20, z: -18 } },
+  { id: 'farm', name: 'ぼくじょう', center: { x: 23, z: 14 } },
+  { id: 'cove', name: 'みずべ', center: { x: 32, z: -12 } },
 ]);
-
-// Facing is a yaw in radians: (sin(facing), cos(facing)) points from the
-// habitat centre toward its viewpoint. Kenney and animal models face local +z.
-const habitatSpecs = [
-  // Elephant, deer, alpaca and donkey sit inside the two path loops. Paths
-  // therefore pass exhibits on both sides instead of enclosing an empty lawn.
-  ['elephant', 'savanna', -13, 11, -13, 15.5],
-  ['giraffe', 'savanna', -34, 16, -28, 16],
-  ['tiger', 'savanna', -36, 2, -30, 2],
-  ['deer', 'forest', -15, -7, -19, -10],
-  ['fox', 'forest', -20, -27, -17, -21.5],
-  ['wolf', 'forest', -7, -27, -8, -21],
-  ['stag', 'forest', -34, -10, -28, -10],
-  ['horse', 'farm', 10, 27, 10, 21],
-  ['alpaca', 'farm', 14, 10, 14, 16],
-  ['cow', 'farm', 37, 4, 31, 4],
-  ['bull', 'farm', 32, 17, 26.5, 14.5],
-  ['donkey', 'farm', 17, -8, 21.5, -11.5],
-  ['penguin', 'penguinCove', 35, -14, 29, -14],
-];
-
-export const habitats = deepFreeze(habitatSpecs.map(([id, region, x, z, viewX, viewZ]) => ({
-  id,
-  region,
-  x,
-  z,
-  facing: Math.atan2(viewX - x, viewZ - z),
-  viewpoint: { x: viewX, z: viewZ },
-})));
 
 export const pathNodes = deepFreeze([
   { id: 'plaza', x: 0, z: 31, kind: 'plaza' },
@@ -76,13 +49,6 @@ export const pathNodes = deepFreeze([
   { id: 'farm-east', x: 29, z: 2, kind: 'junction' },
   { id: 'cove-bend', x: 28, z: -10, kind: 'junction' },
   { id: 'farm-north', x: 14, z: -18, kind: 'junction' },
-
-  ...habitats.map(({ id, viewpoint }) => ({
-    id: `${id}-viewpoint`,
-    x: viewpoint.x,
-    z: viewpoint.z,
-    kind: 'viewpoint',
-  })),
 ]);
 
 export const pathEdges = deepFreeze([
@@ -110,37 +76,13 @@ export const pathEdges = deepFreeze([
 
   // The explicit northern cross-path avoids forcing a return through the hub.
   ['forest-north', 'farm-north'],
-
-  ['savanna-south', 'elephant-viewpoint'],
-  ['savanna-bend', 'giraffe-viewpoint'],
-  ['savanna-forest-junction', 'tiger-viewpoint'],
-  ['forest-bend', 'deer-viewpoint'],
-  ['forest-north', 'fox-viewpoint'],
-  ['forest-north', 'wolf-viewpoint'],
-  ['forest-bend', 'stag-viewpoint'],
-  ['farm-south', 'horse-viewpoint'],
-  ['farm-south', 'alpaca-viewpoint'],
-  ['farm-east', 'cow-viewpoint'],
-  ['farm-bend', 'bull-viewpoint'],
-  ['cove-bend', 'donkey-viewpoint'],
-  ['cove-bend', 'penguin-viewpoint'],
 ]);
 
-const habitatColliders = habitats.map(({ id, x, z }) => ({
-  id: `habitat-${id}`,
-  role: 'habitatFence',
-  habitatId: id,
-  type: 'circle',
-  x,
-  z,
-  r: 3.35,
-}));
-
+// Only real scenery blocks movement now. The circular habitat fences are gone
+// with the enclosures, and no invisible ring is left behind where they stood.
 export const colliders = deepFreeze([
-  ...habitatColliders,
   { id: 'fountain', role: 'landmark', landmarkId: 'fountainHub', type: 'circle', x: 3.2, z: 10, r: 1.45 },
   { id: 'ticket-booth', role: 'landmark', landmarkId: 'ticketBooth', type: 'box', x: 5.8, z: 35.8, hw: 1.45, hd: 1.2, rotation: 0 },
-  { id: 'giraffe-feeder', role: 'landmark', landmarkId: 'giraffeFeeder', type: 'box', x: -35, z: 13.4, hw: 0.5, hd: 0.5, rotation: 0 },
   { id: 'barn', role: 'landmark', landmarkId: 'barn', type: 'box', x: 32.5, z: 23.5, hw: 3, hd: 2.3, rotation: -0.08 },
   { id: 'water-tower', role: 'landmark', landmarkId: 'waterTower', type: 'circle', x: 38.5, z: 28, r: 1.35 },
   { id: 'giant-forest-tree', role: 'landmark', landmarkId: 'giantForestTree', type: 'circle', x: -0.5, z: -27, r: 2.1 },
@@ -154,7 +96,6 @@ export const landmarks = deepFreeze([
   { id: 'plaza', x: 0, z: 31 },
   { id: 'ticketBooth', x: 5.8, z: 35.8 },
   { id: 'fountainHub', x: 3.2, z: 10 },
-  { id: 'giraffeFeeder', x: -35, z: 13.4 },
   { id: 'barn', x: 32.5, z: 23.5 },
   { id: 'waterTower', x: 38.5, z: 28 },
   { id: 'penguinBridge', x: 35, z: -17.1 },

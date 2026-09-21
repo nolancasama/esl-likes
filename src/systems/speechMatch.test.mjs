@@ -206,8 +206,7 @@ test('ANSWERS sport matches SPEC.md', () => {
 
 test('ANSWERS animal matches SPEC.md', () => {
   assert.deepEqual(ANSWERS.animal, [
-    'elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
-    'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey',
+    'tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe',
   ]);
 });
 
@@ -360,10 +359,10 @@ test('matchAnswer accepts "I like soccer" for sport', () => {
   assert.equal(r.answer, 'soccer');
 });
 
-test('matchAnswer accepts "I like elephant" for animal', () => {
-  const r = matchAnswer('I like elephant', 'animal');
+test('matchAnswer accepts "I like chicken" for animal', () => {
+  const r = matchAnswer('I like chicken', 'animal');
   assert.ok(r.ok);
-  assert.equal(r.answer, 'elephant');
+  assert.equal(r.answer, 'chicken');
 });
 
 test('matchAnswer rejects answer with no recognised category word', () => {
@@ -527,21 +526,15 @@ test('matchAnswer survives a missing transcript', () => {
 // so plural endings are stripped explicitly rather than left to edit distance.
 test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
   const cases = [
-    ['I like elephants', 'animal', 'elephant'],
+    ['I like chickens', 'animal', 'chicken'],
     ['I like giraffes', 'animal', 'giraffe'],
     ['I like penguins', 'animal', 'penguin'],
     ['I like tigers', 'animal', 'tiger'],
     ['I like deer', 'animal', 'deer'],
     ['I like deers', 'animal', 'deer'],
-    ['I like alpacas', 'animal', 'alpaca'],
     ['I like horses', 'animal', 'horse'],
-    ['I like foxes', 'animal', 'fox'],
-    ['I like wolves', 'animal', 'wolf'],
-    ['I like wolfs', 'animal', 'wolf'],
-    ['I like stags', 'animal', 'stag'],
-    ['I like bulls', 'animal', 'bull'],
-    ['I like cows', 'animal', 'cow'],
-    ['I like donkeys', 'animal', 'donkey'],
+    ['I like dogs', 'animal', 'dog'],
+    ['I like cats', 'animal', 'cat'],
     ['I like hamburgers', 'food', 'hamburger'],
   ];
   for (const [text, category, id] of cases) {
@@ -551,8 +544,11 @@ test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
   }
 });
 
-test('wolf explicitly accepts irregular and recogniser plural forms', () => {
-  assert.deepEqual(VARIANTS.wolf, ['wolf', 'wolves', 'wolfs']);
+test('the short animal names list their plurals and homophones explicitly', () => {
+  // len <= 4 gets no fuzz slack at all, so "dogs" would never reach "dog".
+  assert.deepEqual(VARIANTS.dog, ['dog', 'dogs', 'doggu', 'dogu', 'dock', 'doggy']);
+  assert.deepEqual(VARIANTS.cat, ['cat', 'cats', 'kat', 'cut', 'catto', 'kyatto']);
+  assert.deepEqual(VARIANTS.deer, ['deer', 'deers', 'dear', 'dia', 'dea', 'diaa']);
 });
 
 test('matchAnswer still accepts the singular form', () => {

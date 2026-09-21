@@ -7,12 +7,13 @@ import {
   PLAYER_RADIUS,
   bounds as campusBounds,
   canOccupy as canOccupyCampus,
-  habitats as campusHabitats,
   landmarks as campusLandmarks,
   pathEdges,
   pathNodes,
 } from './layout.js';
 import { createZooWorld } from './world.js';
+import { AREAS, TERRITORIES } from './territories.js';
+import { DEV_TOOLS_ENABLED } from '../../dev/devMode.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
@@ -55,6 +56,8 @@ export function createZoo(ctx) {
     scene,
     camera,
     cameraRig,
+    renderer,
+    canvas,
     input,
     speech,
     audio,
@@ -110,6 +113,11 @@ export function createZoo(ctx) {
   let actionVisitor = null;
   let activatedCount = 0;
   let servedCount = 0;
+  // Development only. `sceneEditor` stays null in a student's session, and the
+  // module behind it is never even fetched — see src/dev/devMode.js.
+  let sceneEditor = null;
+  let editorLoading = false;
+  let editorPausedPhase = null;
 
   const visitors = [];
   const records = [];
@@ -289,6 +297,38 @@ export function createZoo(ctx) {
     return canOccupyCampus(x, z, PLAYER_RADIUS);
   }
 
+  /**
+   * Eases the player out of a large animal rather than blocking them.
+   *
+   * Only the big-bodied animals push, and they push softly: a hard collider on
+   * something that walks toward you is how a child gets shoved into scenery or
+   * pinned against the pool. Standing shoulder to shoulder with a giraffe is
+   * fine; standing inside it is not.
+   */
+  const PUSH_RADIUS = Object.freeze({ giraffe: 1.5, horse: 1.3, deer: 1.2, tiger: 1.2, dog: 0.9 });
+  function separateFromAnimals(dt) {
+    if (!zooWorld) return;
+    for (const subject of zooWorld.habitats) {
+      const push = PUSH_RADIUS[subject.id];
+      if (!push) continue;
+      const dx = player.position.x - subject.x;
+      const dz = player.position.z - subject.z;
+      const distance = Math.hypot(dx, dz);
+      const overlap = push + PLAYER_RADIUS * 0.5 - distance;
+      if (overlap <= 0) continue;
+      // Ease out over a few frames so it reads as being nudged, not bounced.
+      const step = Math.min(overlap, overlap * Math.min(1, 9 * dt));
+      const nx = distance > 1e-3 ? dx / distance : 1;
+      const nz = distance > 1e-3 ? dz / distance : 0;
+      const nextX = player.position.x + nx * step;
+      const nextZ = player.position.z + nz * step;
+      // Never push the player into scenery; being inside the animal is better
+      // than being pushed through the fountain wall.
+      if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
+      if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+    }
+  }
+
   function updateMovement(dt) {
     input.getMovement(move);
     if (move.lengthSq() === 0) {
@@ -302,24 +342,29 @@ export function createZoo(ctx) {
     const wantedRotation = Math.atan2(move.x, -move.y);
     const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
     player.rotation.y += turn * (1 - Math.exp(-12 * dt));
+    separateFromAnimals(dt);
     player.playAnimation?.('walk');
   }
 
   function updateViewfinderMovement(dt) {
     input.getMovement(move);
-    if (move.x) player.rotation.y += move.x * 1.55 * dt;
+    // Turning right must decrease the yaw. With the camera looking along
+    // (sin y, cos y), screen-right in world is (-cos y, sin y), which is where
+    // a *smaller* yaw points — so adding here swung the view the wrong way.
+    if (move.x) player.rotation.y -= move.x * 1.55 * dt;
     if (move.y) {
       const distance = move.y * MOVE_SPEED * .62 * dt;
       const nextX = player.position.x + Math.sin(player.rotation.y) * distance;
       const nextZ = player.position.z + Math.cos(player.rotation.y) * distance;
       if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
       if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+      separateFromAnimals(dt);
       player.playAnimation?.('walk');
     } else {
       player.playAnimation?.('idle');
     }
     // The avatar is hidden while aiming. A distant, high, wide camera shot the
-    // slim animals (fox, penguin, alpaca) too small to frame from their viewpoints.
+    // slim animals (penguin, chicken, cat) too small to frame from a distance.
     if (camera.fov !== VIEWFINDER_FOV) {
       followFov = camera.fov;
       camera.fov = VIEWFINDER_FOV;
@@ -592,11 +637,11 @@ export function createZoo(ctx) {
       const visible = projectedCenter.z >= -1 && projectedCenter.z <= 1
         && frame.x >= .12 && frame.x <= .88 && frame.y >= .1 && frame.y <= .84
         && Math.sqrt(width * height) >= .11;
-      // Prefer the pen the child is standing at. With thirteen habitats a
-      // neighbour can frame better than the animal in front of them, so a photo
-      // taken at the ALPACA fence came back a horse — and the visitor then
-      // refused it. Distance only breaks ties: a deliberately distant shot still
-      // wins if it is framed considerably better.
+      // Prefer the animal the child is closest to. Animals roam and can pass
+      // each other, so a neighbour further off can frame better than the one
+      // being aimed at, and the photo comes back as the wrong animal. Distance
+      // only breaks ties: a deliberately distant shot still wins if it is framed
+      // considerably better. `habitat.x`/`z` track the roamer, never a pen.
       const away = Math.hypot(player.position.x - habitat.x, player.position.z - habitat.z);
       const score = framing - Math.min(.3, away * .012);
       if (!visible || (best && score <= best.score)) continue;
@@ -800,12 +845,85 @@ export function createZoo(ctx) {
 
   function onKeyDown(event) {
     if (!active || event.repeat || event.target instanceof HTMLButtonElement) return;
+    // The editor owns its own keys once it is open; this one only toggles it.
+    if (DEV_TOOLS_ENABLED && event.code === 'KeyP' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      toggleSceneEditor();
+      return;
+    }
+    if (sceneEditor?.enabled) return;
     if ((event.key === 'c' || event.key === 'C') && phase === 'playing') {
       event.preventDefault();
       openViewfinder();
     } else if (event.key === 'Escape' && phase === 'viewfinder') {
       event.preventDefault();
       closeViewfinder();
+    }
+  }
+
+  /**
+   * Opens the scene placement editor, loading it on first use.
+   *
+   * The dynamic import is the point: in a production build the editor is a
+   * separate chunk that a student's browser never asks for, so it costs
+   * nothing to have it. `DEV_TOOLS_ENABLED` decides whether the key works at
+   * all, and this function is the only path to it.
+   */
+  async function toggleSceneEditor() {
+    if (!DEV_TOOLS_ENABLED || editorLoading) return;
+    if (sceneEditor) {
+      sceneEditor.toggle();
+      return;
+    }
+    if (!zooWorld) return;
+    editorLoading = true;
+    try {
+      const [{ createSceneEditor }, { createZooEditorAdapter }] = await Promise.all([
+        import('../../dev/scene-editor/SceneEditor.js'),
+        import('./zooEditorAdapter.js'),
+      ]);
+      sceneEditor = createSceneEditor({
+        scene,
+        camera,
+        domElement: renderer?.domElement ?? canvas,
+        adapter: createZooEditorAdapter({ zooWorld }),
+        uiRoot: overlay?.parentElement ?? document.body,
+        storageKey: 'esl-likes:zoo-layout-draft',
+        onEnable: () => {
+          // Freeze the park: the avatar stops walking, the animals stop
+          // roaming, and the follow rig lets go of the camera. Nothing about
+          // the Zoo's own state changes, so closing the editor resumes play
+          // exactly where it paused.
+          editorPausedPhase = phase;
+          phase = 'editing';
+          cameraRig.setEnabled(false);
+          zooWorld.setSceneryEditable(true);
+          if (overlay) overlay.hidden = true;
+          hud.hide();
+          input.clear();
+        },
+        onDisable: () => {
+          // The scenery deliberately STAYS expanded. Rebuilding the instanced
+          // form here would re-read the frozen placements in scenery.js and
+          // silently throw away every edit made to existing scenery — you
+          // would close the editor to look at your work and find it undone.
+          // Expanding is a one-way door within a session, and it only ever
+          // happens in a session where someone opened the editor.
+          cameraRig.setEnabled(true);
+          if (overlay) overlay.hidden = false;
+          phase = editorPausedPhase ?? 'playing';
+          editorPausedPhase = null;
+          input.clear();
+        },
+      });
+      // A handle for browser checks and for driving the editor from the
+      // console. Only ever set behind DEV_TOOLS_ENABLED.
+      window.__zooSceneEditor = sceneEditor;
+      sceneEditor.enable();
+    } catch (error) {
+      console.error('[zoo] The scene editor failed to load.', error);
+    } finally {
+      editorLoading = false;
     }
   }
 
@@ -824,12 +942,18 @@ export function createZoo(ctx) {
       framing: framingDebug,
       visibleFraction: framingDebug?.visibleFraction ?? null,
       blockedSampleCount: framingDebug?.blockedSampleCount ?? null,
-      habitats: campusHabitats.map((habitat) => ({
-        id: habitat.id,
-        region: habitat.region,
-        x: habitat.x,
-        z: habitat.z,
-        viewpoint: habitat.viewpoint,
+      // Live roaming state. There is no fixed habitat position any more, so
+      // anything that wants to find an animal has to read where it is now.
+      animals: zooWorld?.getAnimalDebug?.() ?? [],
+      clips: zooWorld?.getClipState?.() ?? { status: 'idle', animals: [] },
+      areas: AREAS,
+      territories: TERRITORIES.map((territory) => ({
+        id: territory.id,
+        area: territory.area,
+        centre: territory.centre,
+        bounds: territory.bounds,
+        speed: territory.speed,
+        waypoints: territory.waypoints,
       })),
       pathGraph: { nodes: pathNodes, edges: pathEdges },
       landmarks: campusLandmarks,
@@ -837,7 +961,6 @@ export function createZoo(ctx) {
       environment: zooWorld?.getEnvironmentState?.() ?? {
         status: 'loading', pending: 0, loadedUniqueModels: 0, failedAssets: [],
       },
-      signage: zooWorld?.getSignageData?.() ?? { youAreHere: { exists: false, regions: [], animals: [] }, signposts: [] },
       sceneStats: zooWorld?.getSceneStatsReport?.() ?? {
         beforeDressing: null,
         afterDressing: null,
@@ -852,6 +975,18 @@ export function createZoo(ctx) {
       })),
       carriedPhoto: carriedPhoto?.animal ?? null,
       shutterReady,
+      // Null unless a developer has actually opened the editor. Building the
+      // layout is not free, so a closed editor reports only that it is closed.
+      editor: sceneEditor
+        ? {
+          enabled: sceneEditor.enabled,
+          objects: sceneEditor.enabled ? sceneEditor.getLayout().objects.length : null,
+          selection: sceneEditor.selection?.id ?? null,
+          editableGroups: sceneEditor.enabled
+            ? zooWorld?.getSceneryGroups().filter((group) => group.individual).length ?? 0
+            : null,
+        }
+        : null,
     };
   }
 
@@ -913,6 +1048,12 @@ export function createZoo(ctx) {
 
   function update(dt) {
     if (!active) return;
+    // While the editor is open the park is frozen: no walking, no roaming, no
+    // timers. Only the editor's own camera keeps moving.
+    if (sceneEditor?.enabled) {
+      sceneEditor.update(dt);
+      return;
+    }
     frame += 1;
     const safeDt = Math.min(Math.max(dt || 0, 0), .05);
     elapsed += safeDt;
@@ -979,6 +1120,12 @@ export function createZoo(ctx) {
 
   function exit() {
     restoreFov();
+    // The editor holds the camera and a gizmo attached to objects that are
+    // about to be disposed, so it has to let go first.
+    sceneEditor?.dispose();
+    sceneEditor = null;
+    editorPausedPhase = null;
+    cameraRig.setEnabled(true);
     active = false;
     phase = 'inactive';
     unsubscribeSettings?.();

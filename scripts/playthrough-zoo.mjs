@@ -22,13 +22,12 @@ const selectedSections = onlyAt === -1
   ? null
   : new Set((optionArgs[onlyAt + 1] ?? '').split(',').map((name) => name.trim()).filter(Boolean));
 const sectionEnabled = (name) => !selectedSections || selectedSections.has(name);
-const knownSections = new Set(['listening', 'antiShortcut', 'habitats']);
+const knownSections = new Set(['listening', 'antiShortcut', 'animals']);
 if (selectedSections && [...selectedSections].some((name) => !knownSections.has(name))) {
   throw new Error(`Unknown --only section. Choose from: ${[...knownSections].join(', ')}`);
 }
 const SAVE_KEY = 'esl-likes-save-v1';
-const ANIMALS = ['elephant', 'giraffe', 'penguin', 'tiger', 'deer', 'alpaca', 'horse',
-  'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey'];
+const ANIMALS = ['tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe'];
 const MOVE_SPEED = 13.5;
 const DEFAULT_SEED = 0x5eed1234;
 const FORCE_WALK_SHORT = process.env.ZOO_FORCE_WALK_SHORT === '1';
@@ -90,7 +89,7 @@ let activeSection = null;
 let activeHarness = null;
 const listeningChecks = [
   'hub -> Zoo',
-  'debug snapshot exposes every habitat and no wanted animals',
+  'debug snapshot exposes every animal and no wanted animals',
   'nothing points the way (no marker/arrow/minimap in the overlay)',
   'question offered: "What animal do you like?"',
   'visitor answers with an exact vocabulary sentence',
@@ -99,7 +98,7 @@ const listeningChecks = [
   'Listen Again control can be clicked',
   '🔊 replays the visitor\'s exact sentence',
   ...[1, 2, 3].flatMap((number) => [
-    `request ${number} viewpoint is reached before photographing`,
+    `request ${number} animal is found before photographing`,
     `visitor ${number} is reached before showing the photo`,
   ]),
   'the viewfinder only shoots a well-framed animal',
@@ -120,9 +119,9 @@ const listeningChecks = [
 ];
 const antiShortcutChecks = [
   ...[1, 2, 3].flatMap((number) => [
-    `request ${number} wrong-photo viewpoint is reached before photographing`,
+    `request ${number} wrong-photo animal is found before photographing`,
     `visitor ${number} is reached before wrong-photo delivery`,
-    `request ${number} correct-photo viewpoint is reached before photographing`,
+    `request ${number} correct-photo animal is found before photographing`,
     `visitor ${number} is reached before correct-photo delivery`,
   ]),
   'a wrong animal is refused in Japanese with no English repeat',
@@ -132,36 +131,35 @@ const antiShortcutChecks = [
   'anti-shortcut: showing a wrong animal first cannot reach 3 stars',
   'antiShortcut section completes without a harness exception',
 ];
-const habitatCheckNames = (animal) => [
-  `${animal} has a graph-backed viewpoint`,
-  `${animal} viewpoint is reached from the plaza`,
-  `${animal} graph route is at most 10 seconds at movement speed`,
-  `${animal} faces the habitat before photographing`,
-  `${animal} reaches shutter-ready from its viewpoint`,
+const animalCheckNames = (animal) => [
+  `${animal} roams inside its own territory`,
+  `${animal} is found by searching its area`,
+  `${animal} is found within a reasonable search`,
+  `${animal} faces the animal before photographing`,
+  `${animal} reaches shutter-ready on a moving animal`,
   `${animal} frames and photographs as the right animal`,
 ];
-const habitatChecks = [
+const animalChecks = [
   'environment assets reach a terminal load state',
   'environment assets load without fallbacks or failed assets',
   'environment loading produces no console or page errors',
   'environment loading produces no failed network requests',
   'scene stats expose before and after dressing with instanced scenery',
-  'YOU ARE HERE board exists and names all thirteen animals once',
-  'YOU ARE HERE board text is neutral and never marks a request',
-  'junction signposts use Japanese region names and complete regional animal lists',
-  'animal labels are consistent across the board and signposts',
-  'campus debug exposes a routable graph and all habitat viewpoints',
+  'no signage, boards or animal-location markers remain',
+  'no enclosure viewpoints or habitat records remain',
+  'the park exposes live roaming animals and broad areas',
+  'campus debug exposes a routable graph and all eight animals',
   'plaza visual-review screenshot is saved',
   'hub visual-review screenshot is saved',
-  ...ANIMALS.flatMap(habitatCheckNames),
-  'all thirteen habitats are photographed in one session',
-  'visual-review screenshots are saved for every habitat region',
-  'habitats section completes without a harness exception',
+  ...ANIMALS.flatMap(animalCheckNames),
+  'all eight animals are photographed in one session',
+  'visual-review screenshots are saved for every area',
+  'animals section completes without a harness exception',
 ];
 const CHECK_REGISTRY = {
   listening: listeningChecks,
   antiShortcut: antiShortcutChecks,
-  habitats: habitatChecks,
+  animals: animalChecks,
   suite: [
     'no console or page errors',
     'no network errors',
@@ -481,7 +479,7 @@ async function enterZoo(h, label = 'zoo') {
   const atDoor = await holdUntil(h.page, 'KeyW', async () => (await h.ui()).prompt, { maxMs: 7000 });
   if (!atDoor || !(await h.ui()).prompt) return null;
   await h.page.keyboard.press('Space');
-  // Campus geometry and thirteen canvas signs can take a good deal longer to
+  // Park geometry and eight animated animals can take a good deal longer to
   // build than the hub, especially on a software renderer.
   const debug = await waitForDebug(h.page, 'zoo', Boolean, { timeoutMs: 20000, label });
   const entered = debug ? await h.ui() : null;
@@ -493,92 +491,52 @@ async function enterZoo(h, label = 'zoo') {
   return entered;
 }
 
-// Match the exact sentences, never a guessed plural: "I like wolves." and
-// "I like foxes." defeat an `<animal>s?` pattern, which silently produced a null
-// animal and sent the harness chasing a habitat that does not exist.
+// Match the exact sentences, never a guessed plural: "I like deer." has no -s
+// and defeats an `<animal>s?` pattern, which silently produced a null animal and
+// sent the harness chasing an animal that does not exist.
 const SENTENCE_TO_ID = {
-  'I like elephants.': 'elephant',
-  'I like giraffes.': 'giraffe',
-  'I like penguins.': 'penguin',
   'I like tigers.': 'tiger',
-  'I like deer.': 'deer',
-  'I like alpacas.': 'alpaca',
   'I like horses.': 'horse',
-  'I like foxes.': 'fox',
-  'I like wolves.': 'wolf',
-  'I like stags.': 'stag',
-  'I like bulls.': 'bull',
-  'I like cows.': 'cow',
-  'I like donkeys.': 'donkey',
+  'I like dogs.': 'dog',
+  'I like deer.': 'deer',
+  'I like cats.': 'cat',
+  'I like penguins.': 'penguin',
+  'I like chickens.': 'chicken',
+  'I like giraffes.': 'giraffe',
 };
 const animalFromSentence = (sentence) => SENTENCE_TO_ID[(sentence || '').trim()] ?? null;
 const waitingVisitor = (s) => s?.debug?.visitors?.findIndex(
   (v) => v.asked === false && v.state !== 'hidden',
 ) ?? -1;
-const habitat = (s, id) => s?.debug?.habitats?.find((hb) => hb.id === id) ?? null;
+// Where the animal is NOW. There is no fixed habitat any more, so every reader
+// has to re-ask: the animal it is looking for has probably moved since the last
+// call. Anything that cached a position here would be aiming at empty grass.
+const animalState = (s, id) => s?.debug?.animals?.find((a) => a.id === id) ?? null;
 
 const sortedAnimalIds = (animals) => (animals ?? []).map((animal) => animal?.id).filter(Boolean).sort();
 const sameAnimalIds = (actual, expected) => (
   actual.length === expected.length && actual.every((id, index) => id === expected[index])
 );
 
-function inspectSignage(debug) {
-  const signage = debug?.signage;
-  const board = signage?.youAreHere;
-  const signposts = signage?.signposts ?? [];
-  const expectedAnimals = [...ANIMALS].sort();
-  const boardAnimals = sortedAnimalIds(board?.animals);
-  const habitatsByRegion = new Map();
-  for (const item of debug?.habitats ?? []) {
-    if (!habitatsByRegion.has(item.region)) habitatsByRegion.set(item.region, []);
-    habitatsByRegion.get(item.region).push(item.id);
-  }
-  for (const animals of habitatsByRegion.values()) animals.sort();
-
-  const boardReady = Boolean(
-    board?.exists
-    && sameAnimalIds(boardAnimals, expectedAnimals)
-    && board.animals.every((animal) => typeof animal.label === 'string' && animal.label.trim())
-    && board.animals.every((animal) => habitatsByRegion.get(animal.region)?.includes(animal.id)),
-  );
-  const coveredRegions = new Set();
-  const signpostsReady = signposts.length > 0 && signposts.every((signpost) => {
-    const expected = habitatsByRegion.get(signpost.regionId);
-    if (!expected) return false;
-    const actual = sortedAnimalIds(signpost.animals);
-    const complete = sameAnimalIds(actual, expected);
-    if (complete) coveredRegions.add(signpost.regionId);
-    return complete
-      && typeof signpost.regionName === 'string'
-      && /[^\x00-\x7f]/.test(signpost.regionName)
-      && signpost.animals.every((animal) => typeof animal.label === 'string' && animal.label.trim());
-  }) && coveredRegions.size === habitatsByRegion.size;
-
-  const labelsByAnimal = new Map(ANIMALS.map((animal) => [animal, new Set()]));
-  for (const animal of board?.animals ?? []) labelsByAnimal.get(animal.id)?.add(animal.label);
-  for (const signpost of signposts) {
-    for (const animal of signpost.animals ?? []) labelsByAnimal.get(animal.id)?.add(animal.label);
-  }
-  const labelsConsistent = ANIMALS.every((animal) => labelsByAnimal.get(animal)?.size === 1);
-  const neutralBoard = boardReady
-    && !/want|request|selected|highlight|emphasis|favou?rite/i.test(JSON.stringify(board));
-
+/**
+ * The park is navigated by looking at it, so the harness checks that the old
+ * signage and enclosure systems really are gone rather than merely hidden.
+ */
+function inspectNavigationAids(debug) {
+  // Scan everything except the roaming internals. `territories` and `animals`
+  // legitimately contain roaming waypoints and destinations — that is the
+  // simulation's own state, not something shown to a child. What must not exist
+  // is a signage or marker system.
+  const { territories, animals, ...rest } = debug ?? {};
+  const serialised = JSON.stringify(rest);
   return {
-    signage,
-    boardReady,
-    signpostsReady,
-    labelsConsistent,
-    neutralBoard,
-    detail: {
-      boardAnimals,
-      boardRegions: board?.regions?.map((region) => region.id) ?? [],
-      signposts: signposts.map((signpost) => ({
-        id: signpost.id,
-        regionId: signpost.regionId,
-        regionName: signpost.regionName,
-        animals: sortedAnimalIds(signpost.animals),
-      })),
-    },
+    noSignageDebug: debug?.signage === undefined,
+    noViewpoints: !(debug?.pathGraph?.nodes ?? []).some((node) => node.kind === 'viewpoint'
+      || /viewpoint/.test(node.id ?? '')),
+    noHabitatRecords: debug?.habitats === undefined,
+    noWaypointMarkers: !/youAreHere|signpost|signboard|minimap|marker|arrow/i.test(serialised),
+    hasLiveAnimals: Array.isArray(debug?.animals) && debug.animals.length === ANIMALS.length,
+    hasAreas: Array.isArray(debug?.areas) && debug.areas.length > 0,
   };
 }
 
@@ -632,55 +590,164 @@ async function askNext(h) {
   return { index, asked, bubble: a?.bubble, animal };
 }
 
-// Call with the viewfinder open: there A/D rotate the player in place
-// (D raises yaw), so turning can never walk off the viewpoint.
-async function faceHabitat(h, hb, viewpoint) {
-  const yawError = (p) => {
-    const wanted = Math.atan2(hb.x - p.x, hb.z - p.z);
+// Call with the viewfinder open: there A/D rotate the player in place, so
+// turning can never walk the player away from the animal.
+//
+// The target moves, so its position is re-read on every pass rather than fixed
+// once at the start. That is the whole difference from the old fenced zoo.
+async function faceAnimal(h, animalId) {
+  // In the viewfinder the player turns at a known 1.55 rad/s, so aim by tapping
+  // the key for roughly the time the remaining error needs and re-measuring,
+  // rather than holding it until a predicate flips. Holding overshot badly on
+  // small targets: the player span through several whole turns and ended up
+  // facing away from an animal it had already lined up on.
+  const TURN_RATE = 1.55;
+  const errorTo = (p, target) => {
+    const wanted = Math.atan2(target.x - p.x, target.z - p.z);
     return Math.atan2(Math.sin(wanted - p.yaw), Math.cos(wanted - p.yaw));
   };
+
   let state = await h.ui();
-  let player = state.debug?.player;
-  if (!player || distanceBetween(player, viewpoint) > 0.9) return { ok: false, state, why: 'not at viewpoint' };
-  if (!Number.isFinite(player.yaw)) return { ok: false, state, why: 'facing debug unavailable' };
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const dot = facingDot(player, hb);
-    if (dot !== null && dot >= 0.92) return { ok: true, state, dot, yaw: player.yaw };
-    const key = yawError(player) > 0 ? 'KeyD' : 'KeyA';
-    await holdUntil(h.page, key, async () => {
-      const p = (await h.ui()).debug?.player;
-      return !p || Math.abs(yawError(p)) < 0.12 || Math.sign(yawError(p)) !== (key === 'KeyD' ? 1 : -1);
-    }, { maxMs: 4500 });
+  let best = null;
+  for (let attempt = 0; attempt < 14; attempt += 1) {
     state = await h.ui();
-    player = state.debug?.player;
-    if (!player) return { ok: false, state, why: 'player debug disappeared' };
-    if (distanceBetween(player, viewpoint) > 0.9) return { ok: false, state, why: 'turning moved the player off the viewpoint' };
+    const player = state.debug?.player;
+    const target = animalState(state, animalId);
+    if (!player || !target) return { ok: false, state, why: 'player or animal debug disappeared' };
+    if (!Number.isFinite(player.yaw)) return { ok: false, state, why: 'facing debug unavailable' };
+
+    const dot = facingDot(player, target);
+    if (dot !== null && (best === null || dot > best.dot)) best = { dot, yaw: player.yaw };
+    if (dot !== null && dot >= 0.985) return { ok: true, state, dot, yaw: player.yaw, target };
+
+    const error = errorTo(player, target);
+    if (Math.abs(error) < 0.02) return { ok: true, state, dot, yaw: player.yaw, target };
+    // Tap for 70% of the ideal time, so repeated taps converge from below
+    // instead of hunting around the target.
+    const seconds = Math.min(1.2, (Math.abs(error) / TURN_RATE) * 0.7);
+    // D decreases the yaw (see updateViewfinderMovement), so a positive error —
+    // one that wants a larger yaw — is corrected with A. Getting this backwards
+    // makes the loop converge on the exact opposite bearing.
+    const key = error > 0 ? 'KeyA' : 'KeyD';
+    await h.page.keyboard.down(key);
+    await h.sleep(Math.max(30, Math.round(seconds * 1000)));
+    await h.page.keyboard.up(key);
   }
-  const dot = facingDot(player, hb);
-  return { ok: dot !== null && dot >= 0.92, state, dot, yaw: player.yaw, why: 'did not face habitat' };
+
+  state = await h.ui();
+  const player = state.debug?.player;
+  const target = animalState(state, animalId);
+  const dot = player && target ? facingDot(player, target) : null;
+  return {
+    ok: dot !== null && dot >= 0.94, state, dot, yaw: player?.yaw,
+    best: best?.dot ?? null, why: 'did not settle facing the animal',
+  };
 }
 
-// Walk to a habitat, face it from the viewpoint, open the viewfinder, and shoot.
-async function photograph(h, animal, tag = '') {
+/**
+ * How far back to stand from a given animal.
+ *
+ * There is no single right distance: a giraffe fills the viewfinder from ten
+ * units away and a chicken is a speck at three. The game scores a photo on the
+ * subject's apparent size, so this inverts that — it solves for the distance at
+ * which the animal covers about a third of the frame, from the photo bounds the
+ * debug snapshot reports.
+ *
+ *   apparent = sqrt(halfHeight * radius / aspect) / (d * tan(fov / 2))
+ *
+ * Solving for `apparent` = 0.35 leaves comfortable margin over the 0.38 framing
+ * threshold once the aim is centred.
+ */
+const VIEWFINDER_FOV = 34;
+const VIEWFINDER_ASPECT = 1366 / 768;
+const WANTED_APPARENT_SIZE = 0.35;
+function photoDistance(animal) {
+  const halfHeight = Number(animal?.photoHalfHeight) || 0.6;
+  const radius = Number(animal?.photoRadius) || 0.5;
+  const tangent = Math.tan((VIEWFINDER_FOV * Math.PI) / 360);
+  const distance = Math.sqrt((halfHeight * radius) / VIEWFINDER_ASPECT)
+    / (WANTED_APPARENT_SIZE * tangent);
+  // Never so close the player is inside the animal, nor so far it is a dot.
+  return Math.max(2.2, Math.min(12, distance));
+}
+
+/**
+ * Puts the player at a sensible photographing distance from a roaming animal.
+ *
+ * This aims for a distance *band*, not a maximum. Being too close fails as
+ * surely as being too far: standing a metre from a horse fills the viewfinder
+ * with horse and the framing check rejects it, exactly as it would for a child
+ * who walked straight into the animal. So the goal point is computed at the
+ * wanted distance along the player-to-animal line and the player walks to it
+ * whether that means closing in or backing off.
+ *
+ * The animal is re-read every pass, because it wanders while the player crosses
+ * the park.
+ */
+async function approachAnimal(h, animalId, { range = null, scale = 1, attempts = 6 } = {}) {
+  const first = animalState(await h.ui(), animalId);
+  const wanted = range ?? photoDistance(first) * scale;
+  const near = wanted * 0.55;
+  const far = wanted * 1.35;
+  let best = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const state = await h.ui();
+    const target = animalState(state, animalId);
+    const player = state.debug?.player;
+    if (!target) return { ok: false, why: `no live position for ${animalId}` };
+    if (player) {
+      const distance = distanceBetween(player, target);
+      best = { ok: true, state, target, player, distance };
+      if (distance >= near && distance <= far) return best;
+    }
+
+    // Stand off at `range` on the side the player is already on.
+    const from = player ?? { x: 0, z: 31 };
+    let dx = from.x - target.x;
+    let dz = from.z - target.z;
+    let length = Math.hypot(dx, dz);
+    if (length < 0.2) {
+      // Standing inside the animal: any direction will do, pick one.
+      dx = 1; dz = 0; length = 1;
+    }
+    const goal = {
+      x: target.x + (dx / length) * wanted,
+      z: target.z + (dz / length) * wanted,
+    };
+    await h.walkTo(goal.x, goal.z, 1.4);
+
+    const now = await h.ui();
+    const nowTarget = animalState(now, animalId);
+    const nowPlayer = now.debug?.player;
+    if (nowPlayer && nowTarget) {
+      const distance = distanceBetween(nowPlayer, nowTarget);
+      best = { ok: true, state: now, target: nowTarget, player: nowPlayer, distance };
+      if (distance >= near && distance <= far) return best;
+    }
+  }
+  // Out of attempts. A position that is at least in sight still beats giving up.
+  const state = await h.ui();
+  const target = animalState(state, animalId);
+  const player = state.debug?.player;
+  const distance = player && target ? distanceBetween(player, target) : Infinity;
+  if (player && target && distance <= far * 1.6) {
+    return { ok: true, state, target, player, distance, loose: true };
+  }
+  return { ok: false, why: 'could not settle at a photographing distance', state, target, player, distance };
+}
+
+// Find a roaming animal, close on it, open the viewfinder and shoot.
+async function photograph(h, animal, tag = '', scale = 1) {
   const startedAt = Date.now();
   const s = await h.ui();
-  const hb = habitat(s, animal);
-  if (!hb) return { reached: false, facingOk: false, shutterReady: false, why: `no habitat for ${animal}` };
-  const viewpoint = hb.viewpoint;
-  if (!viewpoint || !Number.isFinite(viewpoint.x) || !Number.isFinite(viewpoint.z)) {
-    return { reached: false, facingOk: false, shutterReady: false, why: `no viewpoint for ${animal}` };
+  if (!animalState(s, animal)) {
+    return { reached: false, facingOk: false, shutterReady: false, why: `no live position for ${animal}` };
   }
-  let walked = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    walked = await h.walkTo(viewpoint.x, viewpoint.z, 0.9);
-    const player = walked?.debug?.player;
-    if (player && distanceBetween(player, viewpoint) <= 0.9) break;
-    walked = null;
-  }
-  const at = walked?.debug?.player;
-  if (!walked) return {
+  const closed = await approachAnimal(h, animal, { scale });
+  const at = closed.player ?? (await h.ui()).debug?.player;
+  if (!closed.ok) return {
     reached: false, facingOk: false, shutterReady: false,
-    why: 'viewpoint was unreachable', animal, viewpoint, at,
+    why: closed.why, animal, at, target: closed.target,
     wallSeconds: (Date.now() - startedAt) / 1000,
   };
   await clickUntil(
@@ -698,21 +765,31 @@ async function photograph(h, animal, tag = '') {
     why: 'viewfinder never opened', animal, at,
     wallSeconds: (Date.now() - startedAt) / 1000,
   };
-  const faced = await faceHabitat(h, hb, viewpoint);
+  const faced = await faceAnimal(h, animal);
   if (!faced.ok) {
     await clickIfPresent(h.page, SEL.close);
     await h.waitFor((u) => !u.viewfinder, 4000);
     return {
       reached: true, facingOk: false, shutterReady: false,
-      why: faced.why, animal, viewpoint, at: faced.state?.debug?.player, dot: faced.dot,
+      why: faced.why, animal, at: faced.state?.debug?.player, dot: faced.dot,
       wallSeconds: (Date.now() - startedAt) / 1000,
     };
   }
   const readyNow = (u) => u.debug?.phase === 'viewfinder' && u.shutterEnabled && u.debug?.shutterReady;
-  const ready = await h.waitFor(readyNow, 5000);
+  // Keep tracking the animal instead of aiming once and hoping. Close to a
+  // small animal the bearing swings fast — a cat two metres away crossing at
+  // 1.6 units a second sweeps most of the frame in a couple of seconds — so a
+  // single aim followed by a long wait watches it walk out of shot. A player
+  // follows it, and waits for one of its frequent idle pauses.
+  let ready = await h.waitFor(readyNow, 1200);
+  for (let retry = 0; !ready && retry < 4; retry += 1) {
+    const reaim = await faceAnimal(h, animal);
+    if (!reaim.ok && retry === 3) break;
+    ready = await h.waitFor(readyNow, 1600);
+  }
   if (!ready) {
     await h.page.screenshot({ path: `${OUT}-fail-${animal}${tag}-aim.png` });
-    console.log(`  could not frame ${animal}: player=${JSON.stringify((await h.ui()).debug?.player)} habitat=${JSON.stringify(hb)}`);
+    console.log(`  could not frame ${animal}: player=${JSON.stringify((await h.ui()).debug?.player)} animal=${JSON.stringify(animalState(await h.ui(), animal))}`);
     await clickIfPresent(h.page, SEL.close);
     await h.waitFor((u) => !u.viewfinder, 4000);
     return {
@@ -761,16 +838,24 @@ async function photograph(h, animal, tag = '') {
   };
 }
 
-// Pens are close enough that a neighbour can frame better than the animal the
-// child means. Close in and re-aim until the photo is actually of the animal
-// asked for, the way a child would step up to the fence.
+// Animals roam past each other, so a neighbour can frame better than the one
+// the child means. Close in and re-aim until the photo really is of the animal
+// asked for, the way a child would step closer and try again.
 async function photographVerified(h, animal, tag = '') {
+  // Each attempt really does step closer. A small animal — the chicken above
+  // all — does not fill enough of the frame from a comfortable distance, and a
+  // child solves that by walking right up to it. Retrying from the same spot,
+  // which is what this used to do, could never solve anything.
+  // Each attempt stands closer, as a fraction of that animal's own good photo
+  // distance rather than a fixed number of units.
+  const SCALES = [1, 0.7, 0.5];
   let last = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    last = await photograph(h, animal, `${tag}-r${attempt}`);
+  for (let attempt = 0; attempt < SCALES.length; attempt += 1) {
+    last = await photograph(h, animal, `${tag}-r${attempt}`, SCALES[attempt]);
     if (last?.carried === animal) return last;
-    if (last?.carried) {
-      console.log(`  wanted ${animal} but photographed ${last.carried}; stepping closer`);
+    const why = last?.carried ? `photographed ${last.carried}` : (last?.why ?? 'no photo');
+    if (attempt + 1 < SCALES.length) {
+      console.log(`  wanted ${animal} but ${why}; closing to ${SCALES[attempt + 1]}x its photo distance`);
       await h.waitFor((u) => u.debug?.phase === 'playing', 6000);
     }
   }
@@ -808,9 +893,9 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   if (!s?.debug) return;
   await h.sleep(1500);
   s = await h.ui();
-  check('debug snapshot exposes every habitat and no wanted animals',
-    s.debug?.habitats?.length === 13 && !JSON.stringify(s.debug).match(/want|favou?rite/i),
-    JSON.stringify(s.debug?.habitats?.map((x) => x.id)));
+  check('debug snapshot exposes every animal and no wanted animals',
+    s.debug?.animals?.length === ANIMALS.length && !JSON.stringify(s.debug).match(/want|favou?rite/i),
+    JSON.stringify(s.debug?.animals?.map((x) => x.id)));
   check('nothing points the way (no marker/arrow/minimap in the overlay)',
     !/やじるし|→|arrow|minimap/i.test(s.body));
   await page.screenshot({ path: `${OUT}-01-plaza.png` });
@@ -844,7 +929,7 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
       await h.waitFor((u) => !u.bubble, 6000);
     }
     const shot = await photographVerified(h, q.animal);
-    check(`request ${i + 1} viewpoint is reached before photographing`, true,
+    check(`request ${i + 1} animal is found before photographing`, true,
       JSON.stringify(shot), Boolean(shot?.reached));
     if (i === 0) {
       check('the viewfinder only shoots a well-framed animal', shot?.ready, JSON.stringify(shot), Boolean(shot?.reached && shot?.facingOk));
@@ -867,7 +952,7 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
   s = s ? await openFallback(h, 3) : s;
   const values = s?.fallback.map((f) => f.value) ?? [];
-  check('turnaround offers every animal sentence', values.length === 13 && values.includes('tiger'),
+  check('turnaround offers every animal sentence', values.length === ANIMALS.length && values.includes('tiger'),
     s?.fallback.map((f) => f.text).join(' | '), Boolean(s));
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
   // Never throw here: a missing turnaround used to abort the whole run and take
@@ -933,7 +1018,7 @@ await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShort
     await h.waitFor((u) => !u.bubble, 8000);
     const wrong = ANIMALS.find((a) => a !== q.animal);
     const wrongShot = await photograph(h, wrong);
-    check(`request ${i + 1} wrong-photo viewpoint is reached before photographing`, true,
+    check(`request ${i + 1} wrong-photo animal is found before photographing`, true,
       JSON.stringify(wrongShot), Boolean(wrongShot?.reached));
     if (!wrongShot?.carried) {
       deliveriesReached = false;
@@ -969,7 +1054,7 @@ await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShort
       console.log(`  B retry ${attempt} for ${q.animal}: resumed=${Boolean(resumed)} phaseBefore=${before.debug?.phase} -> ${JSON.stringify(correctShot)} phaseAfter=${after.debug?.phase} carried=${after.debug?.carriedPhoto} player=${after.debug?.player?.x?.toFixed(1)},${after.debug?.player?.z?.toFixed(1)}`);
       if (correctShot?.carried === q.animal) break;
     }
-    check(`request ${i + 1} correct-photo viewpoint is reached before photographing`, true,
+    check(`request ${i + 1} correct-photo animal is found before photographing`, true,
       JSON.stringify(correctShot), Boolean(correctShot?.reached));
     if (correctShot?.carried !== q.animal) {
       deliveriesReached = false;
@@ -1002,11 +1087,11 @@ await runSection('antiShortcut', process.env.ONLY_B || sectionEnabled('antiShort
 });
 
 // ---- Session C: visit and photograph every habitat on the campus ----------
-await runSection('habitats', sectionEnabled('habitats'), async () => {
+await runSection('animals', sectionEnabled('animals'), async () => {
   const errorStart = errors.length;
   const networkErrorStart = networkErrors.length;
-  const h = await openPage('habitats');
-  const entered = await enterZoo(h, 'habitats');
+  const h = await openPage('animals');
+  const entered = await enterZoo(h, 'animals');
   const environmentDone = entered ? await h.waitFor(
     (value) => ['ready', 'ready-with-fallbacks'].includes(value.debug?.environment?.status)
       && value.debug.environment.pending === 0,
@@ -1052,15 +1137,18 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
       && stats.afterDressing.uniqueEnvironmentModels === environment?.loadedUniqueModels,
     JSON.stringify(stats), environmentReady && statsReady, state?.debug);
 
-  const signage = inspectSignage(state?.debug);
-  check('YOU ARE HERE board exists and names all thirteen animals once', signage.boardReady,
-    JSON.stringify(signage.detail), Boolean(environmentDone && signage.signage), state?.debug);
-  check('YOU ARE HERE board text is neutral and never marks a request', signage.neutralBoard,
-    JSON.stringify(signage.detail), signage.boardReady, state?.debug);
-  check('junction signposts use Japanese region names and complete regional animal lists',
-    signage.signpostsReady, JSON.stringify(signage.detail), Boolean(environmentDone && signage.signage), state?.debug);
-  check('animal labels are consistent across the board and signposts', signage.labelsConsistent,
-    JSON.stringify(signage.detail), signage.boardReady && signage.signpostsReady, state?.debug);
+  const aids = inspectNavigationAids(state?.debug);
+  console.log(`  navigationAids ${JSON.stringify(aids)}`);
+  check('no signage, boards or animal-location markers remain',
+    aids.noSignageDebug && aids.noWaypointMarkers,
+    JSON.stringify(aids), Boolean(entered), state?.debug);
+  check('no enclosure viewpoints or habitat records remain',
+    aids.noViewpoints && aids.noHabitatRecords,
+    JSON.stringify(aids), Boolean(entered), state?.debug);
+  check('the park exposes live roaming animals and broad areas',
+    aids.hasLiveAnimals && aids.hasAreas,
+    JSON.stringify({ animals: state?.debug?.animals?.length, areas: state?.debug?.areas?.length }),
+    Boolean(entered), state?.debug);
 
   const graph = state?.debug?.pathGraph;
   const plaza = graph?.nodes?.find((node) => node.kind === 'plaza') ?? null;
@@ -1070,15 +1158,15 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     && hub
     && graph.nodes.length > 0
     && graph.edges.length > 0
-    && state?.debug?.habitats?.length === ANIMALS.length,
+    && state?.debug?.animals?.length === ANIMALS.length,
   );
-  check('campus debug exposes a routable graph and all habitat viewpoints', graphReady,
+  check('campus debug exposes a routable graph and all eight animals', graphReady,
     JSON.stringify({
       plaza: plaza?.id,
       hub: hub?.id,
       nodes: graph?.nodes?.length ?? 0,
       edges: graph?.edges?.length ?? 0,
-      habitats: state?.debug?.habitats?.length ?? 0,
+      animals: state?.debug?.animals?.length ?? 0,
     }), Boolean(entered), state?.debug);
 
   const plazaReached = graphReady ? await h.walkTo(plaza.x, plaza.z, 0.8) : null;
@@ -1099,74 +1187,62 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
   let allHabitatPreconditionsMet = graphReady;
   for (const animal of ANIMALS) {
     state = await h.ui();
-    const hb = habitat(state, animal);
-    const viewpointNode = hb?.viewpoint
-      ? nearestGraphNode(state?.debug?.pathGraph, hb.viewpoint.x, hb.viewpoint.z)
-      : null;
-    const habitatReady = Boolean(
-      hb?.viewpoint
-      && viewpointNode
-      && distanceBetween(hb.viewpoint, viewpointNode) < 0.2,
-    );
-    check(`${animal} has a graph-backed viewpoint`, habitatReady,
-      JSON.stringify({ habitat: hb, nearest: viewpointNode }), graphReady, state?.debug);
-    if (!graphReady || !habitatReady) {
+    const live = animalState(state, animal);
+    const territory = state?.debug?.territories?.find((t) => t.id === animal) ?? null;
+    const inTerritory = Boolean(live && territory
+      && live.x >= territory.bounds.minX - 1 && live.x <= territory.bounds.maxX + 1
+      && live.z >= territory.bounds.minZ - 1 && live.z <= territory.bounds.maxZ + 1);
+    check(`${animal} roams inside its own territory`, inTerritory,
+      JSON.stringify({ live, territory }), graphReady, state?.debug);
+    if (!graphReady || !live) {
       allHabitatPreconditionsMet = false;
       const result = {
         animal, reached: false, facingOk: false, shutterReady: false,
         photographedAsRightAnimal: false, wallSeconds: null,
       };
       habitatResults.push(result);
-      console.log(`  habitat result ${JSON.stringify(result)}`);
+      console.log(`  animal result ${JSON.stringify(result)}`);
       continue;
     }
 
-    let measured = null;
-    let arrived = null;
-    let route = null;
-    const routePlan = graphShortestPath(graph, plaza.id, viewpointNode.id);
-    const modeledSeconds = routePlan ? routePlan.length / MOVE_SPEED : null;
-    if (!routePlan) allHabitatPreconditionsMet = false;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const reset = await h.walkTo(plaza.x, plaza.z, 0.8);
-      if (!reset) break;
-      const startedAt = Date.now();
-      arrived = await h.walkTo(hb.viewpoint.x, hb.viewpoint.z, 0.9);
-      measured = (Date.now() - startedAt) / 1000;
-      route = h.getLastRoute();
-      if (arrived?.debug?.player && distanceBetween(arrived.debug.player, hb.viewpoint) <= 0.9) break;
-      arrived = null;
-    }
-    travelTimes.push({ animal, wallSeconds: measured, modeledSeconds, routeLength: routePlan?.length ?? null, route });
-    console.log(`  ${animal}: route ${modeledSeconds == null ? 'unavailable' : `${modeledSeconds.toFixed(2)} modeled seconds`}; wall ${measured == null ? 'unreached' : `${measured.toFixed(2)}s`} (${route?.replans ?? '?'} stall replans)`);
-    check(`${animal} viewpoint is reached from the plaza`, Boolean(arrived),
-      JSON.stringify({ wallSeconds: measured, route, player: arrived?.debug?.player }), Boolean(arrived),
-      arrived?.debug ?? state?.debug);
-    check(`${animal} graph route is at most 10 seconds at movement speed`,
-      modeledSeconds !== null && modeledSeconds <= 10,
-      JSON.stringify({ routeLength: routePlan?.length, moveSpeed: MOVE_SPEED, modeledSeconds, wallSeconds: measured }),
-      Boolean(routePlan), state?.debug);
+    // Start every search from the plaza, the way a child does after being asked,
+    // and time how long it takes to get eyes on a moving animal.
+    await h.walkTo(plaza.x, plaza.z, 0.8);
+    const startedAt = Date.now();
+    const found = await approachAnimal(h, animal, { attempts: 6 });
+    const measured = (Date.now() - startedAt) / 1000;
+    travelTimes.push({ animal, wallSeconds: measured, area: live.area });
+    console.log(`  ${animal}: searched ${measured.toFixed(1)}s in ${live.area}`);
+    check(`${animal} is found by searching its area`, found.ok,
+      JSON.stringify({ wallSeconds: measured, why: found.why, at: found.player, target: found.target }),
+      Boolean(live), (await h.ui()).debug);
+    // A search should be a search, not an expedition. The harness walks
+    // straight at the animal, so this is a generous ceiling on a child's hunt.
+    check(`${animal} is found within a reasonable search`, found.ok && measured <= 45,
+      JSON.stringify({ wallSeconds: measured }), found.ok, (await h.ui()).debug);
 
-    if (!arrived) {
+    if (!found.ok) {
       allHabitatPreconditionsMet = false;
       const result = {
         animal, reached: false, facingOk: false, shutterReady: false,
         photographedAsRightAnimal: false, wallSeconds: measured,
       };
       habitatResults.push(result);
-      console.log(`  habitat result ${JSON.stringify(result)}`);
+      console.log(`  animal result ${JSON.stringify(result)}`);
       continue;
     }
-    const shot = await photograph(h, animal, '-all');
+
+    const shot = await photographVerified(h, animal, '-all');
     const rightAnimal = shot?.shutterReady && shot?.carried === animal;
-    check(`${animal} faces the habitat before photographing`, shot?.facingOk,
-      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.reached), (await h.ui()).debug);
-    check(`${animal} reaches shutter-ready from its viewpoint`, shot?.shutterReady,
-      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.facingOk), (await h.ui()).debug);
+    check(`${animal} faces the animal before photographing`, shot?.facingOk,
+      JSON.stringify({ shot }), Boolean(shot?.reached), (await h.ui()).debug);
+    check(`${animal} reaches shutter-ready on a moving animal`, shot?.shutterReady,
+      JSON.stringify({ shot }), Boolean(shot?.facingOk), (await h.ui()).debug);
     check(`${animal} frames and photographs as the right animal`, rightAnimal,
-      JSON.stringify({ shot, viewpoint: hb.viewpoint }), Boolean(shot?.shutterReady), (await h.ui()).debug);
+      JSON.stringify({ shot }), Boolean(shot?.shutterReady), (await h.ui()).debug);
     const result = {
       animal,
+      area: live.area,
       reached: Boolean(shot?.reached),
       facingOk: Boolean(shot?.facingOk),
       shutterReady: Boolean(shot?.shutterReady),
@@ -1175,19 +1251,19 @@ await runSection('habitats', sectionEnabled('habitats'), async () => {
     };
     habitatResults.push(result);
     if (!shot?.reached || !shot?.facingOk || !shot?.shutterReady) allHabitatPreconditionsMet = false;
-    console.log(`  habitat result ${JSON.stringify(result)}`);
+    console.log(`  animal result ${JSON.stringify(result)}`);
     if (rightAnimal) visited.add(animal);
     await h.waitFor((value) => value.debug?.phase === 'playing', 5000, `${animal} camera to close`);
-    if (!regionScreenshots.has(hb.region)) {
-      await h.page.screenshot({ path: `${OUT}-region-${hb.region}.png` });
-      regionScreenshots.add(hb.region);
+    if (!regionScreenshots.has(live.area)) {
+      await h.page.screenshot({ path: `${OUT}-region-${live.area}.png` });
+      regionScreenshots.add(live.area);
     }
   }
-  check('all thirteen habitats are photographed in one session',
+  check('all eight animals are photographed in one session',
     visited.size === ANIMALS.length && ANIMALS.every((animal) => visited.has(animal)),
     JSON.stringify({ visited: [...visited], travelTimes, habitatResults }), allHabitatPreconditionsMet, (await h.ui()).debug);
-  const expectedRegionScreenshots = [...new Set(state?.debug?.habitats?.map((item) => item.region) ?? [])].sort();
-  check('visual-review screenshots are saved for every habitat region',
+  const expectedRegionScreenshots = [...new Set(state?.debug?.areas?.map((item) => item.id) ?? [])].sort();
+  check('visual-review screenshots are saved for every area',
     expectedRegionScreenshots.length > 0
       && expectedRegionScreenshots.every((region) => regionScreenshots.has(region)),
     JSON.stringify({ expected: expectedRegionScreenshots, saved: [...regionScreenshots].sort() }),

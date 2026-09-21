@@ -15,7 +15,8 @@
     "playthrough:drink-stand": "node scripts/playthrough-run.mjs drink-stand",
     "playthrough:zoo": "node scripts/playthrough-run.mjs zoo",
     "playthrough:coloring": "node scripts/playthrough-run.mjs coloring",
-    "playthrough:sports": "node scripts/playthrough-run.mjs sports"
+    "playthrough:sports": "node scripts/playthrough-run.mjs sports",
+    "build:animal-clips": "node scripts/build-animal-clips.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
