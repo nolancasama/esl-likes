@@ -2,8 +2,12 @@
 
 ## Usage watch
 
-**Weekly quota was at ~95% on 2026-09-22.** Treat anything large as needing a
-fresh week or a delegating worker. Codex's usage-limit window expired
+**Weekly quota hit ~97% on 2026-09-22 and work stopped there**, at a clean
+commit with the tree green. Nothing was left half-written. Treat anything large
+as needing a fresh week or a delegating worker — a worker's quota is a separate
+budget, so delegating costs the controller only the brief and the review, which
+is why `.ai/wo-coloring-robot.json` was written rather than the pass started.
+Codex's usage-limit window expired
 2026-09-22T11:00; re-check with `node ~/.claude/workers/bin/route.js` rather
 than assuming either way. Gemini and the agy-* workers were still under the
 global readiness quarantine, and Qwen declines adaptive work.
