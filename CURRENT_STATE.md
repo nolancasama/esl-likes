@@ -64,17 +64,51 @@ numeric fields, duplicate, delete, undo, redo, one-undo-per-drag, export, clear,
 import round-trip, unknown-asset and bad-version errors, and confirming the
 editor leaves no trace and the park resumes play on close.
 
+## Also on this branch — the Coloring foundation (2026-09-22)
+
+The owner's 40-section plan for the Coloring minigame is frozen as
+`.ai/coloring-robot-spec.md`, and its **pure half is built and tested**. The
+expensive half is briefed in `.ai/wo-coloring-robot.json` and **not started** —
+it was held back deliberately at ~95% weekly usage with no delegating worker,
+rather than risk stopping half-way through a rendering rewrite.
+
+- `robotDefinition.js` — one robot, shared by the colouring page and the puppet.
+  18 regions (1 `required-favorite`, 2 `required-label`, 15 free), 9 puppet
+  pieces with pivots, hit testing with a 44 px touch floor (`hitPad` grows what
+  you can click without changing what is drawn, so a thin stalk stays thin).
+- `colorState.js` — all seven lesson colours, region fills, undo, eraser,
+  guarded reset, snapshot/restore, and the 40% decoration threshold.
+- `robotScoring.js` — round selection, and **four** outcomes: FULL, ALMOST,
+  NOT_READY and **INCOMPLETE**. The fourth is the important one: everything
+  required is correct, the robot just wants more decoration. Folding that into
+  ALMOST would send a child hunting for a colour mistake that does not exist.
+- **Nothing is wired yet.** `index.js`, `picture.js` and `scoring.js` are
+  untouched, so the Coloring minigame still plays exactly as it did. 46 new
+  tests, suite at 521/521.
+
+### The decision worth knowing before continuing
+
+Colouring becomes **pure tap-to-fill**; freehand painting and the 72×72
+pixel-grid correctness (with its two-cell neatness margin) are to be deleted,
+not extended — with a dozen small accent regions a neatness margin stops being
+forgiving and becomes impossible. That also resolves the plan's own §6/§13
+tension: once region colours *are* the artwork, the puppet can render each
+piece from the shared shape definitions with the same draw code, so there is no
+canvas cropping, no texture atlas, and no crop-bounds arithmetic to get wrong.
+
 ### NEXT STEPS for a fresh session
 
-1. **The Coloring minigame rebuild is specified and NOT started** — one detailed
-   robot, seven colours, region-fill, required vs free regions, and the finished
-   artwork coming alive as a 2D paper puppet in the atelier. The owner supplied
-   a 40-section plan. This is a large pass; route it rather than doing it direct.
-2. **Migrate scenery placements to layout JSON.** The editor exports it and
+1. **Hand `.ai/wo-coloring-robot.json` to the router.** Codex's usage-limit
+   window ends 2026-09-22T11:00. Do not edit `robotDefinition.js`,
+   `colorState.js` or `robotScoring.js` — they are the frozen interface.
+2. **Owner acceptance of the scene editor.** Open the Zoo with `npm run dev`,
+   press `P`, and judge it by using it. The demo at
+   `/src/dev/scene-editor/demo/` is the same tool with no game code.
+3. **Migrate scenery placements to layout JSON.** The editor exports it and
    `loadLayoutInto` consumes it, but `scenery.js` is still the source of truth.
    Moving a subset (trees, bushes, rocks) across is the proof.
-3. **Nothing is committed.** The tree holds this pass AND the whole roaming
-   animal park pass below it.
+4. **Branch `zoo-park-and-scene-editor`, three commits, nothing pushed.** `main`
+   is untouched at `8d83807`.
 
 ## Previous pass (2026-09-20) — the Zoo becomes a roaming animal park
 

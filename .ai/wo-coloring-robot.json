@@ -1,0 +1,60 @@
+{
+  "task": "Finish the Coloring minigame rebuild: render the new 18-region robot as a tap-to-fill colouring page with a seven-colour palette, and make the child's finished artwork come alive as a nine-piece 2D paper puppet that walks around the 3D atelier.",
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms. The Coloring minigame currently has a three-colour palette and a three-region robot (body/arms/eyes) painted freehand and graded on a 72x72 pixel grid with a neatness margin. The owner wants one much more detailed robot, all seven lesson colours, tap-to-fill regions, and the finished robot walking into the atelier as a paper puppet. THE PURE FOUNDATION IS ALREADY BUILT AND TESTED - robotDefinition.js (18 regions, 9 puppet pieces, pivots, hit testing), colorState.js (region colours, undo, completion) and robotScoring.js (round selection, the four outcomes, stars) exist with 46 passing tests. Do not redesign them. This slice builds everything that touches a canvas, three.js or the DOM, and rewires index.js onto the new foundation. Read .ai/coloring-robot-spec.md first; it is the frozen contract and it explains WHY pure region fill replaces freehand and why the puppet renders from shared shape definitions rather than cropped canvas pixels.",
+  "requirements": [
+    "Read .ai/coloring-robot-spec.md first and treat it as the contract. Then read robotDefinition.js, colorState.js and robotScoring.js - they are the frozen interface you build against, and their 46 tests must keep passing untouched.",
+    "Rewrite picture.js to render the robot from robotDefinition.REGIONS and a colour map: fill each region in region `order`, then redraw the black line art over the top, then draw eyes and pupils above everything. The existing principle of redrawing line art over paint is correct - keep it. Delete buildRegionMap, GRID_WIDTH/GRID_HEIGHT and the whole pixel-grid path.",
+    "Interaction is tap-to-fill only. Remove freehand painting (createPaintingSurface). A pointer event maps to a region through robotDefinition.regionAt(); hovering or focusing a region highlights the whole logical region; clicking fills it immediately. Do NOT require clicking only on painted pixels.",
+    "Render the round's instructions: the starred region shows a ★ and NOTHING else - never the colour name, because remembering it is the listening task. The two labelled regions show their small English colour word (RED, YELLOW, GREEN...) inside the shape, readable but quieter than the artwork, and the label fades once that region holds the right colour.",
+    "Seven-colour palette UI: large swatches, strong selected state, wrapped or horizontal so they fit comfortably, Japanese labels. Add the four missing entries to UI.coloring.colors in src/config/lesson.js (みどり, ピンク, むらさき, オレンジ) alongside the existing あか/あお/きいろ.",
+    "Add Undo, an eraser (clear one region), and a guarded やりなおす reset, all wired to the existing colorState methods, which already implement them.",
+    "Rewire index.js onto robotScoring: Done evaluates and branches on the four outcomes. FULL runs the cinematic. ALMOST plays a partial startup (eyes blink, antenna flashes, body wiggles, short buzz), shows もうすこし！, may indicate which LABELLED region is wrong, and returns to colouring. NOT_READY plays a failed startup (weak spark, tiny shake, power-down) and returns to colouring WITHOUT indicating anything about the starred region. INCOMPLETE shows its own friendly 'decorate a bit more' message and must never imply a colour is wrong. No outcome ever erases the child's work.",
+    "Delete the old scoring.js pixel-grid module and its tests once index.js no longer uses it. robotScoring.js replaces it. Check src/minigames/coloring/scoring.test.mjs and remove or port each test - do not leave dead tests asserting a grid that no longer exists.",
+    "Remove the old すてきな えが できたよ！ star-result panel from the success path. A generic results modal between correct colouring and the robot waking up is exactly what this pass is buying back. Stars are still awarded and still reach progression.awardStamp.",
+    "New robotPuppet.js: build a nine-piece flat paper puppet (head, antenna, torso, leftUpperArm, leftForearm, rightUpperArm, rightForearm, leftLeg, rightLeg). Render each piece by drawing ONLY its own regions - REGIONS_BY_PIECE gives the list - onto a transparent canvas cropped to pieceBounds(), using the SAME draw code as the colouring page, then use that canvas as the piece's texture. This is what guarantees the child's exact design survives.",
+    "Make it visibly paper: thin geometry, a slight edge, a small drop shadow, a visible flat side at an angle. It must read as the child's drawing come alive, not as a glossy 3D robot. Animate rigid pieces about the pivots in robotDefinition.PIVOTS - no skeleton, no vertex deformation. Idle: small body bob, occasional blink, slight antenna sway. Walk: legs alternate, arms swing opposite, slight torso bob and head counter-motion.",
+    "Cinematic on FULL, 3-6 seconds before control returns: glow, blink, antenna lights, arms twitch, lifts off the page, cut, lands on the atelier floor, walks.",
+    "In the atelier the puppet roams a small authored loop (walk, idle, turn, walk) over a handful of points clear of the walls, easel, table and the artist NPC, and stays visible for the rest of the minigame. The wall frame shows the finished static artwork at the same time (the owner's option A).",
+    "Sound through the existing audio system only: fill pop, failed sputter, partial buzz, successful startup, footsteps. No new audio dependencies.",
+    "Add tests for the new pure parts: piece texture bounds match pieceBounds(); a rendered piece contains exactly its own regions in the child's colours; idle/walk state transitions; walking alternates limbs; roam points stay inside the safe area. Do not write DOM-heavy or three.js-rendering-internals tests - a browser check is more useful there.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording: that freehand painting and pixel-grid correctness are gone and why (twelve-plus small regions make a neatness margin impossible to tune on a touchpad); that the puppet renders from shared shape definitions rather than cropped canvas pixels and why that is lossless rather than a rebuild-from-palette-values; and that INCOMPLETE is a separate outcome from ALMOST so a child is never sent hunting for a colour mistake that does not exist.",
+    "Report: final region count, required vs free, the correctness and completion thresholds, how required labels work, how the child's artwork is preserved into the puppet, the piece structure, the animation behaviour, what happens on each of the four outcomes, the scoring change, the unit test count, and anything you could not do as specified."
+  ],
+  "constraints": [
+    "Do NOT modify robotDefinition.js, colorState.js or robotScoring.js, or any of their three test files. They are the frozen foundation this slice builds against. If you believe one is wrong, say so and stop rather than editing it.",
+    "Do NOT add a second picture. One robot. The plan is explicit about this.",
+    "Do NOT redesign speech, mic, or mic-free behaviour, and do not rebuild the 3D atelier. Add only what the living paper robot needs.",
+    "Do NOT build a rigged or modelled 3D robot. Flat cut-paper pieces rotating about pivots, nothing more.",
+    "Free creative regions must never count as wrong and must never affect the score, in any colour combination. There is already a test asserting this; keep it true through the UI as well.",
+    "Never reveal the favourite colour. The ★ region shows a star and nothing else, and no failure message may name or hint at the starred region's expected colour.",
+    "Work on the branch zoo-park-and-scene-editor, which holds two recent passes. Do NOT commit, push, stash, revert or git checkout anything, and do not touch files outside src/minigames/coloring/, src/config/lesson.js and DESIGN_DECISIONS.md without saying why.",
+    "Source edits go through structured file writes. If a shell quoting or escaping attempt fails even once while editing a file, stop using the shell for that edit and write the file directly.",
+    "No new runtime or dev dependencies.",
+    "Do not attempt a browser playthrough; the sandbox cannot start this project's preview server. Behavioural acceptance is the controller's."
+  ],
+  "startingPoints": [
+    ".ai/coloring-robot-spec.md",
+    "src/minigames/coloring/robotDefinition.js",
+    "src/minigames/coloring/colorState.js",
+    "src/minigames/coloring/robotScoring.js",
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/picture.js",
+    "src/minigames/coloring/scoring.js",
+    "src/config/lesson.js",
+    "src/minigames/zoo/world.js"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Play a full round in a real browser: hear a favourite colour, fill the ★ region correctly, fill both labelled regions, decorate freely, press Done, and confirm the robot comes alive carrying the child's exact colours and walks around the atelier on articulated paper pieces. Also the wrong-favourite and partial-wrong paths. The worker sandbox cannot start this project's vite preview."
+  },
+  "category": "feature",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large"
+}
