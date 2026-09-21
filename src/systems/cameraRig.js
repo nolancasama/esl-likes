@@ -21,6 +21,9 @@ export function createCameraRig(camera) {
   let damping = CAMERA_PRESETS.follow.damping;
   let fixedPosition = null;
   let fixedLookAt = null;
+  // The main loop drives this rig every frame. A development tool that borrows
+  // the camera has to be able to stop it, or the two fight for the transform.
+  let enabled = true;
 
   const anchor = new THREE.Vector3();
   const offset = new THREE.Vector3(...CAMERA_PRESETS.follow.offset);
@@ -55,7 +58,13 @@ export function createCameraRig(camera) {
     return api;
   }
 
+  function setEnabled(value) {
+    enabled = Boolean(value);
+    return api;
+  }
+
   function update(dt) {
+    if (!enabled) return;
     const safeDt = Math.min(Math.max(dt || 0, 0), 0.1);
     if (presetName === 'fixed' && fixedPosition && fixedLookAt) {
       desiredPosition.copy(fixedPosition);
@@ -79,11 +88,13 @@ export function createCameraRig(camera) {
   const api = {
     setTarget,
     setPreset,
+    setEnabled,
     requestPreset: setPreset,
     update,
     destroy,
     get preset() { return presetName; },
     get target() { return target; },
+    get enabled() { return enabled; },
   };
   return api;
 }

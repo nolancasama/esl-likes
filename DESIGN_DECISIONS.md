@@ -1882,3 +1882,199 @@ challenger, and swaps belt stoppages for speed bursts.
   not read, it belongs in the temporary notice, not in a restored panel.
 - **Unchanged — no auto-listen.** No dwell timer, microphone auto-start or
   progress ring was added. Speaking stays a deliberate press.
+
+## 2026-09-20 — Animal park: where the animals' animation comes from
+
+The Zoo becomes a roaming animal park, so every animal needs a real Idle and a
+real Walk. Almost none of them shipped with one.
+
+- **Accepted — the clips are lifted from the original ITHappy FBX, and the
+  models are left alone.** `public/assets/animals/Animals.glb` carries seven
+  rigged skins and **zero** animation clips, so there was nothing to play. The
+  clips do exist, embedded in the pack's seven source FBX meshes. GLTFLoader
+  runs `sanitizeNodeName` over every node, which strips `.` — so the glb's
+  `spine.007`/`thigh.R` load as `spine007`/`thighR`, exactly what the FBX bones
+  are already called. `scripts/build-animal-clips.mjs` reads the pack at build
+  time and writes `assets/animals/animal-clips.json`; the game attaches the
+  clips to the loaded models at runtime. Animals.glb, its materials, its shared
+  texture atlas and the tuned `targetHeight`/`yawOffset` values are untouched.
+- **Rejected — importing the `.unitypackage` into Unity and re-exporting a GLB
+  per animal.** It was the obvious route and it is unnecessary: a
+  `.unitypackage` is a gzip tar, and the takes are already in the FBX. Unity
+  would also have meant re-exporting meshes and re-tuning every scale.
+- **Accepted — tracks targeting `<Mesh>_rig` and `*_end` are dropped.** `_rig`
+  is the FBX armature wrapper and carries the armature root motion; keeping it
+  would slide an animating animal away from the position the roaming code sets.
+  Measured: root drift is now exactly 0 on all eight. `*_end` bones are leaf
+  tips that do not exist in the glTF models.
+- **Accepted — clip tracks are remapped onto each model's real bone names at
+  load time (`retargetClip`).** Animals.glb packs all seven animals into one
+  scene and they all use the same bone names, so GLTFLoader renames the repeats:
+  the tiger keeps `Root`, the horse gets `Root_1`, the dog `Root_2`. Binding by
+  the name in the clip therefore worked for the tiger alone and silently
+  animated nothing for the other six — it warns, it does not throw. The lookup
+  now falls back to the name with any `_<digits>` suffix removed.
+- **Accepted — the giraffe's walk is retargeted from the styloo cow.** The
+  styloo pack ships the giraffe with one clip, the misspelled `iddle`, and no
+  walk. Its cow uses a byte-for-byte identical 48-node Rigify rig, and all 46
+  bones the cow's walk drives exist on the giraffe. A hooved quadruped is also a
+  better donor than the pack's dog, which has a walk on the same rig. Only
+  rotation tracks transfer: the giraffe's neck and legs are far longer, and
+  inheriting the cow's bone translations would squash it into cow proportions.
+  Verified by rendering six phases of the cycle — the legs stride, the body and
+  neck stay intact. The giraffe has no run clip, so `run` is optional per animal.
+
+## 2026-09-20 — The Zoo becomes a roaming animal park
+
+The fenced zoo asked a child to read a sign, walk to a labelled pen and
+photograph an animal standing still in it. The signs did the finding, so there
+was no search; the pens did the framing, so there was no aiming.
+
+- **Accepted — one continuous park, eight animals, no enclosures.** The roster
+  is tiger, horse, dog, deer, cat, penguin, chicken, giraffe. Because it is a
+  park rather than a zoo, a dog, a cat and a chicken need no justification.
+  Removed: elephant, alpaca, fox, wolf, stag, bull, cow, donkey — with their
+  vocabulary, their models and the circular pen floors, fence posts, fence rails
+  and habitat fence colliders that went with them. **No invisible collider is
+  left where a fence used to be**; `colliders` now holds only real scenery.
+- **Accepted — all signage is deleted, and nothing replaces it.** The
+  `YOU ARE HERE` board, the four junction signposts, `REGION_SIGNAGE`,
+  `JUNCTION_SIGNPOSTS`, `createJunctionSignpost`, `createCampusBoard`, the sign
+  canvases and `getSignageData` are gone. Deliberately **not** replaced with
+  arrows, glowing targets, minimap dots or waypoint markers: the fountain, the
+  barn, the pool, the bridge and the woodland are what a child navigates by.
+- **Accepted — the map stays the size it was** (82 × 70). The challenge is
+  meant to come from looking for something that moves, not from walking further.
+- **Accepted — the eight `*-viewpoint` path spokes are deleted.** Eight spurs
+  radiating off the main loops would have drawn a map of exactly where the
+  animals were, which is the signage problem in another form. The path network
+  is now loops only, and a test asserts no node is a dead end.
+- **Accepted — bounded roaming territories, not a navmesh.** Each animal has
+  6–7 authored waypoints spanning 14–17 units. Authored points are cheaper and
+  far more predictable than a navmesh for eight animals on a fixed map, and they
+  let each area be tuned for difficulty. A destination whose straight line is
+  blocked is rejected, which is what keeps animals out of the fountain, the barn
+  and the penguin pool. Tests walk every waypoint and every leg through
+  `canOccupy`, so scenery and roaming cannot drift apart.
+- **Accepted — idle/walk only, and never fleeing.** An animal idles 2–6s, picks
+  a reachable waypoint, turns toward it, walks, and idles again. Approaching it
+  changes nothing: its natural idle pauses are the photo opportunity. An animal
+  that ran from the player would make the game unwinnable for a young child.
+- **Accepted — no teleporting, including the arrival snap.** The first version
+  snapped an animal onto its waypoint on arrival; it is only ~0.3 units but it
+  is still a teleport, and it read as a hitch at the end of every walk. Animals
+  now stop where they stand.
+- **Accepted — speeds well under the player's.** The player moves at 13.5; the
+  animals at 0.9 (penguin) to 2.3 (dog). The walk clip's timeScale is divided by
+  a per-animal authored `clipSpeed` so feet do not skate.
+- **Accepted — spawn positions are randomised but constrained.** No two animals
+  within 4 units, nothing within 12 of the entrance, and the requested animal is
+  drawn from the same pool as the rest so it is never reliably somewhere easy.
+  Seeded, so a test or a harness run can reproduce a park exactly.
+- **Accepted — the photo target already tracked the animal, so it was kept.**
+  `photoTarget` is a child of the animal's own group; framing, occlusion and
+  shutter readiness read its live world position. The one hidden dependency on a
+  fixed pen centre — the nearest-subject tie-break in `evaluateFraming` — now
+  reads the roamer's live position.
+- **Accepted — the room is 「どうぶつパーク」.** The internal id stays `zoo` for
+  save-file and module compatibility; renaming folders was not worth the churn.
+
+## 2026-09-20 — Owner's corrections after playing the animal park
+
+All four came from the owner playing the park, and three were things no test
+caught. Worth remembering: **orientation and camera handedness are judged by
+looking, never by reasoning about the maths.**
+
+- **Fixed — the animals walked backwards.** Every entry in `ANIMAL_MODELS`
+  carried `yawOffset: Math.PI`, inherited from the fenced zoo where animals
+  stood still facing a viewpoint. These models face local **+z** at rotation 0,
+  and the roaming code sets an animal's rotation to its heading, so the offset
+  turned each of them through 180° and they moonwalked to their destinations.
+  The offset is deleted. The playthrough never noticed, because it checks that
+  the *player* faces the animal, not which way the animal faces.
+- **Fixed — the viewfinder turned the wrong way.** `updateViewfinderMovement`
+  did `player.rotation.y += move.x`. With the camera looking along
+  `(sin y, cos y)`, screen-right in world is `(-cos y, sin y)`, which is where a
+  *smaller* yaw points — so pressing D swung the view left. Now `-=`.
+- **Accepted — the giraffe stands still.** Its own pack ships no walk cycle and
+  the one retargeted from the styloo cow reads as wrong on a giraffe's build:
+  the legs stride correctly but the gait is a cow's. The owner judged a still
+  giraffe better than a strange one. `territories.js` gives it speed 0 and
+  `roaming.js` treats speed 0 as "never walks", so it idles where it spawned —
+  which also makes it a dependable landmark in the open grassland. The walk clip
+  stays in the bundle, unused, if anyone wants to revisit it.
+- **Accepted — one plant palette, led by grass.** Every plant already came from
+  Quaternius Nature, but the palette was wide: two pines, a dead tree, ferns,
+  flowering bushes, two rocks and pebbles, so each corner looked different
+  without looking better. It is now six: two grasses, one bush, one broadleaf
+  tree, one pine, one rock. Grass count roughly doubled and the farm meadow and
+  cove gained their own, so grass carries the ground rather than dotting it.
+- **Accepted — ground colour comes from the pack's own grass ramp.**
+  `Grass.png` is a palette strip, not a tileable ground texture, so it cannot be
+  laid on the field. Its colours can: olive `#b19800`, green `#399600`, rust
+  `#b95700`, yellow-green `#67a300`. The ground moved from `0x75b866`, a bluer
+  green, to `0x74ad3d`, and the area patches followed. The grass tufts no longer
+  read as stuck onto a differently-coloured field.
+
+## 2026-09-22 — A reusable scene placement editor, separate from the Zoo
+
+The park's scenery was hundreds of hand-typed coordinates. Moving one tree
+meant editing a literal, rebuilding and looking. There is now a browser editor
+that selects, moves, rotates, scales, duplicates and deletes things in the live
+world and exports the result as portable JSON.
+
+**The split is the decision.** `src/dev/scene-editor/` is generic and may not
+import from `src/minigames/`, `src/systems/` or `src/config/`. Everything a
+project knows about itself — which assets exist, how one is built, where the
+ground is, what may not be walked through — arrives through an adapter.
+`src/minigames/zoo/zooEditorAdapter.js` is the first one;
+`src/dev/scene-editor/demo/primitiveAdapter.js` is a second built from a cube,
+a sphere and a cylinder, and it exists to keep the first from silently becoming
+load-bearing. Rejected: building the editor into `world.js`, which would have
+been faster and would have made it unusable in any other project.
+
+**The layout JSON is the contract, and the game reads it without the editor.**
+`layoutLoader.js` imports no three.js, no DOM and no editor module. An editor
+whose output only the editor understands is a drawing of a level, not a level.
+
+## 2026-09-22 — Zoo scenery is data, and the editor needs its own camera
+
+Three things the integration forced, each worth recording because each looks
+like an arbitrary choice from the outside.
+
+**Scenery placement moved out of `world.js` into `scenery.js`.** The editor
+cannot read, move or write back a literal buried inside a closure. The five
+dressing functions are now one data-driven driver over `SCENERY_GROUPS`, and a
+test pins the placement count of every group so a row dropped in a later edit
+fails the suite instead of quietly thinning out a corner of the park. Nothing
+about what is drawn changed.
+
+**Instanced scenery is rebuilt as individual objects while the editor is open.**
+Grass, bushes, rocks and the small props are drawn as `InstancedMesh` — one
+draw call for dozens of tufts — and an instance cannot be raycast or dragged.
+`setSceneryEditable(true)` rebuilds those groups as individual clones, and
+closing the editor puts the instancing back. A student's session never leaves
+the instanced form, so the draw-call budget the park was built around is
+untouched. Rejected: making all scenery individual (costs every student
+frames for a tool they will never open), and leaving grass and rocks
+uneditable (they are the main thing anyone wants to move).
+
+**The editor takes the camera.** `cameraRig` is a fixed, world-aligned
+three-quarter follow with no user rotation at all. Editing through it would
+mean adjusting only what happened to stand in front of the avatar, from one
+angle, with half the gizmo's axes pointing away. The editor borrows the camera
+and restores its position, quaternion, fov **and far plane** on close — `far`
+is 100, and a camera pulled back far enough to see the park clips straight
+through it. `cameraRig.setEnabled(false)` stops the main loop fighting it.
+
+**The editor is gated twice, because this ships to classrooms.** `P` is exactly
+the key a seven-year-old presses. `DEV_TOOLS_ENABLED` (vite dev, or `?editor=1`)
+decides whether the key does anything, and the editor is loaded with a dynamic
+`import()`, so in a production build it is a separate chunk a student's browser
+never requests — nothing to find and nothing to pay for. Rejected: a key
+combination alone, which still ships the code.
+
+**Roaming points export as `[x, z]` pairs, not `[x, y, z]` triples.**
+`territories.js` authors waypoints as pairs. An export shaped differently from
+the file it came from has to be hand-converted every time, which is how a tool
+stops being used.

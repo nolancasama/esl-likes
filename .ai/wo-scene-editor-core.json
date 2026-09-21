@@ -1,0 +1,55 @@
+{
+  "task": "Build a reusable, game-agnostic Three.js scene placement editor under src/dev/scene-editor/, exactly to the frozen interface in .ai/scene-editor-spec.md, plus a primitive-only demo adapter that proves it carries no game knowledge, plus pure unit tests.",
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms. Its Zoo minigame places all its scenery from giant hardcoded arrays, and the owner wants a lightweight in-browser level-layout tool to place and adjust assets visually and export portable JSON. THIS SLICE BUILDS ONLY THE GENERIC CORE AND ITS DEMO. It must contain zero Zoo knowledge. A separate slice writes the Zoo adapter and wires the editor into the game; you must not touch any file outside src/dev/scene-editor/ except package.json if a test glob genuinely needs it. .ai/scene-editor-spec.md is a contract authored by the product lead: read it first and implement it as written. Where it is silent, choose the smallest thing that works and say so in your summary; where you believe it is wrong, implement it anyway and flag the concern rather than quietly diverging.",
+  "requirements": [
+    "Read .ai/scene-editor-spec.md first and treat it as the contract. Every named export, file name, option name, JSON field, keyboard shortcut and default in that file is fixed.",
+    "Create src/dev/scene-editor/SceneEditor.js exporting createSceneEditor({ scene, camera, domElement, adapter, uiRoot, storageKey, onEnable, onDisable }) returning { enable, disable, toggle, enabled, update, getLayout, loadLayout, dispose } exactly as the spec describes.",
+    "Create src/dev/scene-editor/editorHistory.js: a pure command-history module with push/undo/redo, a 200-entry cap, and no three.js or DOM imports. Commands are plain objects with do() and undo(). It must be unit-testable with no WebGL.",
+    "Create src/dev/scene-editor/layoutSerializer.js: pure serialise/deserialise of the versioned JSON in the spec. Deterministic ordering (objects sorted by id), 4-decimal rounding, no -0, xz and xyz point formats, explicit errors for a bad version and for unknown asset ids. No three.js import - it works on plain { position, rotation, scale } number triples so it can be tested without a renderer.",
+    "Create src/dev/scene-editor/layoutLoader.js exporting loadLayoutInto(root, layout, adapter, { onError }). This is the module the GAME uses in normal play with no editor present, so it must not import SceneEditor.js, editorUI.js, TransformControls, or anything DOM.",
+    "Create src/dev/scene-editor/editorIds.js (or fold into the serializer if cleaner, but keep it pure): stable id allocation as ${assetId}-${n}, n the lowest free integer for that asset id, zero-padded to 3. Must never collide with an id already in the registry.",
+    "Create src/dev/scene-editor/editorUI.js: the panel described in the spec, built on first enable() and fully removed from the DOM on disable(). Plain DOM, no framework, scoped CSS injected by the module itself. Match the existing overlay style conventions in src/minigames/zoo/index.js (a <style> element owned and removed by the module, BEM-ish class names prefixed for this module).",
+    "Create src/dev/scene-editor/editorCamera.js: the free-fly/orbit editor camera from the spec - orbit on left-drag over empty space, pan on middle-drag or Shift+left-drag, dolly on wheel, F frames the selection. It must snapshot the host camera's position, quaternion, fov and far on take-over and restore all four exactly on release. Do not add OrbitControls as a dependency if writing ~150 lines of pointer maths is cleaner; either is acceptable, but three/examples/jsm/controls/OrbitControls.js is already vendored and may be used.",
+    "Create src/dev/scene-editor/pointLayer.js: the roaming-point / marker layer from the spec's 'Points layer' section. Editor-only markers, removed from the scene on disable().",
+    "Use three/examples/jsm/controls/TransformControls.js for the gizmo. three 0.180.0 is already a dependency. IMPORTANT for this version: TransformControls is NOT an Object3D - add controls.getHelper() to the scene, not the controls object itself, and dispose the helper on teardown. Verify this against the vendored source in node_modules/three/examples/jsm/controls/TransformControls.js rather than assuming either API.",
+    "Undo granularity: one history entry per COMPLETED gizmo drag. Capture the before-transform on the mouseDown/dragging-changed start and push a single entry on release, and only if the transform actually changed. Never push per frame. This is called out explicitly in the spec and is the single easiest thing to get wrong.",
+    "Duplicate must create a fresh instance through adapter.createAsset and copy the transform. It must NEVER use Object3D.clone(). This repo has already been burned by that: cloning a skinned glTF drops the skeleton and the model renders at the file origin.",
+    "Cost when disabled must be genuinely zero: update(dt) returns on its first line, nothing of the editor remains in the scene graph, no listeners on the canvas, no panel in the DOM, and no TransformControls attached. The game ships to low-end Chromebooks.",
+    "While enabled, the editor owns input: attach key listeners on window in the CAPTURE phase and stopPropagation on the keys it owns. The host game's src/systems/input.js listens on window in the bubble phase and preventDefaults WASD and the arrow keys, so W/E/R and the arrow-key nudges WILL collide unless capture-phase interception is done properly.",
+    "Create src/dev/scene-editor/demo/index.html and src/dev/scene-editor/demo/primitiveAdapter.js: a standalone page with its own renderer, a ground plane and a cube/sphere/cylinder adapter, reachable at /src/dev/scene-editor/demo/ under npm run dev (vite serves the project root, so a plain index.html with a module script works). It must import NOTHING from src/minigames/, src/systems/ or src/config/. This page is the architectural proof that the editor is not game-specific - treat it as a deliverable, not a scratch file.",
+    "Add tests as *.test.mjs files beside their sources, matching this repo's existing test style (node:test + node:assert/strict, see src/minigames/zoo/layout.test.mjs). Cover everything the spec's Tests section lists. Tests must be pure - no DOM, no WebGL, no headless browser. Structure the modules so that is possible; if a behaviour cannot be tested purely, say so in your summary rather than pulling in jsdom.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording: the generic-core / game-adapter split and why the editor core may not import game code; that the layout JSON is the portable contract and the same loader runs with no editor present; and the rejected alternative of building the editor directly into the Zoo's world.js.",
+    "Report in your summary: every file created with its line count, the unit test count, anything in the spec you could not implement as written, and any place you had to choose because the spec was silent."
+  ],
+  "constraints": [
+    "Do NOT create or modify any file outside src/dev/scene-editor/, except appending to DESIGN_DECISIONS.md. Specifically: do not touch src/main.js, src/systems/cameraRig.js, src/minigames/ or any asset. Another worker is editing src/minigames/zoo/world.js in parallel - writing there will collide.",
+    "The working tree is deliberately dirty: it holds a large, reviewed-but-uncommitted pass that rebuilt the Zoo into a roaming animal park. Do NOT commit, do NOT stash, do NOT revert, do NOT git checkout anything, and do not 'clean up' unrelated modified files. Leave every pre-existing change exactly as you found it.",
+    "No new runtime or dev dependencies. three 0.180.0 is a dependency; vite and playwright are dev dependencies. Everything needed is already vendored.",
+    "src/dev/scene-editor/ must not import from src/minigames/, src/systems/ or src/config/. If you find yourself wanting game state, it belongs in the adapter contract instead - but the adapter contract is frozen, so flag it rather than extending it.",
+    "Source edits go through structured file writes. If a shell quoting or escaping attempt fails even once while editing a file, stop using the shell for that edit and write the file directly. Do not escalate to python-in-bash or escaped heredocs.",
+    "Do not add thumbnails, a scene hierarchy tree, terrain or mesh editing, material editing, or anything else in the spec's Non-goals list. This is a placement editor.",
+    "Do not attempt a browser playthrough or screenshot pass; the sandbox here cannot start this project's preview server. Behavioural acceptance is the controller's."
+  ],
+  "startingPoints": [
+    ".ai/scene-editor-spec.md",
+    "src/minigames/zoo/layout.test.mjs",
+    "src/minigames/zoo/index.js",
+    "src/systems/input.js",
+    "node_modules/three/examples/jsm/controls/TransformControls.js",
+    "package.json"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Open the demo page and the Zoo editor in a real browser, place/move/rotate/scale/duplicate/delete, exercise undo and redo, export and re-import, and confirm the editor leaves no trace in normal gameplay. The worker sandbox cannot start this project's vite preview, so this is not delegated."
+  },
+  "category": "feature",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "none",
+  "risk": "medium",
+  "expectedCost": "large"
+}

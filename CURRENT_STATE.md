@@ -1,6 +1,186 @@
 # Current State
 
-## Latest pass (2026-09-20) — rival quota, solid room, hint removed
+## Usage watch
+
+**Weekly quota was at ~95% on 2026-09-22.** Treat anything large as needing a
+fresh week or a delegating worker. Codex's usage-limit window expired
+2026-09-22T11:00; re-check with `node ~/.claude/workers/bin/route.js` rather
+than assuming either way. Gemini and the agy-* workers were still under the
+global readiness quarantine, and Qwen declines adaptive work.
+
+## Latest pass (2026-09-22) — a reusable scene placement editor
+
+Claude direct. The router found **no delegating worker available** (Codex in a
+usage-limit window to 2026-09-22T11:00, Gemini and agy-* quarantined, Qwen
+declines adaptive work), so this was all Claude. **Not committed, not pushed** —
+the owner asked for testing first. This sits on top of the still-uncommitted
+roaming-animal-park pass below; both are in the tree together.
+
+A browser level-layout tool: select, move, rotate, scale, duplicate and delete
+things in the live world, export portable JSON, load that same JSON with no
+editor present. `.ai/scene-editor-spec.md` is the frozen contract.
+
+- **Generic core in `src/dev/scene-editor/`** — imports nothing from
+  `src/minigames/`, `src/systems/` or `src/config/`, and a test plus a
+  primitive-only demo adapter keep that honest. `layoutSerializer.js`,
+  `editorHistory.js`, `editorIds.js` and `layoutLoader.js` are pure (no three.js,
+  no DOM) and carry all 43 of the editor's unit tests. `SceneEditor.js`,
+  `editorUI.js`, `editorCamera.js` and `pointLayer.js` are the live parts.
+- **`demo/index.html`** is the reusability proof: a cube/sphere/cylinder adapter
+  at `/src/dev/scene-editor/demo/` under `npm run dev`, importing no game code.
+- **Zoo adapter** in `zooEditorAdapter.js`: 15 environment models, 5 categories,
+  8 roaming-point groups (one per animal), collider and territory helpers.
+- **Scenery is data now.** All 25 placement groups moved out of `world.js` into
+  `scenery.js`; `world.js` drives them through one loop. `scenery.test.mjs` pins
+  every group's placement count so a dropped row fails the suite.
+- **Gated twice.** `DEV_TOOLS_ENABLED` (vite dev, or `?editor=1`) decides whether
+  `P` does anything, and the editor is a dynamic `import()`, so the build emits
+  it as a separate 75 kB chunk a student's browser never requests.
+
+### Four things that were not obvious
+
+- **`cameraRig` has no user rotation at all**, so the editor takes the camera
+  and restores position, quaternion, fov **and far** on close. `far` is 100; a
+  camera pulled back to see the park clips straight through it.
+  `cameraRig.setEnabled(false)` is new, to stop the main loop fighting it.
+- **`InstancedMesh` cannot be picked or dragged.** Grass, bushes, rocks and the
+  small props are instanced, so `setSceneryEditable(true)` rebuilds those groups
+  as individual objects while the editor is open. It deliberately **never
+  reverts** — rebuilding would re-read the frozen placements and silently undo
+  every edit made to existing scenery.
+- **Placing is one-shot** unless Shift is held. Staying armed meant the next
+  click anywhere dropped another object, including a click meant to select.
+- **Enter in a transform field blurs it.** Otherwise focus stays in the input and
+  every shortcut (delete, duplicate, undo) silently does nothing.
+
+### Verified
+
+`npm test` **475/475**. `npm run build` OK. Zoo playthrough **113/113** in one
+clean run (seed 1592594996) — identical to the pre-existing clean run, so the
+scenery data move caused no regression; Claude also viewed the grassland
+screenshot and the dressing is intact. A 40-check browser pass
+(demo + Zoo integration) passes 40/40, covering place, transform via gizmo and
+numeric fields, duplicate, delete, undo, redo, one-undo-per-drag, export, clear,
+import round-trip, unknown-asset and bad-version errors, and confirming the
+editor leaves no trace and the park resumes play on close.
+
+### NEXT STEPS for a fresh session
+
+1. **The Coloring minigame rebuild is specified and NOT started** — one detailed
+   robot, seven colours, region-fill, required vs free regions, and the finished
+   artwork coming alive as a 2D paper puppet in the atelier. The owner supplied
+   a 40-section plan. This is a large pass; route it rather than doing it direct.
+2. **Migrate scenery placements to layout JSON.** The editor exports it and
+   `loadLayoutInto` consumes it, but `scenery.js` is still the source of truth.
+   Moving a subset (trees, bushes, rocks) across is the proof.
+3. **Nothing is committed.** The tree holds this pass AND the whole roaming
+   animal park pass below it.
+
+## Previous pass (2026-09-20) — the Zoo becomes a roaming animal park
+
+Claude directly. Router: Codex in a usage-limit window until 2026-09-22, Gemini
+and the agy-* workers under the global readiness quarantine, so no delegating
+worker was available (order `.ai/wo-zoo-clips.json`). **Not committed, not
+pushed** — the owner asked for testing first.
+
+The fenced zoo let a sign do the finding and a pen do the framing. It is now one
+continuous park where eight animals walk around and have to be looked for.
+
+- **Eight animals, all animated**: tiger, horse, dog, deer, cat, penguin,
+  chicken, giraffe. Removed with their vocabulary, models and pens: elephant,
+  alpaca, fox, wolf, stag, bull, cow, donkey. The horse moved from a static OBJ
+  to the rigged `Animals.glb` node, because a static mesh cannot walk.
+- **The clips did not exist and had to be built.** `Animals.glb` ships seven
+  rigged skins and **zero** clips. `scripts/build-animal-clips.mjs`
+  (`npm run build:animal-clips`) lifts idle/walk/run out of the ITHappy pack's
+  source FBX — the `.unitypackage` is a gzip tar, so **no Unity was needed** —
+  and writes `assets/animals/animal-clips.json` (1.2 MB raw, 310 KB gzipped).
+  The models are untouched; clips attach at runtime.
+- **Two traps worth remembering.** (1) GLTFLoader renames duplicate node names,
+  and all seven animals share bone names, so a clip binds to the tiger alone and
+  silently animates nothing for the other six — `retargetClip` resolves the
+  `_1`/`_2` suffixes. (2) Tracks targeting `<Mesh>_rig` carry armature root
+  motion and must be dropped or animals drift off their own position.
+- **The giraffe's walk is borrowed from the styloo cow**, which uses a
+  byte-for-byte identical 48-node Rigify rig. Rotation tracks only, so the
+  giraffe keeps its own neck and legs. Verified by rendering six phases.
+- **Everything that pointed the way is gone**: the `YOU ARE HERE` board, four
+  junction signposts, `REGION_SIGNAGE`, `JUNCTION_SIGNPOSTS`, the sign canvases,
+  `getSignageData`, all thirteen circular pens with their fence posts, rails and
+  **habitat fence colliders**, and the eight `*-viewpoint` path spokes. Nothing
+  replaced them — no arrows, targets, minimap dots or waypoints. Also removed:
+  the giraffe feeding post (a pen fixture that read as a blank sign and blocked
+  a third of the giraffe's routes).
+- **Roaming**: `territories.js` (authored waypoints, 14–17 units across) and
+  `roaming.js` (a pure idle/walk state machine with seeded RNG). Animals idle
+  2–6 s, pick a reachable waypoint, turn, walk, idle again. They never flee, and
+  never teleport — not even the ~0.3-unit arrival snap the first version had.
+- **`animalAnimator.js`** crossfades idle/walk at 0.2 s and divides the walk
+  clip's timeScale by a per-animal `clipSpeed` so feet do not skate.
+- **Soft animal collision**: the big animals ease the player out over a few
+  frames and never push them into scenery. No hard colliders, no deadlocks.
+- **Assets deleted** (git-tracked, recoverable): `elephant.glb`, `alpaca.gltf`,
+  `obj/` — 2.3 MB nothing referenced.
+
+
+### The owner's corrections after playing it
+
+Four things, three of which no test caught. **Orientation and camera handedness
+are judged by looking, never by reasoning about the maths.**
+
+- **The animals walked backwards.** Every `ANIMAL_MODELS` entry carried
+  `yawOffset: Math.PI` from the fenced zoo, where animals stood still facing a
+  viewpoint. These models face **+z**, and roaming sets rotation to the heading,
+  so the offset turned each 180 degrees. Deleted. The playthrough passed 62/62
+  through this, because it checks the *player* faces the animal, never which way
+  the animal faces.
+- **The viewfinder turned the wrong way.** `rotation.y += move.x` — but
+  screen-right in world is `(-cos y, sin y)`, a *smaller* yaw. Now `-=`. The
+  harness's own aiming had to be flipped to match, or it converged on the exact
+  opposite bearing (`dot: -0.99`).
+- **The giraffe stands still** (speed 0). The cow-retargeted walk moves its legs
+  correctly but with a cow's gait; the owner judged still better than strange.
+  The clip stays in the bundle, unused.
+- **One plant palette, led by grass.** Already all Quaternius Nature, but wide:
+  two pines, dead tree, ferns, flowering bushes, two rocks, pebbles. Now six —
+  two grasses, bush, broadleaf, pine, rock — with grass roughly doubled and the
+  farm meadow and cove given their own. Ground colour moved from `0x75b866` to
+  `0x74ad3d`, taken from the pack's own grass ramp, so the tufts stop reading as
+  stuck onto differently-coloured ground. `Grass.png` is a palette strip, not a
+  tileable ground texture, so the field cannot literally use it.
+
+### Verified
+
+`npm test` **420/420**. `npm run build` OK. Zoo playthrough **113/113** in one
+clean run (seed 1592594996) after the corrections — listening 30/30,
+antiShortcut 18/18, animals 62/62, suite 3/3. Search times from the plaza: horse
+4.3 s, chicken 7.1 s, giraffe 10.2 s, penguin 14.2 s, deer 14.6 s, cat 15.5 s,
+dog 17.4 s, tiger 25.1 s — the harness walks straight at an animal it can
+already locate, so a child who must look will take longer. Claude viewed the
+park: no signs, no pens, animals facing the way they walk, one plant palette.
+
+### Replacing the old zoo harness assumptions
+
+`scripts/playthrough-zoo.mjs` was built around fixed viewpoints and signage.
+The `habitats` section is now `animals`; `faceHabitat` is `faceAnimal` and
+re-reads the target every pass; `approachAnimal` walks to a photographing
+distance from wherever the animal is now; the signage checks are replaced by
+checks that the signage, viewpoints and habitat records are **gone**.
+
+### NEXT STEPS for a fresh session
+
+1. **The owner judges the park in play.** Is the search satisfying rather than
+   tedious? The harness walks straight at an animal it can already locate and
+   still takes 4-19 s; a child who has to actually look will take longer.
+2. **Watch the chicken specifically.** It is the one animal whose size and speed
+   were tuned rather than measured, and the one a child must walk right up to.
+3. **Nothing is committed.** The tree holds the whole pass, including the
+   deletion of `elephant.glb`, `alpaca.gltf` and `obj/`.
+4. Codex was unavailable (usage limit to 2026-09-22) and the other workers were
+   quarantined, so this was all Claude direct. If more animal-park work follows
+   and Codex is back, the roaming and clip modules are small and well-bounded.
+
+## Earlier pass (2026-09-20) — rival quota, solid room, hint removed
 
 **PUSHED LIVE 2026-09-20** at the owner's request, after the whole pass was
 tested. On top of `568bec1`. Verified before the push: `npm test` **391/391**,
@@ -186,7 +366,18 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 - Chromebook: real speech and auto-listening, trackpad/touch, whether Challenge
   with a rival is too much for Grade 3, Zoo frame rate (~137k triangles).
 
-## Zoo playthrough (fixed 2026-09-14, harness TRUSTED)
+## Zoo playthrough (rebuilt 2026-09-20 for the animal park, harness TRUSTED)
+
+- **113 checks** per run now, not 144: the thirteen habitats became eight
+  animals, and the signage checks became checks that the signage is gone.
+- `approachAnimal` derives its standing distance from each animal's reported
+  photo bounds (giraffe ~9.9 units, chicken ~2.3) and steps to 0.7x and 0.5x on
+  a failure; `faceAnimal` re-reads the moving target and taps the turn key for
+  the time the remaining error needs. Holding the key until a predicate flipped
+  span the player through whole revolutions.
+- Known-good **113/113** after the owner's corrections (seed 1592594996).
+
+## Zoo playthrough, pre-park (fixed 2026-09-14)
 
 - Frame-aware walker (keys held through observed game updates; stalls judged by
   debug `elapsed`/`frame`), arrival preconditions, fixed per-section check

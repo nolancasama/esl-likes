@@ -1,0 +1,47 @@
+{
+  "task": "Extract every hardcoded scenery placement array out of src/minigames/zoo/world.js into a new pure data module src/minigames/zoo/scenery.js, have world.js build its dressing from that data, and add an editor-only switch that materialises the instanced scenery groups as individually addressable objects. Rendered output in normal gameplay must be byte-for-byte identical to today.",
+  "context": "The Zoo minigame dresses its park inside five functions in world.js - entrancePlazaKit, grasslandScenery, woodlandScenery, farmPaddock and coveKit - each holding inline arrays of { x, z, yaw?, scale? } placements. A scene placement editor is being built in a parallel slice so the owner can move this scenery visually and export it as JSON. That editor cannot select an InstancedMesh instance, and it cannot edit placements that only exist as literals inside a closure. THIS SLICE IS PURELY PREPARATORY and changes no visual output: it moves the data out and adds the hook the editor will later use. The Zoo adapter and the editor wiring are a separate, later slice - do not write them.",
+  "requirements": [
+    "Create src/minigames/zoo/scenery.js: a pure data module with no three.js and no browser imports, in the same style as the existing src/minigames/zoo/layout.js and territories.js (module docstring explaining what it is and why, deepFreeze, named exports). It holds every scenery placement currently inlined in world.js.",
+    "Shape the data so each group keeps the information world.js needs today: the asset key it uses (e.g. 'grass', 'common-tree', 'cafe-chair'), the group name currently passed as the `name` option (e.g. 'grassland-grass', 'woodland-pine'), whether that group is drawn as instances or as individual clones, whether it is a photo occluder, and its array of { x, z, yaw?, scale? } placements. Preserve every existing name and occluder flag exactly - the names appear in scene-stats debug output and the occluder flags drive the Zoo's photo-framing visibility test.",
+    "A handful of placements are computed rather than literal - notably the ticket-booth crate, which is positioned relative to boothPosition, and anything else derived from a landmark. Keep those computed in world.js rather than freezing a stale number into the data module, but route them through the same group structure so the editor slice sees one uniform list. Say in your summary which groups are computed.",
+    "Rewrite the five dressing functions in world.js to iterate the data instead of holding literals. Prefer one shared driver over five near-identical loops if that comes out cleaner, but do not restructure loadEnvironment, the asset loading, normalisedModel, addEnvironmentClone or addEnvironmentInstances - their behaviour is correct and is depended on.",
+    "Add an editor-only capability to createZooWorld, exposed on its returned API (suggested: setSceneryEditable(enabled) plus getSceneryGroups()). When enabled, every group currently drawn with addEnvironmentInstances is rebuilt as individual normalisedModel clones - one Object3D root per placement, each carrying its group name and its index - so an editor can raycast, select and transform them one at a time. When disabled, it rebuilds the InstancedMesh form. Gameplay never calls this, so the instanced path stays exactly as it is today for students.",
+    "getSceneryGroups() returns, for each group, its asset key, group name, and the live per-placement roots when editable (or null when instanced). This is the seam the Zoo adapter will consume next slice. Keep it small and documented; do not try to anticipate the editor's needs beyond this.",
+    "Dispose correctly on both sides of the switch: rebuilding must remove and release the InstancedMesh objects it replaces (and vice versa) through the existing geometry/material ownership sets, and must keep photoOccluders consistent - a stale occluder entry pointing at a removed mesh would silently corrupt the Zoo's photo-framing check. Note that normalisedModel clones share the loaded source's geometries and materials, which are owned by modelSources and disposed by disposeModelSource - do not double-free them.",
+    "Add src/minigames/zoo/scenery.test.mjs in this repo's existing style (node:test + node:assert/strict, see layout.test.mjs). Assert: every group names an asset key that exists in world.js's ENVIRONMENT_MODELS list (export that list, or a frozen list of its keys, from a pure place so the test can see it without importing three); no two groups share a name; every placement has finite x and z and, where present, finite yaw and a scale greater than zero; and the total placement count per group matches the counts the code had before this change (write those expected numbers down as a regression guard against a dropped row during the move).",
+    "Verify you have not changed what is drawn. Count the placements in each of the five functions BEFORE you start, record those counts, and confirm they match afterwards. Report the before/after table in your summary. A silently dropped tree is the main risk in this slice.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording that Zoo scenery placement is now data rather than code literals, why (so a visual editor can read and write it, and so placements can later migrate to layout JSON), and that the instanced/individual switch exists solely for the editor and never runs during a student's session."
+  ],
+  "constraints": [
+    "NO VISUAL CHANGE. This slice must not move, add, remove, rescale or rotate a single piece of scenery. If you notice something that looks wrong, leave it and mention it in your summary.",
+    "Do NOT create or modify anything under src/dev/. Another worker is building the scene editor there in parallel and writing to it will collide.",
+    "Do NOT touch src/minigames/zoo/index.js, layout.js, territories.js, roaming.js, animalClips.js, animalAnimator.js or scoring.js. Your files are src/minigames/zoo/world.js, the new src/minigames/zoo/scenery.js and the new src/minigames/zoo/scenery.test.mjs, plus DESIGN_DECISIONS.md.",
+    "The working tree is deliberately dirty: it holds a large, reviewed-but-uncommitted pass that rebuilt the Zoo into a roaming animal park, and world.js is part of that pass. Do NOT commit, do NOT stash, do NOT revert, do NOT git checkout anything, and do not 'clean up' unrelated modified files. Leave every pre-existing change exactly as you found it.",
+    "Keep the existing commentary in world.js. Those comments record why the plant palette is short, why the ground colour is what it is, and why the grassland has long sightlines. Move a comment along with the data it explains rather than deleting it - the placement arrays' comments belong in scenery.js.",
+    "No new runtime or dev dependencies.",
+    "Source edits go through structured file writes. If a shell quoting or escaping attempt fails even once while editing a file, stop using the shell for that edit and write the file directly. Do not escalate to python-in-bash or escaped heredocs. world.js is 1066 lines and is part of an uncommitted pass; a corrupted write here is expensive.",
+    "Do not attempt a browser playthrough or screenshot pass; the sandbox here cannot start this project's preview server. Behavioural acceptance is the controller's."
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/layout.js",
+    "src/minigames/zoo/layout.test.mjs",
+    "src/minigames/zoo/territories.js",
+    ".ai/scene-editor-spec.md"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Load the Zoo in a real browser and confirm the park is visually identical to before - same trees, grass, pines, fences, barn, cafe set and crates in the same places - and that the scene-stats debug report shows the same mesh and instanced-mesh counts. The worker sandbox cannot start this project's vite preview."
+  },
+  "category": "refactor",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

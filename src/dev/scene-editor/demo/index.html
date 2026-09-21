@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scene editor — primitive demo</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden; }
+      canvas { display: block; }
+      #hint { position: absolute; left: 12px; top: 12px; z-index: 10; max-width: 380px;
+        color: #cddbe9; font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+        background: rgba(16,21,28,.88); border: 1px solid #2b3644; border-radius: 6px; padding: 10px 12px; }
+      #hint b { color: #8fd3ff; }
+    </style>
+  </head>
+  <body>
+    <canvas id="demo-canvas"></canvas>
+    <div id="hint">
+      <b>Scene editor — primitive demo</b><br />
+      No game code is imported here. This page exists to prove the editor core
+      is reusable: an adapter of three primitives and nothing else.<br /><br />
+      Press <b>P</b> to open the editor. Pick an asset, click the floor to place
+      it, drag the gizmo, then Download or Copy the JSON and import it back.
+    </div>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { createSceneEditor } from '../SceneEditor.js';
+      import { createPrimitiveAdapter } from './primitiveAdapter.js';
+
+      const canvas = document.querySelector('#demo-canvas');
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x121821);
+
+      const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 200);
+      camera.position.set(14, 12, 18);
+      camera.lookAt(0, 0, 0);
+
+      scene.add(new THREE.HemisphereLight(0xdfefff, 0x2a3340, 2.1));
+      const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+      sun.position.set(14, 22, 10);
+      scene.add(sun);
+
+      const floor = new THREE.Mesh(
+        new THREE.BoxGeometry(60, 0.4, 60),
+        new THREE.MeshStandardMaterial({ color: 0x3b4a5c, roughness: 0.95 }),
+      );
+      floor.position.y = -0.2;
+      floor.name = 'demo-floor';
+      scene.add(floor);
+
+      const adapter = createPrimitiveAdapter();
+      const editor = createSceneEditor({
+        scene,
+        camera,
+        domElement: renderer.domElement,
+        adapter,
+        uiRoot: document.body,
+        storageKey: 'scene-editor-demo-draft',
+      });
+
+      window.addEventListener('keydown', (event) => {
+        if (event.code === 'KeyP' && !event.ctrlKey && !event.metaKey
+          && !(event.target instanceof HTMLInputElement)) {
+          editor.toggle();
+        }
+      });
+
+      function resize() {
+        const width = Math.max(1, window.innerWidth);
+        const height = Math.max(1, window.innerHeight);
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+      window.addEventListener('resize', resize);
+      resize();
+
+      let last = performance.now();
+      function frame(now) {
+        const dt = Math.min((now - last) / 1000, 0.1);
+        last = now;
+        editor.update(dt);
+        renderer.render(scene, camera);
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      // Handy from the console when checking the round-trip by hand.
+      window.__demoEditor = editor;
+    </script>
+  </body>
+</html>

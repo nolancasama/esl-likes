@@ -169,6 +169,11 @@ async function enterMinigame(id) {
         scene,
         camera,
         cameraRig,
+        // The renderer and its canvas are here for development tools that need
+        // a DOM element to attach pointer controls to — the scene placement
+        // editor's gizmo, for one. Gameplay code uses `captureFrame` instead.
+        renderer,
+        canvas,
         input,
         speech,
         audio,
