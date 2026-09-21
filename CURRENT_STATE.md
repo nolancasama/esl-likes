@@ -16,7 +16,7 @@ global readiness quarantine, and Qwen declines adaptive work.
 
 Claude direct. The router found **no delegating worker available** (Codex in a
 usage-limit window to 2026-09-22T11:00, Gemini and agy-* quarantined, Qwen
-declines adaptive work), so this was all Claude. **Not committed, not pushed** —
+declines adaptive work), so this was all Claude. **Committed on branch `zoo-park-and-scene-editor`, not pushed** (`main` is untouched at `8d83807`) —
 the owner asked for testing first. This sits on top of the still-uncommitted
 roaming-animal-park pass below; both are in the tree together.
 
