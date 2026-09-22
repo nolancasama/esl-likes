@@ -2,14 +2,98 @@
 
 ## Usage watch
 
-Codex was **still inside a usage-limit window until 2026-09-22T11:00** when this
-pass ran, Gemini and all four `agy-*` workers were under the global coding
-readiness quarantine, and Qwen was skipped as a hard task. The router therefore
-chose **Claude direct** for the whole Coloring pass. Always re-check with
-`node ~/.claude/workers/bin/route.js .ai/<order>.json` rather than assuming
-either way; the numbers in this file go stale within hours.
+Codex was **out of its usage-limit window** and took this pass's delegated work.
+Gemini and all four `agy-*` workers were still under the global coding readiness
+quarantine (`baseline-executor-unready [executor antigravity]`). Always re-check
+with `node ~/.claude/workers/bin/route.js .ai/<order>.json` rather than assuming;
+these numbers go stale within hours. Note `supervise.js` does **not** exist in
+`~/.claude/workers/bin/` — do not plan a review around it.
 
-## Latest pass (2026-09-22) — Coloring goes back to freehand
+## Latest pass (2026-09-22) — the Coloring playthrough, and the harness for it
+
+**Not committed, not pushed.** `main` is still at `bfbc64c`. The whole
+magical-easel refactor plus this harness sit in the working tree together.
+
+The easel-loop refactor itself was built in the previous (unrecorded) pass and
+was complete but **entirely unverified in a browser** — its playthrough harness
+still walked to an artist NPC that no longer exists. This pass wrote the new
+harness and ran it.
+
+- **Harness rewritten** — `scripts/playthrough-coloring.mjs`, delegated to Codex
+  (`gpt-5.6-sol`, order `.ai/wo-coloring-playthrough.json`). Codex was told it
+  could not run the harness and did not try; the controller ran it.
+- **Claude fixed three harness defects** Codex could not have seen without
+  running it: `const URL = process.argv[2]` shadowed the global `URL`
+  constructor so the performance session died on `new URL(...)`; the
+  "tools appear after the answer" check asserted on palette/brush/bar DOM
+  visibility it had never waited for, so it raced the fade-in and failed while
+  reporting `toolsVisible: true`; and `assertRoundStart` ran twice per round.
+
+### Verified
+
+`npm test` **592/592**. `npm run build` OK. `npm run playthrough:coloring`
+**114/114, exit 0** — four complete rounds plus a 15-robot performance session.
+
+**The harness is TRUSTED.** Runner self-tests pass (`selftest-pass` exit 0,
+`selftest-fail` exit 1), and a known-bad copy that corrupted the recorded art
+fingerprint went red on **exactly** the four artwork-persistence checks and
+nothing else (110/114, exit 1). That is the claim that most needed proving:
+robot 1 silently acquiring robot 2's paint is invisible to every unit test.
+
+Measured in the browser, not asserted from source:
+- Four robots accumulate, each keeping its own fingerprint across later rounds.
+- Space works on a **blank**, a **fading** (caught at opacity 0.042) and a
+  **ready** canvas. No lockout, no "wait for the next picture" text anywhere.
+- Phase order per round: `canvas-question → canvas-answer → coloring →
+  activation-page → reveal-easel → robot-exit → room-reveal → room`.
+- Round 4 reached full power at **45.8%** coverage because the child's colour
+  happened to be the robot's favourite — the 1.5x bonus doing exactly its job.
+  Other rounds landed at 68.3–71.1%.
+- 15 robots: **39.6 fps** under *software* rendering (swiftshader), worst frame
+  gap 66.7 ms; canvases created 159 → 159 across four seconds of roaming, DOM
+  canvases 1 → 1. No runaway allocation. Real GPU hardware will be far higher.
+- Door turnaround works end to end: newest robot asks, answer accepted, hub
+  reads back `きみは purple がすき！`, 3 stars saved.
+
+### Four visual findings, none of them fixed
+
+Found by looking at the screenshots, which is the only way any of them could be
+found. All four are **game-side**; the harness passes with them present.
+
+1. **The room's open side renders as a flat pink void.** The room has three
+   walls, and the pulled-back camera now frames past the missing one — a large
+   empty pink wedge fills the right third in both the 15-robot shot and the
+   turnaround shot. Pre-existing room design, made visible by the new camera.
+2. **The canvas jumps position when the tools appear.** During
+   `canvas-question` the page sits left-of-centre; when the palette fades in
+   the canvas reflows to centre. A visible lurch at the exact moment the child
+   is meant to start painting.
+3. **The turnaround bubble occludes the robot asking.** The speech bubble is
+   large and centred, and the newest robot sits underneath it. The tail points
+   at the right robot, but the child cannot see the speaker.
+4. **Robots cluster transiently right after a round.** Four robots bunched at
+   one end in the four-robot shot, while fifteen spread perfectly well. The
+   harness's stack check uses a 0.1-unit threshold, far too tight to catch
+   visible overlap — treat that check as not covering this.
+
+### NEXT STEPS for a fresh session
+
+1. **Owner acceptance of Coloring.** `npm run dev`, enter Coloring, paint a
+   robot, watch it leave the page, make a second one. Never played by a human.
+   Screenshots are in `.tmp/playthrough/coloring/`.
+2. Decide on the four visual findings above. 1 and 2 are the ones a classroom
+   would notice; 3 and 4 are polish.
+3. **Owner acceptance of the scene editor** — still outstanding from an earlier
+   pass: open the Zoo with `npm run dev` and press `P`.
+4. **Migrate scenery placements to layout JSON** — still not started.
+
+### Codex / Delegated Work
+
+The harness (`scripts/playthrough-coloring.mjs`) came from Codex and has been
+reviewed, corrected and run by the controller. It is accepted. Nothing is in
+flight. Nothing in the tree is unreviewed worker output.
+
+## Previous pass (2026-09-22) — Coloring goes back to freehand
 
 Claude direct (the router found no delegating worker: Codex inside a usage-limit
 window to 11:00, Gemini and the agy-* workers quarantined, Qwen declines hard

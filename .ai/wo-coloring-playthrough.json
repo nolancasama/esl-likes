@@ -1,0 +1,73 @@
+{
+  "task": "Rewrite scripts/playthrough-coloring.mjs as a multi-round browser playthrough of the new magical-easel Coloring loop, replacing the obsolete single-round artist/gift harness. The harness must drive at least four complete coloring rounds, prove that every finished robot stays in the room with its own artwork, prove the easel canvas is interactable in all three of its visual states, and exercise a 10-20 robot crowd for performance.",
+
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms (Vite + three.js). The Coloring minigame was just refactored around a repeatable easel loop; that source work is COMPLETE and UNCOMMITTED in the working tree, and 592/592 unit tests pass against it. What was never done is the browser playthrough. The existing scripts/playthrough-coloring.mjs is the harness for the PREVIOUS design and is now dead: it walks the player to an artist NPC, presses Talk there, and ends with a gift and a wall frame. The artist, the gift, the art table and the wall frame no longer exist, so the harness fails at its first step. It must be rewritten against the new loop, not patched. READ .ai/coloring-easel-loop-spec.md FIRST — it is the frozen contract for the loop, including the phase list, the three camera stages, the door-and-turnaround design, the easel blank/fading/ready states and the performance rules. Then read src/minigames/coloring/index.js, whose debugSnapshot() is the harness contract.",
+
+  "complexity": "moderate",
+  "exploration": "local",
+  "risk": "medium",
+  "bounded": true,
+  "executionStyle": "single-pass",
+
+  "requirements": [
+    "Rewrite scripts/playthrough-coloring.mjs completely for the new loop. Keep the file's existing reusable machinery where it still applies: openPage/ui/waitFor/hold/pulseUntil, the canvas letterbox mapping in toScreen(), stroke(), sweeps(), and the imports of robotDefinition/palette/brushes/coverage constants so harness geometry cannot drift from the robot. Delete askArtist(), the gift checks, the wall-frame checks and every assertion about walking to an NPC.",
+
+    "FIRST ENTRY (plan 43, spec 3): after entering Coloring from the hub, assert the close-up canvas is present immediately and phase === 'canvas-question' — and assert the room overview was NEVER shown first. Sample the phase across the entry transition, not once after it settles, or this check proves nothing.",
+
+    "TOOLS GATING (plan 4): assert debug.toolsVisible === false and that .coloring-palette / .coloring-brushes / .coloring-power are not visible during canvas-question. Ask the question through the mic-free fallback (scripts/lib/pressTalk.mjs openFallback, exactly as the old harness did). Assert the drawing answers with a DOM bubble matching /^I like (red|blue|yellow|green|pink|purple|orange)\\.$/ anchored inside .coloring-screen, then assert tools become visible after the answer.",
+
+    "COLORING AND ACTIVATION: paint with sweeps until debug.power reaches 1. Assert activation starts by itself with no Done button. Assert the phase sequence activation-page -> reveal-easel -> robot-exit -> room-reveal -> room actually occurs in that order (poll phase into a list and assert the observed order is a subsequence; do not assert on timing).",
+
+    "ROBOT ACCUMULATION (plan 20, 41, 42): run at least FOUR rounds. After each round assert debug.robotsCompleted equals the round number and debug.robots.length matches. After round N, assert every robot from rounds 1..N-1 is still present BY ID and its `art` fingerprint is UNCHANGED from when it was created. This is the check that matters most: the silent failure is robot 1 quietly acquiring robot 2's paint. Colour each round differently (different palette colour, different brush) so the fingerprints are genuinely distinct — assert they are pairwise distinct.",
+
+    "EASEL STATE INTERACTION (plan 17, 37, 38): three separate rounds must start from three different easel states. Start round 2 while debug.easelArt === 'blank' (press Space immediately on returning to the room). Start round 3 while debug.easelArt === 'fading' (wait for the fade to begin but not finish — assert 0 < easelArtOpacity < 1 at the moment of pressing). Start round 4 from 'ready'. In all three cases assert the close-up is established with line art visible and the round resets correctly. Assert no 'wait for the next picture' text ever appears anywhere.",
+
+    "ROUND RESET (plan 30, spec 11): at the start of each new round assert power, coverage, strokes are 0, canUndo is false, selectedColor is null, erasing is false — and in the same snapshot assert robots.length is unchanged. Resetting the painting surface must not touch the living robots.",
+
+    "CROWD DESYNC (plan 23, 42): from the room, sample debug.robots over time and assert the robots are not in lockstep — their `state` values are not all identical across several samples, their idlePause values differ, and their positions are not all equal. Also assert no two robots sit within a very small distance of each other for a sustained period (plan 24: occasional overlap is fine, a persistent stack is not).",
+
+    "THE DOOR AND TURNAROUND (spec 2): walk to the doorway, assert debug.action === 'door' and the contextual cue reads the door string, press Space, assert phase === 'turnaround', assert the most recently created robot is the one asking, answer the question through the fallback, and assert the minigame finishes with stars === min(3, robotsCompleted). Also assert that approaching the EASEL shows action === 'easel' and never ends the minigame.",
+
+    "ABSENCE CHECKS (plan 43): assert there is no artist NPC, no art table, no wall frame and no gift sequence — by asserting the room UI never offers any action other than 'easel' or 'door', and that no phase named approach/gift/reaction/transition-to-painting is ever observed.",
+
+    "PERFORMANCE (plan 44): a separate session that calls window.__eslDebug.coloringSpawn() to fill the room to 10-20 robots (it is dev-gated, so the page must be opened with ?editor=1 against the preview build). Measure frame rate over a few seconds via requestAnimationFrame sampling in the page, assert it stays reasonable, and assert no runaway texture creation — count WebGL textures or canvas elements before and after several seconds of roaming and assert the count is flat. Report the numbers as notes, and only FAIL on a clearly broken result, not a marginal one.",
+
+    "NO CONSOLE ERRORS: keep the existing page.on('console')/page.on('pageerror') collection and fail the run on any error, as the old harness did.",
+
+    "Write screenshots at every interesting beat under the run's own prefix, including one per camera stage (paper close-up, easel reveal, room reveal) and one of the room with four robots in it. These are what the owner will look at.",
+
+    "Register nothing new in package.json — `npm run playthrough:coloring` already points at this file."
+  ],
+
+  "constraints": [
+    "DO NOT EDIT ANY FILE UNDER src/. This work order is the harness only. If the harness reveals what looks like a game bug, report it in the final summary as a finding; do not fix it. The source is the controller's to change.",
+    "YOU CANNOT RUN THIS HARNESS. The sandbox cannot start the vite preview server or a browser for this project; past attempts produced misleading green results. Do not attempt to run npm run playthrough:coloring, do not start a preview server, and do not report the harness as passing. Write it correctly by reading the source, and say plainly in your summary that it is unrun. The controller executes it and owns acceptance.",
+    "You MAY and SHOULD run `npm test` and `node --check`-style syntax validation on the file you write, and may import the pure modules in node to verify geometry helpers behave as you expect.",
+    "playwright is NOT a dependency of this repo; it resolves from recipe-tester/node_modules. Import it exactly as the existing harness does.",
+    "The debug snapshot deliberately DOES NOT expose the favourite colour. Do not add it to the snapshot and do not work around it — read the favourite from the dialogue bubble text, exactly as a child hears it.",
+    "Do not assert on wall-clock timing of the camera stages. Assert on order and on end state. Timing assertions on animation are the thing that makes a harness flaky.",
+    "Follow the repo's existing harness idioms: the check(name, ok, detail) collector, the results/errors/notes arrays, the per-session openPage(label) labelling, and the final summary + non-zero exit on failure.",
+    "Use the structured Write/Edit tools for source edits, not shell heredocs or sed.",
+    "Do not commit and do not push."
+  ],
+
+  "startingPoints": [
+    ".ai/coloring-easel-loop-spec.md — the frozen contract; read before anything else",
+    "src/minigames/coloring/index.js — debugSnapshot() around line 1236 is the harness contract; spawnRobots() at 1275; the room UI selectors and phase machine are in the same file",
+    "scripts/playthrough-coloring.mjs — the file being replaced; its machinery is reusable, its game knowledge is obsolete",
+    "scripts/playthrough-zoo.mjs — the closest sibling harness for a 3D room with roaming characters",
+    "scripts/lib/pressTalk.mjs — openFallback(), the mic-free speaking path",
+    "scripts/playthrough-run.mjs — the runner that starts the preview and passes url/prefix as argv"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "The acceptance here IS the browser playthrough, and the worker cannot start a preview or a browser for this project. The controller runs `npm run playthrough:coloring`, reads the results and the screenshots, and judges the visual beats. The worker's deliverable is a correct unrun harness.",
+    "notes": "Before trusting the harness the controller will require one known-good pass and one known-bad fail, per the repo's existing selftest convention."
+  }
+}
