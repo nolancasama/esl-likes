@@ -321,20 +321,30 @@ export const IDLE_PAUSE = 1.5;
  * rounded so a leg always ends on its point rather than part-way through a
  * tenth hop with the puppet hanging in the air.
  */
-export function createRoamPlan(points = ROAM_POINTS, start = 0, { idlePause = IDLE_PAUSE, stateTime = 0 } = {}) {
+export function createRoamPlan(
+  points = ROAM_POINTS,
+  start = 0,
+  { idlePause = IDLE_PAUSE, stateTime = 0, from } = {},
+) {
   const usable = points.filter(insideSafeArea);
   if (usable.length < 2) throw new Error('a roam plan needs at least two safe points');
-  const from = usable[start % usable.length];
+  const startIndex = start % usable.length;
+  const startsInPlace = from !== undefined;
+  const position = startsInPlace ? from : usable[startIndex];
   return {
     points: usable,
-    index: start % usable.length,
+    // `index` is the last point reached, so starting away from the route uses
+    // the preceding index and lets the existing next-point logic target start.
+    index: startsInPlace
+      ? (startIndex - 1 + usable.length) % usable.length
+      : startIndex,
     // Per plan, not per module: a roomful of robots idling for the same 1.5 s
     // hops in unison, which reads as one robot copied rather than a crowd.
     idlePause: Math.max(0.1, idlePause),
     state: STATES.IDLE,
     stateTime,
-    position: { x: from.x, z: from.z },
-    origin: { x: from.x, z: from.z },
+    position: { x: position.x, z: position.z },
+    origin: { x: position.x, z: position.z },
     facing: 0,
     hops: 0,
     hop: 0,

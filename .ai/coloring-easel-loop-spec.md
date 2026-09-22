@@ -272,9 +272,14 @@ puppet's textures; the puppet copied what it needed at construction.
 
 - No regions, tap-to-fill, ★, colour labels, correctness-by-body-part, gift
   delivery, wall frame or artist NPC. Not switched off — **gone**.
-- The favourite colour is a **bonus**. A robot must activate for a child who
-  ignores it completely. There is a browser check that proves this; keep it
-  passing.
+- ~~The favourite colour is a **bonus**. A robot must activate for a child who
+  ignores it completely.~~ **SUPERSEDED 2026-09-22 by the owner**, who reversed
+  this deliberately: the favourite colour is now the **only** thing that charges
+  ROBOT POWER, at a much lower threshold (~28% of the silhouette rather than
+  68%). Other colours stay fully available and charge nothing. The browser check
+  that proved the old rule is inverted, not deleted: ignoring the favourite
+  entirely must now **fail** to activate the robot. See
+  `.ai/coloring-correction-spec.md`.
 - The favourite colour never appears in the debug snapshot. A playthrough hears
   it in the dialogue exactly as a child does.
 - No robot cap, no eviction, no fade-out of old robots, no `localStorage`.

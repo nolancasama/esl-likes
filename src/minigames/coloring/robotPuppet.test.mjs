@@ -340,6 +340,27 @@ test('a leg is made of whole hops and ends exactly on its point', () => {
   assert.equal(plan.state, STATES.IDLE, 'a leg must end in a pause, not mid-air');
 });
 
+test('a roam plan can begin in place and takes its first leg to points[start]', () => {
+  const from = { x: 0.6, z: 0.8 };
+  const start = 4;
+  const plan = createRoamPlan(ROAM_POINTS, start, {
+    from,
+    idlePause: 0.1,
+    stateTime: 0.1,
+  });
+  assert.deepEqual(plan.position, from);
+  assert.deepEqual(plan.origin, from);
+
+  let guard = 0;
+  while ((plan.state !== STATES.IDLE || plan.position.x === from.x) && guard < 5000) {
+    stepRoam(plan, 1 / 60);
+    guard += 1;
+  }
+  assert.ok(guard < 5000, 'the first leg never finished');
+  assert.equal(plan.index, start);
+  assert.deepEqual(plan.position, ROAM_POINTS[start]);
+});
+
 test('a hop covers roughly the hop distance, so travel reads as hopping', () => {
   const plan = createRoamPlan();
   while (plan.state === STATES.IDLE) stepRoam(plan, 1 / 60);

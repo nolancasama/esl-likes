@@ -463,9 +463,12 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
      * begins. Left out, every puppet roams identically — which is correct for
      * one robot and wrong for twenty.
      */
-    startRoaming(points = ROAM_POINTS, { start = 0, idlePause, stateTime: phase = 0 } = {}) {
-      roam = createRoamPlan(points, start, { idlePause, stateTime: phase });
-      api.placeAt(roam.position.x, roam.position.z, roam.facing);
+    startRoaming(
+      points = ROAM_POINTS,
+      { start = 0, idlePause, stateTime: phase = 0, from } = {},
+    ) {
+      roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from });
+      if (from === undefined) api.placeAt(roam.position.x, roam.position.z, roam.facing);
       state = roam.state;
       stateTime = phase;
       return api;

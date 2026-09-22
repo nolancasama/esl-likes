@@ -60,6 +60,16 @@ test('phase offsets differ, so nobody lands on the same frame', () => {
   for (const phase of phases) assert.ok(phase >= 0 && phase <= 1.6);
 });
 
+test('saved personality values are reused when a robot rejoins', () => {
+  const crowd = createCrowd({ random: () => 0 });
+  const saved = { start: 4, idlePause: 2.17, stateTime: 0.83 };
+  const member = crowd.join(saved);
+  assert.equal(member.start, saved.start);
+  assert.equal(member.idlePause, saved.idlePause);
+  assert.equal(member.stateTime, saved.stateTime);
+  assert.ok(member.points.length > 0, 'rejoining did not receive live roam points');
+});
+
 test('a member that never asks for randomness still differs in its route', () => {
   // A constant RNG is the adversarial case: idlePause and stateTime collapse,
   // and only the start index and the displaced points can keep them apart.

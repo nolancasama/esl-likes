@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  FAVOURITE_BONUS,
+  FAVOURITE_POWER_THRESHOLD,
   GRID,
   MILESTONES,
-  POWER_THRESHOLD,
   createCoverage,
   robotCellCount,
   sessionStars,
@@ -62,24 +61,42 @@ test('the mask covers only the robot, and a fair number of cells', () => {
   }
 });
 
-test('painting the robot charges the bar', () => {
+test('non-favourite paint tracks coverage but leaves power at zero', () => {
   const coverage = createCoverage({ favourite: 'blue' });
+  sweep(coverage, 0.5, 'red');
   assert.equal(coverage.power(), 0);
-  sweep(coverage, 0.5, 'red');
-  assert.ok(coverage.power() > 0, 'a stroke across the torso charged nothing');
-  assert.ok(coverage.coverage() > 0);
+  assert.ok(coverage.coverage() > 0, 'ordinary paint was not tracked as coverage');
+  assert.equal(coverage.favouriteShare(), 0);
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), 0);
+  assert.equal(coverage.coverage(), 0);
 });
 
-test('painting the same place again charges nothing', () => {
+test('favourite paint raises power', () => {
   const coverage = createCoverage({ favourite: 'blue' });
-  sweep(coverage, 0.5, 'red');
-  const once = coverage.power();
-  for (let i = 0; i < 12; i += 1) sweep(coverage, 0.5, 'red');
-  assert.equal(coverage.power(), once, 'scribbling over the same patch farmed power');
-  assert.equal(coverage.coverage(), coverage.coverage());
+  sweep(coverage, 0.5, 'blue');
+  assert.ok(coverage.power() > 0, 'a favourite stroke across the torso charged nothing');
+  assert.ok(coverage.coverage() > 0);
+  assert.equal(coverage.favouriteShare(), 1);
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), 0);
+  assert.equal(coverage.coverage(), 0);
 });
 
-test('painting the paper around the robot charges nothing at all', () => {
+test('painting the same area in the favourite again adds nothing', () => {
+  const coverage = createCoverage({ favourite: 'blue' });
+  sweep(coverage, 0.5, 'blue');
+  const firstPower = coverage.power();
+  const firstCoverage = coverage.coverage();
+  for (let i = 0; i < 12; i += 1) sweep(coverage, 0.5, 'blue');
+  assert.equal(coverage.power(), firstPower, 'repeating the favourite farmed power');
+  assert.equal(coverage.coverage(), firstCoverage, 'repeating the favourite inflated coverage');
+  assert.equal(coverage.undoStroke(), true,
+    'no-op repeats must leave the original meaningful stroke as the undo target');
+  assert.equal(coverage.power(), 0);
+});
+
+test('favourite paint outside the silhouette charges nothing at all', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   // Down the left margin. The left arm starts at x=0.125 and a Large brush has
   // a radius of 0.049, so x=0.035 keeps the whole capsule off the robot — the
@@ -90,97 +107,69 @@ test('painting the paper around the robot charges nothing at all', () => {
     assert.equal(insideSilhouette(margin + D('large') / 2, y), false, `margin is not clear at ${y}`);
   }
   coverage.beginStroke();
-  coverage.paintSegment([margin, 0.1], [margin, 0.9], D('large'), 'red');
+  coverage.paintSegment([margin, 0.1], [margin, 0.9], D('large'), 'blue');
   coverage.endStroke();
   assert.equal(coverage.power(), 0, 'background paint charged the bar');
   assert.equal(coverage.coverage(), 0);
+  assert.equal(coverage.undoStroke(), false, 'background paint created an undo entry');
+  assert.equal(coverage.power(), 0);
 });
 
-test('stroke count, travel and repetition are all worth nothing on their own', () => {
-  const many = createCoverage({ favourite: 'blue' });
-  for (let i = 0; i < 40; i += 1) sweep(many, 0.5, 'red', 'small', 0.45, 0.46);
-  const one = createCoverage({ favourite: 'blue' });
-  sweep(one, 0.5, 'red', 'small', 0.45, 0.46);
-  assert.equal(many.power(), one.power(), 'forty strokes over one spot beat one stroke');
-});
-
-test('the favourite colour charges faster, by exactly the bonus', () => {
-  const plain = createCoverage({ favourite: 'blue' });
-  const fave = createCoverage({ favourite: 'blue' });
-  sweep(plain, 0.5, 'red');
-  sweep(fave, 0.5, 'blue');
-  const ratio = fave.power() / plain.power();
-  assert.ok(Math.abs(ratio - FAVOURITE_BONUS) < 1e-9, `ratio was ${ratio}`);
-  assert.equal(fave.coverage(), plain.coverage(), 'the bonus must not inflate coverage itself');
-  assert.equal(fave.favouriteShare(), 1);
-  assert.equal(plain.favouriteShare(), 0);
-});
-
-test('a cell keeps the credit of the colour that first painted it', () => {
-  // Otherwise "repaint everything in the favourite" is rule 1 with extra steps.
+test('non-favourite area repainted favourite raises power and undo restores it exactly', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   sweep(coverage, 0.5, 'red');
-  const before = coverage.power();
+  const plainPower = coverage.power();
+  const paintedArea = coverage.coverage();
   sweep(coverage, 0.5, 'blue');
-  assert.equal(coverage.power(), before, 'repainting in the favourite upgraded old area');
+  assert.ok(coverage.power() > plainPower);
+  assert.equal(coverage.coverage(), paintedArea, 'repainting changed unique painted area');
+  assert.equal(coverage.favouriteShare(), 1);
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), plainPower);
+  assert.equal(coverage.coverage(), paintedArea);
   assert.equal(coverage.favouriteShare(), 0);
 });
 
-test('the favourite colour is never required: plain paint alone reaches full', () => {
+test('favourite area repainted non-favourite lowers power and undo restores it exactly', () => {
   const coverage = createCoverage({ favourite: 'blue' });
-  for (let y = 0.04; y < 0.97; y += 0.008) sweep(coverage, y, 'red', 'large', 0.1, 0.9);
-  assert.ok(coverage.isFull(), `plain painting only reached ${coverage.power().toFixed(3)}`);
+  sweep(coverage, 0.5, 'blue');
+  const favouritePower = coverage.power();
+  const paintedArea = coverage.coverage();
+  sweep(coverage, 0.5, 'red');
+  assert.ok(coverage.power() < favouritePower);
+  assert.equal(coverage.power(), 0);
+  assert.equal(coverage.coverage(), paintedArea, 'repainting changed unique painted area');
   assert.equal(coverage.favouriteShare(), 0);
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), favouritePower);
+  assert.equal(coverage.coverage(), paintedArea);
+  assert.equal(coverage.favouriteShare(), 1);
 });
 
-test('full power arrives at the threshold, not at total coverage', () => {
+test('activation lands near the favourite-only threshold', () => {
+  assert.equal(FAVOURITE_POWER_THRESHOLD, 0.28);
   const coverage = createCoverage({ favourite: 'blue' });
-  for (let y = 0.04; y < 0.97; y += 0.004) {
-    sweep(coverage, y, 'red', 'large', 0.1, 0.9);
-    if (coverage.isFull()) break;
+  for (let y = 0.04; y < 0.97 && !coverage.isFull(); y += 0.004) {
+    sweep(coverage, y, 'blue', 'small', 0.1, 0.9);
   }
   assert.ok(coverage.isFull());
-  assert.ok(coverage.coverage() >= POWER_THRESHOLD - 0.02,
-    `full at ${(coverage.coverage() * 100).toFixed(1)}% coverage`);
-  assert.ok(coverage.coverage() < 0.95, 'a child should not have to fill every corner');
-});
-
-test('the threshold is between 65% and 70%, and deterministic', () => {
-  assert.ok(POWER_THRESHOLD >= 0.65 && POWER_THRESHOLD <= 0.7, String(POWER_THRESHOLD));
-  const runs = [0, 1, 2].map(() => {
-    const coverage = createCoverage({ favourite: 'blue' });
-    for (let y = 0.04; y < 0.97; y += 0.01) sweep(coverage, y, 'red', 'medium', 0.1, 0.9);
-    return coverage.power();
-  });
-  assert.equal(new Set(runs).size, 1, `power varied between identical runs: ${runs}`);
-});
-
-test('painting entirely in the favourite reaches full sooner, but not instantly', () => {
-  const fill = (color) => {
-    const coverage = createCoverage({ favourite: 'blue' });
-    for (let y = 0.04; y < 0.97; y += 0.004) {
-      sweep(coverage, y, color, 'large', 0.1, 0.9);
-      if (coverage.isFull()) return coverage.coverage();
-    }
-    return coverage.coverage();
-  };
-  const withFave = fill('blue');
-  const without = fill('red');
-  assert.ok(withFave < without, 'the bonus did not speed anything up');
-  assert.ok(withFave > 0.3, `full at only ${(withFave * 100).toFixed(1)}% is too cheap`);
+  assert.ok(coverage.coverage() >= FAVOURITE_POWER_THRESHOLD,
+    `full below threshold at ${(coverage.coverage() * 100).toFixed(1)}% coverage`);
+  assert.ok(coverage.coverage() < FAVOURITE_POWER_THRESHOLD + 0.02,
+    `full too far past threshold at ${(coverage.coverage() * 100).toFixed(1)}% coverage`);
 });
 
 // --- undo and the eraser ----------------------------------------------------
 
 test('undo takes back a whole stroke, power and all', () => {
   const coverage = createCoverage({ favourite: 'blue' });
-  sweep(coverage, 0.5, 'red');
+  sweep(coverage, 0.5, 'blue');
   const after = coverage.power();
-  sweep(coverage, 0.6, 'red');
+  sweep(coverage, 0.6, 'blue');
   assert.ok(coverage.power() > after);
   assert.ok(coverage.canUndo);
   coverage.undoStroke();
-  assert.ok(Math.abs(coverage.power() - after) < 1e-9, 'undo left power behind');
+  assert.equal(coverage.power(), after, 'undo left power behind');
 });
 
 test('undoing every stroke returns to exactly nothing', () => {
@@ -193,25 +182,21 @@ test('undoing every stroke returns to exactly nothing', () => {
   assert.equal(coverage.canUndo, false);
 });
 
-test('undo restores the favourite credit it removes, not a plain one', () => {
+test('erasing favourite paint lowers power and undo restores it exactly', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   sweep(coverage, 0.5, 'blue');
-  const faveOnly = coverage.power();
-  sweep(coverage, 0.6, 'red');
-  coverage.undoStroke();
-  assert.ok(Math.abs(coverage.power() - faveOnly) < 1e-9);
-  assert.equal(coverage.favouriteShare(), 1);
-});
-
-test('the eraser gives back the coverage it removes', () => {
-  const coverage = createCoverage({ favourite: 'blue' });
-  sweep(coverage, 0.5, 'red');
   const painted = coverage.power();
+  const paintedArea = coverage.coverage();
   coverage.beginStroke();
   coverage.eraseSegment([0.3, 0.5], [0.7, 0.5], D('large'));
   coverage.endStroke();
   assert.ok(coverage.power() < painted, 'erasing kept the power');
-  assert.ok(coverage.power() < 1e-9, `erasing the same sweep left ${coverage.power()}`);
+  assert.equal(coverage.power(), 0, `erasing the same sweep left ${coverage.power()}`);
+  assert.equal(coverage.coverage(), 0);
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), painted);
+  assert.equal(coverage.coverage(), paintedArea);
+  assert.equal(coverage.favouriteShare(), 1);
 });
 
 test('erased area can be earned again, and in a different colour', () => {
@@ -259,7 +244,7 @@ test('a fast flick leaves no gap: one long segment covers what many short ones d
 test('a single tap marks something', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   coverage.beginStroke();
-  coverage.paintSegment([0.5, 0.5], [0.5, 0.5], D('small'), 'red');
+  coverage.paintSegment([0.5, 0.5], [0.5, 0.5], D('small'), 'blue');
   coverage.endStroke();
   assert.ok(coverage.power() > 0, 'a tap did nothing');
 });
@@ -270,7 +255,7 @@ test('milestones fire once each, in order, and never repeat', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   const fired = [];
   for (let y = 0.04; y < 0.97; y += 0.006) {
-    sweep(coverage, y, 'red', 'large', 0.1, 0.9);
+    sweep(coverage, y, 'blue', 'large', 0.1, 0.9);
     let milestone = coverage.takeMilestone();
     while (milestone) {
       fired.push(milestone.index);
@@ -285,7 +270,7 @@ test('milestones fire once each, in order, and never repeat', () => {
 test('a milestone never fires before its power', () => {
   const coverage = createCoverage({ favourite: 'blue' });
   for (let y = 0.04; y < 0.97; y += 0.006) {
-    sweep(coverage, y, 'red', 'large', 0.1, 0.9);
+    sweep(coverage, y, 'blue', 'large', 0.1, 0.9);
     const milestone = coverage.takeMilestone();
     if (milestone) {
       assert.ok(coverage.power() >= MILESTONES[milestone.index] - 1e-9,
@@ -313,8 +298,8 @@ test('the star floor is one, even for nonsense input', () => {
 });
 
 test('there is no longer any way to grade a round', () => {
-  // Creativity is not graded and the favourite colour must stay a bonus, so
-  // the per-round scorer is gone rather than merely unused. A module that
+  // Creativity is not graded, so the per-round scorer is gone rather than
+  // merely unused. A module that
   // still exported it would invite a caller.
   assert.equal(coverageModule.scoreRound, undefined);
   assert.ok(!Object.keys(coverageModule).some((name) => /score/i.test(name)),

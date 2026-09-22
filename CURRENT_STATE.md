@@ -2,14 +2,113 @@
 
 ## Usage watch
 
-Codex was **out of its usage-limit window** and took this pass's delegated work.
-Gemini and all four `agy-*` workers were still under the global coding readiness
-quarantine (`baseline-executor-unready [executor antigravity]`). Always re-check
-with `node ~/.claude/workers/bin/route.js .ai/<order>.json` rather than assuming;
-these numbers go stale within hours. Note `supervise.js` does **not** exist in
-`~/.claude/workers/bin/` — do not plan a review around it.
+Codex was **available and took both delegated orders** this pass. Gemini and all
+four `agy-*` workers remained under the global coding readiness quarantine
+(`baseline-executor-unready [executor antigravity]`). Re-check with
+`node ~/.claude/workers/bin/route.js .ai/<order>.json`; these go stale in hours.
+`supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
+review around it.
 
-## Latest pass (2026-09-22) — the Coloring playthrough, and the harness for it
+## Latest pass (2026-09-23) — the Coloring correction pass
+
+The owner played the shipped easel loop and produced a fix list. This pass
+implemented it, and **resolves all four visual findings from the previous pass**.
+
+Two Codex orders (`.ai/wo-coloring-correction.json`, then
+`.ai/wo-coloring-correction-harness.json`); contract in
+`.ai/coloring-correction-spec.md`. The controller reviewed, corrected, ran the
+playthrough and judged the screenshots.
+
+### The one reversal, and its cost
+
+**ROBOT POWER now charges ONLY from the spoken favourite colour**, at 28% of the
+silhouette instead of 68%. This reverses a frozen non-negotiable ("the favourite
+is a bonus... a robot must activate for a child who ignores it completely"),
+which is marked superseded in `.ai/coloring-easel-loop-spec.md` rather than
+quietly overwritten.
+
+**The cost, accepted deliberately by the owner:** a child who does not hear or
+remember the colour now has no way forward, and by the owner's instruction there
+is **no on-screen hint** telling them. The listening task has teeth again; a
+stuck child is now possible where it was not. An on-screen hint is deferred to
+classroom testing. Do not add one without being asked.
+
+### What changed
+
+- **`coverage.js`** — one guard deleted from `dab()` so a dab overwrites. That
+  alone gives correct repaint/erase/undo, because the per-stroke
+  `{index, previous}` journal already existed. `FAVOURITE_BONUS`, `credit` and
+  `creditOf` are gone; `FAVOURITE_POWER_THRESHOLD = 0.28` replaces
+  `POWER_THRESHOLD`. No second history was added, deliberately.
+- **`coloringSession.js`** (new) — finished robots survive leaving and
+  re-entering Coloring for the running app session, as a detached canvas copy
+  plus crowd personality. No three.js objects, no `localStorage`.
+- **Canvas centring** — three-column grid, `visibility: hidden` for the hidden
+  tool column. Measured 683.00 → 683.00 px, delta **0.00**.
+- **Room** — rebuilt from `ROOM_WIDTH`/`WALL_HEIGHT`/`DOOR_WIDTH`/etc. The real
+  defect was that the back wall topped at y=4.95 and the side walls at y=3.35.
+- **Easel** — an A-frame that reads as an easel. Both canvas planes sit in one
+  rotated `canvasGroup`, so the line art cannot desynchronise from the paper.
+- **Emergence** — player retreat, a 1.2s viewing beat, and `from` on
+  `createRoamPlan`/`startRoaming` so the robot roams from where it landed.
+
+### Three corrections the controller made after looking at the result
+
+1. **The retreat was implemented exactly as specified and was still wrong.** A
+   purely backward step moves the player **towards the camera**, so they grew on
+   screen and still masked the newborn robot — while the positional check
+   passed. Fixed with a 1.85 lateral component and a partial turn. World-space
+   distance is not screen-space clearance.
+2. **A hairline seam ran from the doorway's head to the ceiling** on both sides,
+   because the lintel met the wall spans exactly. It now overlaps them.
+3. **`debug.pending`** was added to the snapshot: between the authored landing
+   and the first roam step the newborn is not in `livingRobots`, so the one
+   window where a teleport could hide had no observer. Position only — the
+   favourite colour still never appears in the snapshot.
+
+### Verified
+
+`npm test` **600/600**. `npm run build` OK. `npm run playthrough:coloring`
+**234/234, exit 0** — six rounds, three leave/return cycles, three viewports.
+
+**The harness is TRUSTED.** A known-bad copy corrupting the recorded fingerprint
+went red on **exactly** the eight artwork-persistence checks (225/234, exit 1).
+
+Measured in the browser:
+- Power semantics (a)–(h) all hold, including undo restoring power exactly after
+  overpaint, reverse-overpaint and erase.
+- Painting the **entire** silhouette in non-favourite colours leaves power at 0.
+- Activation at **28.1–32.2%** favourite coverage against the 0.28 contract, so
+  the threshold needs no re-tuning.
+- Robots survive two full leave/return cycles with fingerprints unchanged.
+- 15 robots: **34.7 fps** under *software* rendering; canvases 160 → 160.
+
+### Remaining visual finding
+
+**Robots gather in one region of the room.** Six robots read distinctly but
+bunch toward one end while the rest of the floor stays empty. Spacing is decided
+once at join (`RING_RADIUS = 0.62`), which prevents stacking but does not spread
+a crowd. Not in this pass's scope; the fix is wider roam points, not a steering
+loop. The harness's stack check uses a 0.1-unit threshold and does **not** cover
+this — judge it from a screenshot.
+
+### NEXT STEPS for a fresh session
+
+1. **Owner acceptance of Coloring.** Still never played by a human. In
+   particular the new power rule is a real classroom risk worth watching: can a
+   child work out that the spoken colour is what wakes the robot?
+2. The robot-clustering finding above, if it bothers the owner.
+3. **Owner acceptance of the scene editor** — outstanding from an earlier pass:
+   open the Zoo with `npm run dev` and press `P`.
+4. **Migrate scenery placements to layout JSON** — still not started.
+
+### Codex / Delegated Work
+
+Both orders came from Codex and have been reviewed, corrected and run by the
+controller. Accepted. Nothing is in flight; nothing in the tree is unreviewed
+worker output.
+
+## Previous pass (2026-09-22) — the Coloring playthrough, and the harness for it
 
 **Committed and pushed** as `7639e35` (the refactor) and `153673d` (the
 harness), and `main` is deployed live to GitHub Pages. Pushed at the owner's

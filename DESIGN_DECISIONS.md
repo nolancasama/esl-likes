@@ -2330,3 +2330,65 @@ must never touch, piece geometry is shared, and room puppets drop from a 900px
 texture sized for a close-up that no longer happens. Measured at 15 robots:
 no canvas is created after construction, and none is redrawn per frame.
 
+## 2026-09-23 — Coloring correction: listening gates power, while creations persist
+
+**ROBOT POWER now measures only the robot's currently painted favourite-colour
+area, reaching full at 28% of the silhouette.** Repaint, erase and undo all use
+the existing per-stroke cell journal, so the current colour is the single source
+of truth and ordinary colours remain creative choices without charging the bar.
+This deliberately restores the risk that a child who misses the spoken colour
+can get stuck; the owner accepted that cost to give the listening task teeth.
+Rejected: retaining ordinary-colour credit, adding a favourite bonus, or keeping
+a second coverage history beside the stroke journal.
+
+**Finished robots persist for the running app session as detached artwork plus
+their crowd personality.** The live paint canvas is copied exactly once before
+round teardown; re-entry reconstructs fresh puppets and textures from those
+plain records. This preserves gaps, mixing and individual movement without
+retaining three.js objects or allowing the next page reset to repaint an old
+robot. Rejected: `localStorage`, retaining disposed puppets, shared live canvas
+references, and clearing the collection on minigame exit.
+
+**The coloring page uses balanced side columns, and the room is authored from
+one dimension set.** A reserved right-hand spacer keeps the canvas centred when
+the left tools change visibility. The floor, three equal-height walls, trims and
+doorway now derive from room and door constants, with overlapping corners.
+Rejected: hiding the tool column with `display: none` and patching individual
+wall coordinates, both of which preserve the visible defects.
+
+**The easel is an A-frame and the emergence keeps its landing continuity.** Two
+splayed front legs visibly carry the shelf, a raked rear leg supports them, and
+the paper/art planes lean together under one parent. During the peel the player
+eases backward for 0.55 seconds; after landing the easel view holds for 1.2
+seconds, then roaming begins from the actual landing position. Rejected: moving
+the player in one frame, snapping the robot to its first roam point, shortening
+the viewing beat, or leaning page layers independently.
+
+
+**The retreat steps aside, not just back — the first version was correct and
+still wrong.** The player was moved 1.25 units backward, world-space separation
+from the newborn robot was achieved, the harness check passed, and the robot was
+*still* behind a shoulder in the rendered frame. The camera sits behind the
+player, so retreating moves them **towards the lens**: they grow on screen and
+occlude more, not less, however far they step. The retreat now carries a 1.85
+lateral component and a partial turn to watch, which clears the robot in the
+only space the child is looking at. Recorded because the reasoning generalises:
+world-space distance is not screen-space clearance, and no positional assertion
+can tell the difference. This one was caught by looking at a screenshot.
+
+**The doorway lintel overlaps its wall spans instead of meeting them.** Butting
+the pieces at exactly `doorLeft`/`doorRight` left a hairline seam from the
+door's head to the ceiling on both sides — two faint vertical lines, plainly
+visible in a room screenshot and invisible to all 600 tests. The lintel sits
+above the opening, so widening it by one wall thickness costs the doorway
+nothing. Rejected: nudging the spans, which reintroduces the magic numbers the
+constants pass removed.
+
+**The debug snapshot exposes the newborn puppet during the cinematic.** Between
+the authored landing and the first roam step the robot is not yet in
+`livingRobots`, so no observer could see it — precisely the window in which a
+snap to a roam point would hide. A harness check written against the player's
+position appeared to pass for the wrong reason, and broke the moment the retreat
+gained a sideways component. Position only; the favourite colour still never
+appears in the snapshot.
+

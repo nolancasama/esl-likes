@@ -1,0 +1,68 @@
+{
+  "task": "Update the Coloring browser playthrough harness for the correction pass: ROBOT POWER now charges only from the robot's spoken favourite colour, finished robots survive leaving and re-entering the minigame, the canvas must not shift when the tools appear, and the emergence cinematic gained a player retreat, a landing that sticks and a viewing beat. The harness currently fails to even import, because it imports two constants that no longer exist.",
+
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms (Vite + three.js). The Coloring minigame just had a correction pass whose contract is .ai/coloring-correction-spec.md — READ IT FIRST, then .ai/coloring-easel-loop-spec.md for the loop it corrects. scripts/playthrough-coloring.mjs is a working, trusted, 114-check multi-round harness written for the PREVIOUS behaviour. It is not obsolete this time: most of it still applies and must be kept. The changes below are surgical, not another rewrite. The harness treats window.__eslDebug.coloring as its contract and drives the game through the mic-free fallback.",
+
+  "complexity": "moderate",
+  "exploration": "local",
+  "risk": "medium",
+  "bounded": true,
+  "executionStyle": "incremental",
+
+  "requirements": [
+    "FIX THE IMPORT FIRST: the harness imports POWER_THRESHOLD and FAVOURITE_BONUS from coverage.js. FAVOURITE_BONUS is deleted and POWER_THRESHOLD is now FAVOURITE_POWER_THRESHOLD. Import the new constant. Delete the old check that merely asserted `POWER_THRESHOLD > 0 && FAVOURITE_BONUS > 1` — it was tautological and proved nothing; replace it with the real power checks below.",
+
+    "PAINTING MUST NOW USE THE FAVOURITE COLOUR TO ACTIVATE. paintRound currently paints with a fixed per-round style colour, which will no longer charge the bar at all. Rework it: read the favourite from the answer bubble as it already does, paint the silhouette with the FAVOURITE colour to fill power, and use the round's style colour for decorative strokes that deliberately charge nothing. Each round must still produce a VISUALLY DISTINCT robot so the artwork fingerprints stay pairwise distinct — vary the decoration colour, the brush and the painted region per round.",
+
+    "POWER SEMANTICS, as a dedicated ordered sequence in one round, asserting debug.power after each step: (a) a large stroke in a NON-favourite colour inside the silhouette leaves power at 0; (b) a favourite stroke raises it; (c) a favourite stroke in the background/margin raises nothing; (d) repainting the same area in the favourite adds nothing; (e) painting the favourite over an area previously painted a different colour DOES raise power; (f) painting a different colour over favourite area LOWERS power; (g) erasing favourite area LOWERS power; (h) undo after each of (e), (f) and (g) restores the previous power value exactly. Use tolerances appropriate to a grid, but assert direction and restoration precisely.",
+
+    "THE INVERTED CHECK: the old harness proved that ignoring the favourite colour entirely still activates the robot. That rule is reversed. Prove the opposite — paint a large area of the silhouette using only non-favourite colours and assert the robot does NOT activate and power stays 0. This replaces the old check; do not keep both.",
+
+    "ACTIVATION THRESHOLD: report, as a note, the measured favourite-colour coverage at which power reached 1, so the controller can re-tune FAVOURITE_POWER_THRESHOLD (currently 0.28) against a real browser. Do not fail the run on the exact number; assert only that activation happened and that it happened well below the old 68%.",
+
+    "PERSISTENCE ACROSS VISITS — this is the most important new check. In ONE browser session: complete a robot, leave Coloring through the door turnaround so finish() runs, return to Coloring from the hub, and assert the first robot is still present with its artwork fingerprint UNCHANGED. Then complete a second, differently coloured robot, leave again, return again, and assert BOTH are present, both fingerprints unchanged, and the two are distinct from each other. This is the check that catches a shared or re-read texture, which no unit test can see.",
+
+    "CANVAS CENTRING: measure the .coloring-canvas bounding box centre x during canvas-question and again after the tools appear, and assert they agree within 2px. Do this at 760x420, 1024x600 and 1366x768. The harness takes viewport width/height as argv[4]/argv[5] already; add a loop or extra sessions so all three are covered in one run, and screenshot before/after at each size.",
+
+    "NO TELEPORT ON LANDING: sample the newest robot's position from the debug snapshot at the moment it lands, then again once roaming has begun, and assert it did not jump. Allow for the hop it legitimately starts, but fail on a snap to a distant authored roam point — compare against the landing position and assert the first movement is continuous rather than a single-frame displacement of more than about one world unit.",
+
+    "PLAYER RETREAT AND VIEWING BEAT: assert the player's z position increases (moves back from the easel) during robot-exit, that the retreat is spread over multiple frames rather than one, and that the player does not end up within the robot's landing footprint. Assert the easel camera holds after the landing before the room phase begins — that some measurable time passes in the reveal beat. Screenshot during the beat with the robot unobstructed; this frame is what the controller will judge.",
+
+    "KEEP EVERYTHING THAT STILL APPLIES: first entry goes straight to canvas-question, tools gated before the answer, the three easel states (blank/fading/ready) all interactable, round reset, crowd desynchronisation, door-and-turnaround, the absence checks for artist/table/frame/gift, the no-console-errors rule, and the dev-spawner performance session. Do not delete these.",
+
+    "Keep the harness's existing idioms: the check(name, ok, detail) collector, results/errors/notes arrays, per-session openPage(label), screenshots under the run's own prefix, final summary and non-zero exit on failure."
+  ],
+
+  "constraints": [
+    "DO NOT EDIT ANY FILE UNDER src/. If the harness reveals what looks like a game bug, report it as a finding in your summary; the source is the controller's to change.",
+    "YOU CANNOT RUN THIS HARNESS. The sandbox cannot start the vite preview or a browser for this project, and past attempts produced misleading green results. Do not try, and do not report it as passing. Write it correctly by reading the source, and say plainly that it is unrun. The controller runs it and owns acceptance.",
+    "You MAY and SHOULD run `npm test`, `node --check` on the file you write, and may import the pure modules in node to check geometry helpers.",
+    "Beware `const URL = ...`: it shadows the global URL constructor. The harness constant is TARGET_URL for exactly that reason — do not reintroduce the shadow.",
+    "When asserting on DOM state that fades in, wait on the DOM condition you are about to assert, not only on the debug flag, or the check races the animation.",
+    "The debug snapshot deliberately does NOT expose the favourite colour. Read it from the dialogue bubble, as the harness already does. Do not add it to the snapshot.",
+    "Do not assert on wall-clock timing of camera moves. Assert on order, on position and on end state.",
+    "playwright is not a dependency of this repo; it resolves from recipe-tester/node_modules. Import it as the harness already does.",
+    "Use the structured Write/Edit tools for source edits, not shell heredocs or sed.",
+    "Do not commit and do not push."
+  ],
+
+  "startingPoints": [
+    ".ai/coloring-correction-spec.md — the contract for the behaviour being tested; read first",
+    "scripts/playthrough-coloring.mjs — the harness to update, not replace",
+    "src/minigames/coloring/coverage.js — FAVOURITE_POWER_THRESHOLD, and the cell model the power checks exercise",
+    "src/minigames/coloring/index.js — debugSnapshot() is the harness contract; restoreSavedRobots() is the persistence path",
+    "src/minigames/coloring/coloringSession.js — what actually survives a visit",
+    "scripts/lib/pressTalk.mjs — openFallback(), the mic-free speaking path"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "The acceptance is the browser playthrough itself, which the worker cannot run. The controller executes it, reads the results and judges the screenshots — especially the room seams, the easel, and the viewing beat.",
+    "notes": "The controller will also require the harness to fail on a deliberately broken expectation before trusting a green run."
+  }
+}

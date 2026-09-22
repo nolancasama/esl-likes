@@ -10,10 +10,23 @@ import { createCoverage, sessionStars } from './coverage.js';
 import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 import { createCrowd } from './robotCrowd.js';
+import { saveCompletedRobot, savedRobots } from './coloringSession.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
 const MOVE_SPEED = 5;
+
+const ROOM_WIDTH = 12.5;
+const ROOM_DEPTH = 11.5;
+const WALL_HEIGHT = 5.2;
+const WALL_THICKNESS = 0.3;
+const DOOR_WIDTH = 1.7;
+const DOOR_HEIGHT = 3.1;
+const FLOOR_THICKNESS = WALL_THICKNESS * (5 / 3);
+const TRIM_HEIGHT = WALL_THICKNESS * 1.13;
+const TRIM_DEPTH = WALL_THICKNESS * 0.4;
+const DOOR_JAMB_WIDTH = WALL_THICKNESS * 0.6;
+const DOOR_FRAME_DEPTH = WALL_THICKNESS * 0.87;
 
 /**
  * The room is one easel and a door, and both are Space.
@@ -24,8 +37,20 @@ const MOVE_SPEED = 5;
  */
 const EASEL = Object.freeze({ x: 0, z: -1.6 });
 const EASEL_RADIUS_SQ = 2.15 * 2.15;
-const DOOR = Object.freeze({ x: 3.6, z: -4.55 });
+const DOOR = Object.freeze({ x: 3.6, z: -ROOM_DEPTH / 2 + 1.2 });
 const DOOR_RADIUS_SQ = 1.5 * 1.5;
+const PLAYER_REVEAL_Z = EASEL.z + 2.15;
+const PLAYER_RETREAT_Z = EASEL.z + 3.4;
+/**
+ * The retreat steps ASIDE as well as back, and the sideways part is the part
+ * that matters. The camera sits behind the player, so a purely backward step
+ * moves them towards the lens: they grow on screen and keep the newborn robot
+ * behind a shoulder even though the world-space gap is opening. Stepping wide
+ * clears the robot in the only space the child is looking at.
+ */
+const PLAYER_RETREAT_X = EASEL.x - 1.85;
+const ROBOT_LANDING_Z = EASEL.z + 1.95;
+const PLAYER_RETREAT_SECONDS = 0.55;
 
 /** The paper on the easel: a square, because the picture is a square. */
 const PAPER_SIZE = 1.7;
@@ -78,9 +103,9 @@ const STIR_SECONDS = 1.5;
 /** How long the DOM page takes to dissolve into the 3D easel. */
 const FADE_SECONDS = 0.55;
 /** The puppet leaves the paper, hops off the easel and drops to the floor. */
-const EXIT_SECONDS = 2;
+const EXIT_SECONDS = 1.3;
 /** A beat at the easel after the landing, before the room opens up. */
-const REVEAL_HOLD = 1;
+const REVEAL_HOLD = 1.2;
 /** A beat after the pull-back before the child has the keys. */
 const ROOM_HOLD = 1.1;
 /** How long the blank sheet stays blank before the next drawing appears. */
@@ -149,6 +174,7 @@ export function createColoring(ctx) {
   const livingRobots = [];
   let crowd = null;
   let pendingPuppet = null;
+  let pendingMember = null;
   let lastLandAt = -Infinity;
 
   /** The sheet on the easel: 'blank' | 'fading' | 'ready' | 'finished'. */
@@ -233,14 +259,15 @@ export function createColoring(ctx) {
          both ways, which put the tool buttons on top of the title at 760x420
          and slid the lower palette rows under the bottom bar. */
       .coloring-screen__work { min-height: 0; min-width: 0; overflow: hidden;
-        display: grid; grid-template-columns: auto minmax(0, 1fr);
+        display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
         align-items: center; justify-items: center; gap: clamp(.6rem, 1.6vw, 1.2rem); }
       .coloring-side { display: flex; flex-direction: column; gap: .5rem; align-items: center; }
+      .coloring-side-spacer { width: 100%; }
       /* Nothing but the drawing until the robot has spoken. The tools are a
          distraction from the one thing the child is here to say. */
       .coloring-screen[data-stage="asking"] .coloring-side,
       .coloring-screen[data-stage="asking"] .coloring-power,
-      .coloring-screen[data-stage="asking"] .coloring-tools { display: none; }
+      .coloring-screen[data-stage="asking"] .coloring-tools { visibility: hidden; }
       .coloring-screen[data-stage="painting"] .coloring-side,
       .coloring-screen[data-stage="painting"] .coloring-power,
       .coloring-screen[data-stage="painting"] .coloring-tools {
@@ -389,6 +416,7 @@ export function createColoring(ctx) {
         .coloring-screen__top { padding-right: 6.5rem; }
         .coloring-screen__work { grid-template-columns: minmax(0, 1fr);
           grid-template-rows: auto minmax(0, 1fr); gap: .35rem; }
+        .coloring-side-spacer { display: none; }
         .coloring-side { flex-direction: row; gap: .35rem; }
         .coloring-palette { grid-template-columns: repeat(7, auto); gap: .3rem; padding: .3rem; }
         .coloring-brushes { padding: .28rem; gap: .25rem; }
@@ -486,23 +514,66 @@ export function createColoring(ctx) {
     const easelMaterial = makeMaterial(0xd49362);
     const paperMaterial = makeMaterial(PAPER);
 
-    addPart(world, box, floorMaterial, 0, -0.25, 0, 12.5, 0.5, 11.5);
-    // The back wall, in two pieces with the doorway between them.
-    addPart(world, box, wallMaterial, -2.6, 2.35, -5.55, 7.3, 5.2, 0.3);
-    addPart(world, box, wallMaterial, 5.05, 2.35, -5.55, 2.4, 5.2, 0.3);
-    addPart(world, box, wallMaterial, DOOR.x, 4.05, -5.55, 2.1, 1.8, 0.3);
-    addPart(world, box, wallMaterial, -6.1, 1.55, 0, 0.3, 3.6, 11.5);
-    addPart(world, box, wallMaterial, 6.1, 1.55, 0, 0.3, 3.6, 11.5);
-    addPart(world, box, trimMaterial, -2.6, 0.2, -5.34, 7.3, 0.34, 0.12);
-    addPart(world, box, trimMaterial, 5.05, 0.2, -5.34, 2.4, 0.34, 0.12);
+    const roomLeft = -ROOM_WIDTH / 2;
+    const roomRight = ROOM_WIDTH / 2;
+    const backWallZ = -ROOM_DEPTH / 2 + WALL_THICKNESS / 2;
+    const wallCentreY = WALL_HEIGHT / 2;
+    const sideWallX = ROOM_WIDTH / 2 - WALL_THICKNESS / 2;
+    const doorLeft = DOOR.x - DOOR_WIDTH / 2;
+    const doorRight = DOOR.x + DOOR_WIDTH / 2;
+    const leftWallWidth = doorLeft - roomLeft;
+    const rightWallWidth = roomRight - doorRight;
+    const leftWallX = roomLeft + leftWallWidth / 2;
+    const rightWallX = doorRight + rightWallWidth / 2;
+    const lintelHeight = WALL_HEIGHT - DOOR_HEIGHT;
+    const trimY = TRIM_HEIGHT / 2;
+    const backTrimZ = backWallZ + WALL_THICKNESS / 2 + TRIM_DEPTH / 2;
+    const sideTrimX = sideWallX - WALL_THICKNESS / 2 - TRIM_DEPTH / 2;
+
+    addPart(world, box, floorMaterial, 0, -FLOOR_THICKNESS / 2, 0,
+      ROOM_WIDTH, FLOOR_THICKNESS, ROOM_DEPTH);
+    // One shared top height, with the back wall split around the doorway. The
+    // full-width back span overlaps both side walls by WALL_THICKNESS.
+    addPart(world, box, wallMaterial, leftWallX, wallCentreY, backWallZ,
+      leftWallWidth, WALL_HEIGHT, WALL_THICKNESS);
+    addPart(world, box, wallMaterial, rightWallX, wallCentreY, backWallZ,
+      rightWallWidth, WALL_HEIGHT, WALL_THICKNESS);
+    // The lintel overlaps both spans instead of abutting them. Meeting exactly
+    // at doorLeft/doorRight left a hairline seam running from the door's head
+    // to the ceiling on each side — two faint vertical lines, clearly visible
+    // in a room screenshot and invisible to every test. It sits above the
+    // opening, so widening it costs the doorway nothing.
+    addPart(world, box, wallMaterial, DOOR.x, DOOR_HEIGHT + lintelHeight / 2, backWallZ,
+      DOOR_WIDTH + WALL_THICKNESS, lintelHeight, WALL_THICKNESS);
+    addPart(world, box, wallMaterial, -sideWallX, wallCentreY, 0,
+      WALL_THICKNESS, WALL_HEIGHT, ROOM_DEPTH);
+    addPart(world, box, wallMaterial, sideWallX, wallCentreY, 0,
+      WALL_THICKNESS, WALL_HEIGHT, ROOM_DEPTH);
+    addPart(world, box, trimMaterial, leftWallX, trimY, backTrimZ,
+      leftWallWidth, TRIM_HEIGHT, TRIM_DEPTH);
+    addPart(world, box, trimMaterial, rightWallX, trimY, backTrimZ,
+      rightWallWidth, TRIM_HEIGHT, TRIM_DEPTH);
+    addPart(world, box, trimMaterial, -sideTrimX, trimY, 0,
+      TRIM_DEPTH, TRIM_HEIGHT, ROOM_DEPTH - WALL_THICKNESS * 2);
+    addPart(world, box, trimMaterial, sideTrimX, trimY, 0,
+      TRIM_DEPTH, TRIM_HEIGHT, ROOM_DEPTH - WALL_THICKNESS * 2);
 
     // The way out: a plain doorway in the back wall with dark beyond it. This
     // is the only thing in the room that is not the easel, and the only action
     // that ends the session.
-    addPart(world, box, makeMaterial(0x2b2334), DOOR.x, 1.55, -5.62, 1.7, 3.1, 0.14);
-    addPart(world, box, woodMaterial, DOOR.x, 3.16, -5.46, 2.05, 0.22, 0.26);
-    addPart(world, box, woodMaterial, DOOR.x - 0.96, 1.55, -5.46, 0.18, 3.2, 0.26);
-    addPart(world, box, woodMaterial, DOOR.x + 0.96, 1.55, -5.46, 0.18, 3.2, 0.26);
+    const doorwayZ = backWallZ - WALL_THICKNESS / 4;
+    const frameZ = backWallZ + WALL_THICKNESS / 2 + DOOR_FRAME_DEPTH / 2;
+    addPart(world, box, makeMaterial(0x2b2334), DOOR.x, DOOR_HEIGHT / 2, doorwayZ,
+      DOOR_WIDTH, DOOR_HEIGHT, WALL_THICKNESS / 2);
+    addPart(world, box, woodMaterial, DOOR.x,
+      DOOR_HEIGHT + DOOR_JAMB_WIDTH / 2, frameZ,
+      DOOR_WIDTH + DOOR_JAMB_WIDTH * 2, DOOR_JAMB_WIDTH, DOOR_FRAME_DEPTH);
+    addPart(world, box, woodMaterial, doorLeft - DOOR_JAMB_WIDTH / 2,
+      DOOR_HEIGHT / 2, frameZ,
+      DOOR_JAMB_WIDTH, DOOR_HEIGHT, DOOR_FRAME_DEPTH);
+    addPart(world, box, woodMaterial, doorRight + DOOR_JAMB_WIDTH / 2,
+      DOOR_HEIGHT / 2, frameZ,
+      DOOR_JAMB_WIDTH, DOOR_HEIGHT, DOOR_FRAME_DEPTH);
 
     // ONE easel, in the middle of the room, and the room is built around it.
     easelGroup = new THREE.Group();
@@ -510,11 +581,27 @@ export function createColoring(ctx) {
     easelGroup.position.set(EASEL.x, 0, EASEL.z);
     world.add(easelGroup);
 
-    addPart(easelGroup, box, easelMaterial, -0.82, 1.26, -0.1, 0.18, 2.9, 0.18).rotation.z = 0.15;
-    addPart(easelGroup, box, easelMaterial, 0.82, 1.26, -0.1, 0.18, 2.9, 0.18).rotation.z = -0.15;
-    addPart(easelGroup, box, easelMaterial, 0, 1.3, -0.44, 0.16, 2.7, 0.16).rotation.x = -0.18;
-    addPart(easelGroup, box, easelMaterial, 0, 0.86, -0.02, 1.95, 0.16, 0.2);
-    addPart(easelGroup, plane, paperMaterial, 0, PAPER_CENTRE_Y, 0.02, PAPER_SIZE, PAPER_SIZE, 1);
+    const leftFrontLeg = addPart(easelGroup, box, easelMaterial,
+      -0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
+    leftFrontLeg.rotation.z = -0.15;
+    const rightFrontLeg = addPart(easelGroup, box, easelMaterial,
+      0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
+    rightFrontLeg.rotation.z = 0.15;
+    const rearLeg = addPart(easelGroup, box, easelMaterial,
+      0, 1.17, -0.55, 0.18, 2.72, 0.18);
+    rearLeg.rotation.x = 0.28;
+    // The shelf crosses both front legs and the page rests directly on it.
+    addPart(easelGroup, box, easelMaterial, 0, 0.86, 0.13, 1.95, 0.18, 0.38);
+
+    // The paper and its painted line-art overlay share one tilted frame. Their
+    // tiny local depth separation avoids z-fighting without ever changing the
+    // plane angle independently.
+    const canvasGroup = new THREE.Group();
+    canvasGroup.name = 'coloring-easel-canvas';
+    canvasGroup.position.set(0, PAPER_CENTRE_Y, 0.04);
+    canvasGroup.rotation.x = -0.08;
+    easelGroup.add(canvasGroup);
+    addPart(canvasGroup, plane, paperMaterial, 0, 0, 0, PAPER_SIZE, PAPER_SIZE, 1);
 
     easelArtCanvas = document.createElement('canvas');
     easelArtCanvas.width = 700;
@@ -523,11 +610,11 @@ export function createColoring(ctx) {
     easelArtMaterial = ownMaterial(new THREE.MeshBasicMaterial({
       map: easelArtTexture, transparent: true, opacity: 1, depthWrite: false,
     }));
-    addPart(easelGroup, plane, easelArtMaterial, 0, PAPER_CENTRE_Y, 0.035, PAPER_SIZE, PAPER_SIZE, 1);
+    addPart(canvasGroup, plane, easelArtMaterial, 0, 0, 0.015, PAPER_SIZE, PAPER_SIZE, 1);
     setEaselArt('ready');
 
     player = characters.create({ model: characters.playerModel });
-    player.position.set(EASEL.x, 0, EASEL.z + 2.15);
+    player.position.set(EASEL.x, 0, PLAYER_REVEAL_Z);
     player.rotation.y = Math.PI;
     player.scale.setScalar(0.82);
     world.add(player);
@@ -805,6 +892,7 @@ export function createColoring(ctx) {
           <canvas class="coloring-canvas"></canvas>
           <div class="coloring-bubble" role="status" aria-live="polite" hidden></div>
         </div>
+        <div class="coloring-side-spacer" aria-hidden="true"></div>
       </div>
       <div class="coloring-screen__bottom">
         <div class="coloring-power" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -1025,14 +1113,16 @@ export function createColoring(ctx) {
     if (!active || phase !== 'activation-page') return;
     phase = 'reveal-easel';
 
-    // The puppet is built from the live paint canvas, so it has to exist
-    // before the painting surface is torn down.
+    // Both consumers copy the live paint before teardown: the puppet into its
+    // piece textures, and the session store into one detached canvas.
+    pendingMember = crowd.join();
     pendingPuppet = createPaperPuppet({ paint: surface.paint, onLand: landTap });
+    saveCompletedRobot(surface.paint, pendingMember);
     setEaselArt('finished', { paint: surface.paint });
 
     world.visible = true;
     roomOverlay.hidden = true;
-    player.position.set(EASEL.x, 0, EASEL.z + 2.15);
+    player.position.set(EASEL.x, 0, PLAYER_REVEAL_Z);
     player.rotation.y = Math.PI;
     player.playAnimation?.('idle');
     cameraRig.setTarget(easelGroup).setPreset('follow', CAMERA.paper);
@@ -1070,12 +1160,19 @@ export function createColoring(ctx) {
    *
    * 0.00-0.45  on the sheet, shaking itself awake; the ink drains from the page
    * 0.45-1.30  peels forward and hops off the easel in an arc
-   * 1.30-2.00  lands, taps, and has a moment about it
+   * 1.30       lands and taps; room-reveal then holds this framing for 1.2s
    */
   function updateRobotExit(dt) {
     exitElapsed += dt;
     const puppet = pendingPuppet;
     const startLift = PAPER_CENTRE_Y - PAPER_SIZE / 2;
+    const retreatProgress = Math.min(1, exitElapsed / PLAYER_RETREAT_SECONDS);
+    const retreatEase = 1 - (1 - retreatProgress) ** 3;
+    player.position.z = PLAYER_REVEAL_Z
+      + (PLAYER_RETREAT_Z - PLAYER_REVEAL_Z) * retreatEase;
+    player.position.x = EASEL.x + (PLAYER_RETREAT_X - EASEL.x) * retreatEase;
+    // Turn to watch it happen, rather than stepping aside still facing the wall.
+    player.rotation.y = Math.PI - 0.5 * retreatEase;
 
     if (exitElapsed < 0.45) {
       // The page loses its drawing while the puppet is still against it.
@@ -1084,11 +1181,13 @@ export function createColoring(ctx) {
       if (easelArt !== 'blank') setEaselArt('blank');
       const k = (exitElapsed - 0.45) / 0.85;
       const arc = Math.sin(k * Math.PI) * 0.45;
-      puppet.placeAt(EASEL.x, EASEL.z + 0.2 + k * 1.75, 0);
+      puppet.placeAt(EASEL.x, EASEL.z + 0.2
+        + k * (ROBOT_LANDING_Z - (EASEL.z + 0.2)), 0);
       puppet.setLift(startLift * (1 - k) + arc);
     } else {
       puppet.setLift(0);
       if (puppet.state === STATES.STARTUP) {
+        puppet.placeAt(EASEL.x, ROBOT_LANDING_Z, 0);
         landTap();
         puppet.setState(STATES.CELEBRATE);
         puppet.setGlowFloor(0.12);
@@ -1102,10 +1201,15 @@ export function createColoring(ctx) {
 
   /** STAGE 2 → 3: the whole room, and every robot in it. */
   function revealRoom() {
-    const member = crowd.join();
-    pendingPuppet.startRoaming(member.points, member);
+    const member = pendingMember;
+    const from = {
+      x: pendingPuppet.group.position.x,
+      z: pendingPuppet.group.position.z,
+    };
+    pendingPuppet.startRoaming(member.points, { ...member, from });
     livingRobots.push({ id: member.id, puppet: pendingPuppet, member });
     pendingPuppet = null;
+    pendingMember = null;
 
     cameraRig.setTarget(player).setPreset('follow', CAMERA.room);
     roomOverlay.hidden = false;
@@ -1237,6 +1341,15 @@ export function createColoring(ctx) {
     return {
       phase,
       robotsCompleted: livingRobots.length,
+      // The newborn during the cinematic, before it joins livingRobots. Without
+      // it the hand-off from the authored landing to roaming is the one moment
+      // no observer can see — which is precisely where a snap to a roam point
+      // would hide.
+      pending: pendingPuppet ? {
+        x: pendingPuppet.group.position.x,
+        y: pendingPuppet.group.position.y,
+        z: pendingPuppet.group.position.z,
+      } : null,
       stars: sessionStars(livingRobots.length),
       usedListenAgain: replayed,
       power: coverage?.power() ?? 0,
@@ -1284,6 +1397,17 @@ export function createColoring(ctx) {
     return livingRobots.length;
   }
 
+  /** Rebuilds session robots from plain records after the room exists. */
+  function restoreSavedRobots() {
+    for (const record of savedRobots()) {
+      const member = crowd.join(record.crowd);
+      const puppet = createPaperPuppet({ paint: record.artwork, onLand: landTap });
+      world.add(puppet.group);
+      puppet.startRoaming(member.points, member);
+      livingRobots.push({ id: member.id, puppet, member });
+    }
+  }
+
   function installDebugHook() {
     if (!window.__eslDebug) {
       Object.defineProperty(window, '__eslDebug', { value: {}, configurable: true, writable: false });
@@ -1319,12 +1443,14 @@ export function createColoring(ctx) {
     brushId = DEFAULT_BRUSH;
     livingRobots.length = 0;
     pendingPuppet = null;
+    pendingMember = null;
     crowd = createCrowd();
     installStyle();
     createRoomOverlay();
     // The room is built now so that the pull-back has something to reveal, but
     // it is not shown: the first thing the child sees is the drawing.
     buildWorld();
+    restoreSavedRobots();
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
@@ -1421,6 +1547,7 @@ export function createColoring(ctx) {
     livingRobots.length = 0;
     pendingPuppet?.dispose();
     pendingPuppet = null;
+    pendingMember = null;
     crowd = null;
     disposeSharedPaperAssets();
 

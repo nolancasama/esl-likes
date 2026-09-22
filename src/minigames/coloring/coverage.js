@@ -5,18 +5,16 @@
  * brush went and this module decides what it was worth, which is what makes the
  * whole mechanic testable without a browser.
  *
- * Three rules do all the work, and each one exists because the obvious
- * alternative is farmable:
+ * Three rules do all the work:
  *
- *   1. **Unique area only.** A cell counts once, ever. Scribbling back and
- *      forth over the same patch is how a child would otherwise fill the bar
- *      without colouring the robot.
+ *   1. **Current colour only.** A cell contributes to power exactly when its
+ *      current paint is the robot's favourite. Repainting and erasing update
+ *      that contribution, while repeating the same colour changes nothing.
  *   2. **Inside the silhouette only.** Painting the paper around the robot is
  *      allowed and charges nothing, so a child cannot power the robot by
  *      colouring the background.
- *   3. **A cell's credit is fixed by the colour that first painted it.**
- *      Favourite-colour area is worth 1.5x, but repainting a cell in the
- *      favourite never upgrades it — that would be rule 1 with extra steps.
+ *   3. **Unique painted area stays available separately.** Coverage still
+ *      measures every currently painted cell, regardless of its colour.
  *
  * Stroke count, elapsed time and brush travel are deliberately worth nothing.
  */
@@ -35,10 +33,7 @@ export const GRID = 120;
  * A child should never have to hunt the last unpainted corner, and a robot that
  * only wakes when the page is perfect is a robot most of a class never sees.
  */
-export const POWER_THRESHOLD = 0.68;
-
-/** New area in the NPC's favourite colour is worth this much more. */
-export const FAVOURITE_BONUS = 1.5;
+export const FAVOURITE_POWER_THRESHOLD = 0.28;
 
 /** Where the bar does something playful on the way up. */
 export const MILESTONES = Object.freeze([0.25, 0.5, 0.78]);
@@ -90,12 +85,9 @@ export function createCoverage({ favourite = null } = {}) {
   /** Undo is per stroke: the cells this stroke changed, and what they were. */
   const strokes = [];
   let open = null;
-  let credit = 0;
   let plainCells = 0;
   let favouriteCells = 0;
   let reached = -1;
-
-  const creditOf = (value) => (value === CELL_FAVOURITE ? FAVOURITE_BONUS : value === CELL_PLAIN ? 1 : 0);
 
   function setCell(index, next) {
     const previous = painted[index];
@@ -103,14 +95,13 @@ export function createCoverage({ favourite = null } = {}) {
     open ||= [];
     open.push({ index, previous });
     painted[index] = next;
-    credit += creditOf(next) - creditOf(previous);
     if (previous === CELL_PLAIN) plainCells -= 1;
     if (previous === CELL_FAVOURITE) favouriteCells -= 1;
     if (next === CELL_PLAIN) plainCells += 1;
     if (next === CELL_FAVOURITE) favouriteCells += 1;
   }
 
-  /** Marks every robot cell under a disc. Cells already painted are left alone. */
+  /** Marks every robot cell under a disc with its current colour. */
   function dab(cx, cy, radius, value) {
     const r = radius * GRID;
     const gx = cx * GRID;
@@ -127,9 +118,7 @@ export function createCoverage({ favourite = null } = {}) {
         if (dx * dx + dy * dy > rSq) continue;
         const index = y * GRID + x;
         if (!mask[index]) continue;
-        if (value === CELL_EMPTY) setCell(index, CELL_EMPTY);
-        // Rule 1 and rule 3: a painted cell is finished with.
-        else if (painted[index] === CELL_EMPTY) setCell(index, value);
+        setCell(index, value);
       }
     }
   }
@@ -186,7 +175,6 @@ export function createCoverage({ favourite = null } = {}) {
         const { index, previous } = stroke[i];
         const current = painted[index];
         painted[index] = previous;
-        credit += creditOf(previous) - creditOf(current);
         if (current === CELL_PLAIN) plainCells -= 1;
         if (current === CELL_FAVOURITE) favouriteCells -= 1;
         if (previous === CELL_PLAIN) plainCells += 1;
@@ -199,7 +187,6 @@ export function createCoverage({ favourite = null } = {}) {
       painted.fill(0);
       strokes.length = 0;
       open = null;
-      credit = 0;
       plainCells = 0;
       favouriteCells = 0;
       reached = -1;
@@ -220,14 +207,13 @@ export function createCoverage({ favourite = null } = {}) {
     /**
      * The bar, 0..1.
      *
-     * Credit against the threshold rather than raw coverage, so the favourite
-     * bonus is visible as the bar simply filling faster. Painting entirely in
-     * the favourite colour reaches full at about 45% of the robot; painting
-     * without it reaches full at the threshold. Never required, only quicker.
+     * Only cells currently painted in the robot's favourite colour contribute.
+     * Full power arrives before the whole silhouette is filled so the child
+     * does not have to hunt the final unpainted corners.
      */
     power() {
       if (!robotCells) return 0;
-      return Math.min(1, credit / (robotCells * POWER_THRESHOLD));
+      return Math.min(1, favouriteCells / (robotCells * FAVOURITE_POWER_THRESHOLD));
     },
 
     isFull() { return api.power() >= 1; },
@@ -262,10 +248,9 @@ export function createCoverage({ favourite = null } = {}) {
  * the loop is actually built to reward: how many robots they brought to life.
  *
  * Coverage and the favourite colour are deliberately not in here. A robot that
- * exists has already passed the 68% threshold, so coverage is not information;
- * and grading a child on how much of the favourite colour they used would turn
- * a bonus back into a requirement. Nothing here can fail: one robot is one
- * star, and the room is only ever reached by finishing one.
+ * exists has already passed the favourite-colour power threshold, so coverage
+ * is not information. Nothing here can fail: one robot is one star, and the
+ * room is only ever reached by finishing one.
  */
 export function sessionStars(robots = 0) {
   return Math.min(3, Math.max(1, Math.floor(robots)));

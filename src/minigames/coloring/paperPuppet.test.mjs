@@ -239,12 +239,29 @@ test('startRoaming takes the crowd variation through to the plan', () => {
   puppet.dispose();
 });
 
+test('startRoaming with from leaves the landed puppet in place', () => {
+  disposeSharedPaperAssets();
+  const puppet = createPaperPuppet({ paint: paint(803) });
+  puppet.placeAt(0.35, -1.4, 0.25);
+  const before = { x: puppet.group.position.x, z: puppet.group.position.z };
+  puppet.startRoaming(undefined, { start: 2, from: before });
+  const after = { x: puppet.group.position.x, z: puppet.group.position.z };
+  assert.ok(Math.abs(after.x - before.x) < 1e-9);
+  assert.ok(Math.abs(after.z - before.z) < 1e-9);
+  assert.deepEqual(puppet.roamPlan.position, before);
+  assert.deepEqual(puppet.roamPlan.origin, before);
+  puppet.dispose();
+});
+
 test('startRoaming with no variation still behaves as it always did', () => {
   disposeSharedPaperAssets();
   const puppet = createPaperPuppet({ paint: paint(802) });
+  puppet.placeAt(0.35, -1.4);
   puppet.startRoaming();
   assert.equal(puppet.roamPlan.index, 0);
   assert.equal(puppet.roamPlan.stateTime, 0);
   assert.equal(puppet.roamPlan.idlePause, 1.5);
+  assert.equal(puppet.group.position.x, puppet.roamPlan.points[0].x);
+  assert.equal(puppet.group.position.z, puppet.roamPlan.points[0].z);
   puppet.dispose();
 });

@@ -1,0 +1,77 @@
+{
+  "task": "Targeted correction pass on the Coloring minigame: make ROBOT POWER charge only from the robot's spoken favourite colour at a much lower threshold, persist finished robots across leaving and re-entering the minigame, stop the canvas shifting sideways when the tools appear, rebuild the room from consistent constants, rebuild the easel so it reads as an easel, and fix three faults in the robot's emergence cinematic (the player blocks the robot, the robot teleports after landing, and there is no beat in which to see it).",
+
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms (Vite + three.js), deployed live from main. The Coloring minigame was just refactored around a repeatable magical-easel loop and shipped; the owner then played it and produced this fix list. THIS IS NOT A REDESIGN. The loop, its phase names, its three camera stages, the five-piece paper puppet, the seven colours, the three brushes, undo/eraser and the crowd module all stand unchanged. READ .ai/coloring-correction-spec.md FIRST — it is the frozen contract for this pass, it records which of the owner's diagnoses were verified in the source (all of them), and it corrects two places where the owner's plan asks for more machinery than the job needs. Then read .ai/coloring-easel-loop-spec.md for the loop itself; where the two disagree, the correction spec wins.",
+
+  "complexity": "hard",
+  "exploration": "local",
+  "risk": "high",
+  "bounded": true,
+  "executionStyle": "incremental",
+
+  "requirements": [
+    "POWER IS FAVOURITE-ONLY (spec §3). In coverage.js delete the `else if (painted[index] === CELL_EMPTY)` guard in dab() so a dab always overwrites the cell; delete FAVOURITE_BONUS, `credit` and `creditOf`; replace POWER_THRESHOLD = 0.68 with FAVOURITE_POWER_THRESHOLD = 0.28; and make power() = min(1, favouriteCells / (robotCells * FAVOURITE_POWER_THRESHOLD)). Keep tracking total unique painted area so coverage() and favouriteShare() still work. DO NOT add a second history, a per-stroke coverage snapshot, or an undo-by-replay: the existing per-stroke {index, previous} journal already makes repaint, erase and undo correct once the guard is gone, and the spec explains why. DO NOT change MILESTONES — it already reads power().",
+
+    "The silhouette mask must still gate dab(), so painting the background still charges nothing. Repainting the favourite over the favourite must still charge nothing (setCell already returns early when previous === next). Confirm both with tests rather than by inspection.",
+
+    "PERSISTENCE ACROSS VISITS (spec §7). Add a module-level store in its own file (suggested: src/minigames/coloring/coloringSession.js) holding plain data and no three.js objects: per robot, a DETACHED COPY of the paint canvas taken at completion, plus its crowd variation ({ start, idlePause, stateTime }). enter() must rebuild one puppet per saved record after buildWorld(), enroll it in the crowd with its SAVED variation so it keeps its personality, and place it on a roam point. enter() must NOT clear the store; exit() disposes the three.js puppets and clears livingRobots but must NOT clear the store and must NOT dispose the stored canvases. No localStorage — same running app session only.",
+
+    "The stored artwork must be a copy made once at completion, never a reference to the live paint surface, which the next round resets. A restored robot must look pixel-identical to the original, including unpainted white areas and overpaint mixing.",
+
+    "CANVAS CENTRING (spec §8). Change .coloring-screen__work to three columns — minmax(0,1fr) auto minmax(0,1fr) — with the tool side in the left column, the canvas in the centre and a balancing spacer on the right. While the tools are hidden the left column must keep its width: use visibility:hidden, not display:none. The canvas's bounding-box centre x must not move between canvas-question and coloring. The narrow-screen layout may stack controls above/below, but must also stay centred.",
+
+    "ROOM REBUILD (spec §4). Introduce ROOM_WIDTH, ROOM_DEPTH, WALL_HEIGHT, WALL_THICKNESS, DOOR_WIDTH, DOOR_HEIGHT and derive every floor, wall, trim and doorway piece from them. All three walls share one top height (today the back wall tops at y=4.95 and the side walls at y=3.35, which is the visible defect). Corners overlap by WALL_THICKNESS so no seam can open. The doorway's jambs and lintel derive from DOOR_WIDTH/DOOR_HEIGHT and the back wall's own coordinates. No magic numbers left in wall construction. There is still no front wall — the camera looks in from there.",
+
+    "EASEL REBUILD (spec §5). A recognisable A-frame: two splayed front legs, one raked rear leg, a shelf the front legs visibly carry, canvas resting on the shelf leaning slightly back. Low-poly boxes, same style as the suite. HARD CONSTRAINT: the paper plane and the line-art plane must stay exactly co-planar with the visible canvas and with each other — put all three in one group and rotate the GROUP, never the planes separately. If a clean lean cannot be achieved, keep the canvas upright and say so in your summary.",
+
+    "PLAYER RETREAT (spec §6). When the peel begins, interpolate the player backward from EASEL.z + 2.15 to about EASEL.z + 3.4 over 0.55s, eased. Interpolate over frames — do not set the position in one step. No pathfinding. The player must not overlap or obscure the landing robot.",
+
+    "NO TELEPORT ON ROAM (spec §6). Extend createRoamPlan(points, start, { idlePause, stateTime, from }) and paperPuppet.startRoaming(points, { start, idlePause, stateTime, from }) with an optional `from: {x, z}`. When `from` is given, the plan's position and origin start there and startRoaming does NOT call placeAt; the first leg targets points[start] from where the robot actually is. When `from` is absent, behaviour must be byte-for-byte what it is today — the dev spawner and existing tests depend on it. Then pass the puppet's real landing position as `from` at the end of the cinematic.",
+
+    "VIEWING BEAT (spec §6). After the landing, hold the easel camera 1.2s before the second pullback. Roaming does not begin until the beat ends. Do not shorten it to make a test run faster.",
+
+    "TESTS — favourite-only power: non-favourite stroke leaves power at 0; favourite stroke raises it; favourite outside the silhouette raises nothing; favourite over the same area adds nothing; non-favourite area repainted favourite raises power; favourite area repainted non-favourite lowers it; erasing favourite lowers it; undo restores power exactly in each of those cases; and activation lands near the 0.28 threshold.",
+
+    "TESTS — persistence: completing a robot, disposing the controller, and entering again reconstructs it; two robots with different artwork still differ after a round trip; no shared texture or canvas reference is mutated or disposed across the boundary.",
+
+    "TESTS — emergence: startRoaming with `from` leaves the position unchanged within tolerance (position immediately before === position immediately after); startRoaming without `from` still snaps as before; the player's retreat destination does not overlap the robot's landing position.",
+
+    "TESTS — centring where practical at the layout level: the canvas centre x before the answer and after the tools appear agree within 2px.",
+
+    "OBSOLETE TESTS ARE UPDATED, NOT KEPT (spec §10). Tests asserting that ordinary colours charge the bar, that the 68% threshold holds, that the robot collection clears on exit, or that startRoaming snaps to its first point are wrong now. Fix them. Do not keep both behaviours behind a flag.",
+
+    "Record the design decisions from this pass in DESIGN_DECISIONS.md (date, what, why, rejected alternative), per the project's convention. Do not rewrite CURRENT_STATE.md — the controller owns that."
+  ],
+
+  "constraints": [
+    "DO NOT TOUCH scripts/playthrough-coloring.mjs. The harness is the controller's, and updating it for the new power rule is a separate pass. Your job is the game.",
+    "YOU CANNOT RUN THE BROWSER PLAYTHROUGH. The sandbox cannot start the vite preview or a browser for this project, and past attempts produced misleading green results. Do not try, and do not report visual behaviour as verified. Run `npm test` and `npm run build`, and say plainly that nothing was seen rendered. The controller runs the playthrough and judges the visuals.",
+    "This is a correction pass, NOT a redesign. Do not rename phases, do not restructure the loop, do not touch the crowd algorithm, the puppet's five pieces, the palette, the brushes or the three camera stages beyond the staging changes named above.",
+    "Do not add an on-screen hint telling the child which colour fills the bar. The owner deferred that to classroom testing deliberately.",
+    "Do not add localStorage or any cross-reload persistence.",
+    "The favourite colour must still never appear in the debug snapshot.",
+    "Use the structured Write/Edit tools for source edits, not shell heredocs or sed. On the first quoting or escaping failure in a shell edit, stop and switch tools.",
+    "Do not commit and do not push."
+  ],
+
+  "startingPoints": [
+    ".ai/coloring-correction-spec.md — the frozen contract for this pass; read first",
+    ".ai/coloring-easel-loop-spec.md — the loop this pass is correcting, not replacing",
+    "src/minigames/coloring/coverage.js — dab() holds the guard to delete; the stroke journal that makes undo work is right above it",
+    "src/minigames/coloring/index.js — CSS at ~235, room at ~490, easel at ~510, player placement at 1035 and 530, landing at 1061, enter() at ~1310, exit() at ~1415",
+    "src/minigames/coloring/robotPuppet.js — createRoamPlan at 324, stepRoam at 350",
+    "src/minigames/coloring/paperPuppet.js — startRoaming at 466, placeAt at 439",
+    "src/minigames/coloring/robotCrowd.js — join() returns the per-robot variation to save"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "Every item in this pass is judged by looking — the room's seams, the easel's readability, the player's retreat, the landing, and whether the new power threshold feels right when painting. The worker cannot start a browser for this project. The controller updates the harness, runs the playthrough and judges the screenshots.",
+    "notes": "Expect the controller to re-tune FAVOURITE_POWER_THRESHOLD after measuring it in a real browser; 0.28 is a starting point, not a result."
+  }
+}

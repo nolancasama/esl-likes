@@ -76,14 +76,16 @@ export function createCrowd({ points = ROAM_POINTS, random = Math.random } = {})
     get size() { return members.size; },
 
     /** Enrols a new robot and returns the variation it should roam with. */
-    join() {
+    join(variation = {}) {
       const index = joinCount;
       joinCount += 1;
+      const idlePause = IDLE_MIN + random() * (IDLE_MAX - IDLE_MIN);
+      const stateTime = random() * PHASE_SPREAD;
       const member = Object.freeze({
         id: nextId,
-        start: index % Math.max(1, points.length),
-        idlePause: IDLE_MIN + random() * (IDLE_MAX - IDLE_MIN),
-        stateTime: random() * PHASE_SPREAD,
+        start: variation.start ?? index % Math.max(1, points.length),
+        idlePause: variation.idlePause ?? idlePause,
+        stateTime: variation.stateTime ?? stateTime,
         points: displacedPoints(index),
       });
       nextId += 1;

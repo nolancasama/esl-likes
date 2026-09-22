@@ -14,7 +14,7 @@ import {
 } from '../src/minigames/coloring/robotDefinition.js';
 import { PALETTE } from '../src/minigames/coloring/palette.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from '../src/minigames/coloring/brushes.js';
-import { POWER_THRESHOLD, FAVOURITE_BONUS } from '../src/minigames/coloring/coverage.js';
+import { FAVOURITE_POWER_THRESHOLD } from '../src/minigames/coloring/coverage.js';
 
 // Not `URL`: that shadows the global URL constructor, and the performance
 // session needs it to append ?editor=1.
@@ -25,11 +25,26 @@ const SAVE_KEY = 'esl-likes-save-v1';
 const FORBIDDEN_PHASES = new Set(['approach', 'gift', 'reaction', 'transition-to-painting']);
 const ACTIVATION_SEQUENCE = ['activation-page', 'reveal-easel', 'robot-exit', 'room-reveal', 'room'];
 const ANSWER_PATTERN = new RegExp(`^I like (${PALETTE.join('|')})\\.$`);
+/**
+ * Robot id → the colour that robot was told to like, so distinctness is only
+ * asserted across robots that were told different colours. Ids restart at 1
+ * on each session; entries are overwritten as that session paints, so a stale
+ * id from an earlier session cannot be read back.
+ */
+const favouriteById = new Map();
+
 const ROUND_STYLES = [
-  { color: 'red', brush: 'small' },
-  { color: 'blue', brush: 'medium' },
-  { color: 'yellow', brush: 'large' },
-  { color: 'green', brush: 'small' },
+  { colorOffset: 1, brush: 'small', fill: 'top-down', decoration: [[0.34, 0.91], [0.66, 0.91]] },
+  { colorOffset: 2, brush: 'medium', fill: 'bottom-up', decoration: [[0.34, 0.23], [0.66, 0.23]] },
+  { colorOffset: 3, brush: 'large', fill: 'outside-in', decoration: [[0.14, 0.57], [0.27, 0.57]] },
+  { colorOffset: 4, brush: 'small', fill: 'inside-out', decoration: [[0.55, 0.91], [0.66, 0.91]] },
+  { colorOffset: 5, brush: 'medium', fill: 'top-down', decoration: [[0.37, 0.79], [0.45, 0.91]] },
+  { colorOffset: 6, brush: 'large', fill: 'bottom-up', decoration: [[0.39, 0.2], [0.61, 0.31]] },
+];
+const CENTRING_VIEWPORTS = [
+  { width: 760, height: 420 },
+  { width: 1024, height: 600 },
+  { width: 1366, height: 768 },
 ];
 
 const browser = await chromium.launch({
@@ -69,8 +84,13 @@ function artKey(art) {
   return typeof art === 'string' ? art : JSON.stringify(art);
 }
 
-async function openPage(label, { url = TARGET_URL, trackCanvasCreation = false } = {}) {
+async function openPage(label, {
+  url = TARGET_URL,
+  trackCanvasCreation = false,
+  viewport = VIEW,
+} = {}) {
   const page = await context.newPage();
+  await page.setViewportSize(viewport);
   if (trackCanvasCreation) {
     await page.addInitScript(() => {
       const original = Document.prototype.createElement;
@@ -288,6 +308,131 @@ function sweeps(from, to, step) {
   return rows;
 }
 
+function orderedSweeps(from, to, step, order) {
+  const rows = sweeps(from, to, step);
+  if (order === 'bottom-up') return rows.reverse();
+  if (order === 'outside-in') {
+    const result = [];
+    while (rows.length) {
+      result.push(rows.shift());
+      if (rows.length) result.push(rows.pop());
+    }
+    return result;
+  }
+  if (order === 'inside-out') {
+    return rows.sort((a, b) => Math.abs(a[0][1] - 0.55) - Math.abs(b[0][1] - 0.55));
+  }
+  return rows;
+}
+
+function nonFavouriteColour(favourite, offset = 1) {
+  const favouriteIndex = Math.max(0, PALETTE.indexOf(favourite));
+  return PALETTE[(favouriteIndex + Math.max(1, offset)) % PALETTE.length];
+}
+
+async function resetPainting(h) {
+  await h.page.click('.coloring-tools .coloring-tool--reset', { force: true });
+  await h.page.click('[data-reset="yes"]', { force: true });
+  return h.waitFor((state) => state.debug?.phase === 'coloring'
+    && state.debug.power === 0
+    && state.debug.coverage === 0
+    && state.debug.strokes === 0,
+  3000, 'painting reset');
+}
+
+async function undoAndRead(h) {
+  await h.page.click('.coloring-tool--undo', { force: true });
+  await h.sleep(40);
+  return h.ui();
+}
+
+async function assertPowerSemantics(h, box, favourite, ordinary) {
+  const { page } = h;
+  const power = async () => (await h.ui()).debug?.power ?? NaN;
+  await selectBrush(page, 'large');
+  await selectColour(page, ordinary);
+
+  await stroke(page, box, [[0.36, 0.69], [0.64, 0.69]], 8);
+  const afterPlain = await power();
+  check('power semantics (a): a large non-favourite silhouette stroke leaves power at zero',
+    afterPlain === 0, `power ${afterPlain}`);
+
+  await selectBrush(page, 'medium');
+  await selectColour(page, favourite);
+  const favouriteStroke = [[0.35, 0.25], [0.65, 0.25]];
+  await stroke(page, box, favouriteStroke, 8);
+  const afterFavourite = await power();
+  check('power semantics (b): a favourite-colour silhouette stroke raises power',
+    afterFavourite > afterPlain, `${afterPlain} -> ${afterFavourite}`);
+
+  await selectBrush(page, 'large');
+  await stroke(page, box, [[0.04, 0.04], [0.2, 0.04]], 6);
+  const afterBackground = await power();
+  check('power semantics (c): favourite colour in the paper margin raises nothing',
+    afterBackground === afterFavourite, `${afterFavourite} -> ${afterBackground}`);
+
+  await selectBrush(page, 'medium');
+  await stroke(page, box, favouriteStroke, 8);
+  const afterRepeat = await power();
+  check('power semantics (d): repainting the same area favourite adds nothing',
+    afterRepeat === afterBackground, `${afterBackground} -> ${afterRepeat}`);
+
+  const beforeFavouriteOverPlain = afterRepeat;
+  await selectColour(page, favourite);
+  await selectBrush(page, 'large');
+  await stroke(page, box, [[0.36, 0.69], [0.64, 0.69]], 8);
+  const afterFavouriteOverPlain = await power();
+  const cellStep = 1 / (((await h.ui()).debug?.robotCells || 1) * FAVOURITE_POWER_THRESHOLD);
+  check('power semantics (e): favourite over a differently painted area raises power',
+    afterFavouriteOverPlain > beforeFavouriteOverPlain + cellStep / 2,
+    `${beforeFavouriteOverPlain} -> ${afterFavouriteOverPlain}`);
+  let restored = await undoAndRead(h);
+  check('power semantics (h/e): undo exactly restores power after favourite overpaint',
+    restored.debug?.power === beforeFavouriteOverPlain,
+    `${afterFavouriteOverPlain} -> ${restored.debug?.power}`);
+
+  const beforePlainOverFavourite = restored.debug?.power;
+  await selectColour(page, ordinary);
+  await selectBrush(page, 'medium');
+  await stroke(page, box, favouriteStroke, 8);
+  const afterPlainOverFavourite = await power();
+  check('power semantics (f): another colour over favourite area lowers power',
+    afterPlainOverFavourite < beforePlainOverFavourite - cellStep / 2,
+    `${beforePlainOverFavourite} -> ${afterPlainOverFavourite}`);
+  restored = await undoAndRead(h);
+  check('power semantics (h/f): undo exactly restores power after non-favourite overpaint',
+    restored.debug?.power === beforePlainOverFavourite,
+    `${afterPlainOverFavourite} -> ${restored.debug?.power}`);
+
+  const beforeErase = restored.debug?.power;
+  await page.click('.coloring-tool--eraser', { force: true });
+  await stroke(page, box, favouriteStroke, 8);
+  const afterErase = await power();
+  check('power semantics (g): erasing favourite area lowers power',
+    afterErase < beforeErase - cellStep / 2, `${beforeErase} -> ${afterErase}`);
+  restored = await undoAndRead(h);
+  check('power semantics (h/g): undo exactly restores power after erasing',
+    restored.debug?.power === beforeErase, `${afterErase} -> ${restored.debug?.power}`);
+
+  await resetPainting(h);
+  await selectColour(page, ordinary);
+  await selectBrush(page, 'large');
+  const bounds = silhouetteBounds();
+  const rowStep = (BRUSHES.large.diameter / PICTURE_SIZE) * 0.58;
+  for (const points of sweeps(bounds.minY, bounds.maxY, rowStep)) await stroke(page, box, points);
+  const ignoredFavourite = await h.ui();
+  check('ignoring the favourite colour cannot activate the robot',
+    ignoredFavourite.debug?.phase === 'coloring'
+      && ignoredFavourite.debug?.power === 0
+      && ignoredFavourite.debug?.coverage > 0.68,
+    JSON.stringify({
+      phase: ignoredFavourite.debug?.phase,
+      power: ignoredFavourite.debug?.power,
+      coverage: ignoredFavourite.debug?.coverage,
+    }));
+  await resetPainting(h);
+}
+
 async function answerCanvasQuestion(h, round, screenshots = true) {
   let state = await openFallback(h);
   check(`round ${round}: Talk opens the mic-free question fallback`,
@@ -367,38 +512,154 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
     }));
 
   const favourite = await answerCanvasQuestion(h, round, screenshots);
-  await selectColour(page, style.color);
+  const decorationColour = nonFavouriteColour(favourite, style.colorOffset);
+  const box = await canvasBox(page);
+  if (detailedChecks) await assertPowerSemantics(h, box, favourite, decorationColour);
+
+  await selectColour(page, decorationColour);
   await selectBrush(page, style.brush);
   let state = await h.ui();
-  check(`round ${round}: selected ${style.color} with the ${style.brush} brush`,
-    state.debug?.selectedColor === style.color && state.debug?.brush === style.brush,
+  check(`round ${round}: selected decorative ${decorationColour} with the ${style.brush} brush`,
+    state.debug?.selectedColor === decorationColour && state.debug?.brush === style.brush,
     JSON.stringify({ color: state.debug?.selectedColor, brush: state.debug?.brush }));
   check(`round ${round}: activation has no Done button`, state.done === false);
 
-  const box = await canvasBox(page);
+  const beforeDecoration = state.debug?.power ?? 0;
+  await stroke(page, box, style.decoration, 8);
+  state = await h.ui();
+  check(`round ${round}: non-favourite decoration deliberately charges nothing`,
+    state.debug?.power === beforeDecoration,
+    `${beforeDecoration} -> ${state.debug?.power}`);
+
+  await selectColour(page, favourite);
   const bounds = silhouetteBounds();
   const rowStep = (BRUSHES[style.brush].diameter / PICTURE_SIZE) * 0.64;
   const phaseStart = h.observedPhases.length;
   let strokesUsed = 0;
-  for (const points of sweeps(bounds.minY, bounds.maxY, rowStep)) {
+  for (const points of orderedSweeps(bounds.minY, bounds.maxY, rowStep, style.fill)) {
     state = await h.ui();
     if (state.debug?.phase !== 'coloring') break;
     await stroke(page, box, points);
     strokesUsed += 1;
   }
   state = await h.waitFor((next) => next.debug?.phase === 'activation-page', 6000, 'automatic activation');
+  const activation = clone(state?.debug);
+  const measuredFavouriteCoverage = (activation?.coverage ?? 0) * (activation?.favouriteShare ?? 0);
   check(`round ${round}: painting reaches full power`, (state?.debug?.power ?? 0) >= 1,
     `power ${state?.debug?.power ?? 'missing'}, coverage ${state?.debug?.coverage ?? 'missing'}`);
   check(`round ${round}: activation starts by itself`, state?.debug?.phase === 'activation-page', state?.debug?.phase);
-  notes.push(`round ${round}: ${strokesUsed} ${style.brush}-brush sweeps; heard ${favourite ?? 'no answer'}; coverage ${((state?.debug?.coverage ?? 0) * 100).toFixed(1)}%`);
+  check(`round ${round}: favourite-colour activation is well below the old 68% threshold`,
+    state?.debug?.phase === 'activation-page' && measuredFavouriteCoverage < 0.68,
+    `${(measuredFavouriteCoverage * 100).toFixed(1)}% favourite coverage`);
+  notes.push(`round ${round}: power reached 1 at ${(measuredFavouriteCoverage * 100).toFixed(1)}% favourite-colour coverage (contract ${(FAVOURITE_POWER_THRESHOLD * 100).toFixed(0)}%); ${strokesUsed} ${style.brush}-brush ${style.fill} sweeps; heard ${favourite ?? 'no answer'}; decoration ${decorationColour}`);
   if (screenshots && round === 1) await page.screenshot({ path: `${OUT}-camera-paper-activation.png` });
+
+  // One NON-BLOCKING recorder for the whole cinematic, started as early as
+  // possible and read back at the end.
+  //
+  // Two earlier shapes both failed. Polling for robot-exit from node costs a
+  // round trip per check, and on the first activation — where frames are long —
+  // the 0.55s retreat was largely spent before the sampler attached, measuring
+  // a 1.25-unit move as 0.09. Widening a BLOCKING sampler to cover room-reveal
+  // then swallowed the whole viewing beat, so the beat checks saw zero frames.
+  // A recorder that writes to a page global lets node keep taking screenshots
+  // and polling while every frame is still captured.
+  await page.evaluate(() => {
+    window.__cinematic = [];
+    let frames = 0;
+    const record = () => {
+      frames += 1;
+      const debug = window.__eslDebug?.coloring;
+      if (debug) {
+        window.__cinematic.push({
+          phase: debug.phase,
+          player: debug.player,
+          // The newborn's own position, so the no-teleport check can compare
+          // where it actually landed against where roaming starts, instead of
+          // inferring the landing from the player.
+          robot: debug.pending ?? null,
+        });
+      }
+      if (debug?.phase !== 'room' && frames < 1200) requestAnimationFrame(record);
+    };
+    record();
+  });
 
   state = await h.waitFor((next) => next.debug?.phase === 'reveal-easel', 8000, 'easel reveal', 60);
   if (screenshots && round === 1 && state) await page.screenshot({ path: `${OUT}-camera-easel-reveal.png` });
-  await h.waitFor((next) => next.debug?.phase === 'robot-exit', 5000, 'robot exit', 60);
-  state = await h.waitFor((next) => next.debug?.phase === 'room-reveal', 8000, 'room reveal', 60);
-  if (screenshots && round === 1 && state) await page.screenshot({ path: `${OUT}-camera-room-reveal.png` });
-  state = await h.waitFor((next) => next.debug?.phase === 'room', 8000, 'room');
+  // Sample from reveal-easel onward, not from robot-exit. Polling for
+  // robot-exit from node costs a round trip per check, and on the FIRST
+  // activation — where shader compilation and texture upload make frames long —
+  // most of the 0.55s retreat is already spent by the time the sampler
+  // attaches. Round 1 then reports a travel of 0.09 for a move that really
+  // covers 1.25. Attaching a phase early makes the measurement honest.
+  state = await h.waitFor((next) => next.debug?.phase === 'room-reveal', 9000, 'room reveal', 40);
+  check(`round ${round}: landing enters a distinct easel-camera viewing beat`,
+    state?.debug?.phase === 'room-reveal', state?.debug?.phase);
+  if (screenshots && round === 1 && state) {
+    await page.screenshot({ path: `${OUT}-camera-room-reveal-beat.png` });
+  }
+  await h.waitFor((next) => next.debug?.phase === 'room', 9000, 'room', 40);
+
+  const cinematic = await page.evaluate(() => window.__cinematic ?? []);
+  // Every frame the recorder saw is a real observation, in order, and node was
+  // making no ui() calls for part of it — so these phases belong in the record
+  // the phase-order check reads, or it sees gaps that never happened.
+  for (const sample of cinematic) h.observedPhases.push(sample.phase);
+
+  const retreatZ = cinematic.map((sample) => sample.player?.z).filter(Number.isFinite);
+  const retreatTravel = Math.max(0, ...retreatZ) - Math.min(...retreatZ);
+  const retreatSteps = retreatZ.slice(1).map((z, index) => z - retreatZ[index]);
+  check(`round ${round}: player retreats gradually during the exit`,
+    retreatTravel > 0.5
+      && new Set(retreatZ.map((z) => z.toFixed(3))).size >= 4
+      && Math.max(0, ...retreatSteps) < retreatTravel * 0.8,
+    JSON.stringify({ samples: retreatZ.length, travel: retreatTravel, largestStep: Math.max(0, ...retreatSteps) }));
+
+  const revealFrames = cinematic.filter((sample) => sample.phase === 'room-reveal').length;
+  check(`round ${round}: easel camera holds for rendered frames after landing`,
+    revealFrames >= 2,
+    `${revealFrames} room-reveal frames recorded`);
+  state = await h.ui();
+
+  const movementSamples = await page.evaluate(() => new Promise((resolve) => {
+    const samples = [];
+    let frames = 0;
+    const sample = () => {
+      frames += 1;
+      const debug = window.__eslDebug?.coloring;
+      const newest = debug?.robots?.at(-1);
+      if (newest) samples.push({ position: newest.position, lift: newest.lift });
+      if (samples.length >= 14 || frames >= 120) resolve(samples);
+      else requestAnimationFrame(sample);
+    };
+    sample();
+  }));
+  const landing = movementSamples[0]?.position;
+  const playerAtLanding = cinematic.filter((sample) => sample.phase === 'room-reveal').at(-1)?.player
+    ?? cinematic.at(-1)?.player;
+  // Where the robot ACTUALLY ended the cinematic, not where the player implies
+  // it should be. An earlier version derived this from the retreated player's
+  // position, which only held while the retreat was purely backward — the
+  // moment the player also stepped aside, the check failed on a robot that had
+  // not moved at all. Comparing the recorded landing with the first roaming
+  // frame tests the real claim: a synchronous snap to a distant roam point
+  // cannot hide between the two.
+  const expectedLanding = cinematic.filter((sample) => sample.robot).at(-1)?.robot ?? null;
+  const roamDisplacements = movementSamples.slice(1).map((sample, index) => Math.hypot(
+    sample.position.x - movementSamples[index].position.x,
+    sample.position.z - movementSamples[index].position.z,
+  ));
+  check(`round ${round}: first roaming movement is continuous from the landing position`,
+    Boolean(landing && expectedLanding)
+      && Math.hypot(landing.x - expectedLanding.x, landing.z - expectedLanding.z) <= 1
+      && roamDisplacements.length > 0
+      && Math.max(...roamDisplacements) <= 1,
+    JSON.stringify({ expectedLanding, landing, maxFrameDisplacement: Math.max(0, ...roamDisplacements) }));
+  check(`round ${round}: retreated player is outside the robot landing footprint`,
+    Boolean(playerAtLanding && landing)
+      && Math.hypot(playerAtLanding.x - landing.x, playerAtLanding.z - landing.z) > 0.9,
+    JSON.stringify({ player: playerAtLanding, landing }));
 
   const phases = compact(h.observedPhases.slice(phaseStart));
   check(`round ${round}: activation follows the complete camera/exit phase order`,
@@ -415,20 +676,38 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
   check(`round ${round}: every older robot remains by ID with unchanged artwork`,
     previousUnchanged, JSON.stringify(robots.map((robot) => ({ id: robot.id, art: robot.art }))));
   const newest = robots.at(-1);
-  if (newest) artById.set(newest.id, artKey(newest.art));
-  check(`round ${round}: all robot artwork fingerprints are pairwise distinct`,
-    new Set([...artById.values()]).size === artById.size,
-    JSON.stringify([...artById.entries()]));
-
-  if (detailedChecks) {
-    check(`round ${round}: full power arrived near the imported coverage contract`,
-      (state?.debug?.robotsCompleted ?? 0) === round && POWER_THRESHOLD > 0 && FAVOURITE_BONUS > 1,
-      `threshold ${POWER_THRESHOLD}, favourite bonus ${FAVOURITE_BONUS}`);
+  if (newest) {
+    artById.set(newest.id, artKey(newest.art));
+    favouriteById.set(newest.id, favourite);
   }
+  // Distinctness is only asserted between robots that heard DIFFERENT
+  // favourite colours. The fingerprint samples a handful of points per piece,
+  // and the favourite is what fills most of the silhouette, so two robots told
+  // the same colour can legitimately fingerprint alike however differently
+  // they were decorated — round 6 collided with round 2 exactly this way. A
+  // shared or re-read texture would instead make robots with DIFFERENT
+  // favourites collide, which is what this now catches. The check that a
+  // robot's own artwork never changes is above, and is the stronger one.
+  const byFavourite = [...artById.entries()]
+    .filter(([id]) => favouriteById.get(id))
+    .map(([id, art]) => ({ favourite: favouriteById.get(id), art }));
+  const crossFavouriteCollision = byFavourite.some((a, i) => byFavourite
+    .slice(i + 1)
+    .some((b) => a.favourite !== b.favourite && a.art === b.art));
+  check(`round ${round}: robots told different colours have different artwork`,
+    !crossFavouriteCollision,
+    JSON.stringify(byFavourite.map(({ favourite: f, art }) => ({ favourite: f, art }))));
+
   return state;
 }
 
 async function openNextRound(h, round, stateName, predicate) {
+  // The player now retreats to EASEL.z + 3.4 so the robot can be seen leaving
+  // the page, and that is outside the easel's 2.15 interaction radius. So the
+  // child walks back to the easel, and so does the harness — before the
+  // correction pass the player was left standing close enough to just press
+  // Space, and waiting here without walking hangs forever.
+  await h.pulseUntil(['KeyW'], (state) => state.debug?.action === 'easel', 24, 'the easel');
   const ready = await h.waitFor((state) => state.debug?.phase === 'room'
     && state.debug?.canAct
     && state.debug?.action === 'easel'
@@ -437,7 +716,7 @@ async function openNextRound(h, round, stateName, predicate) {
     Boolean(ready && ready.debug.action === 'easel'),
     JSON.stringify({ art: ready?.debug?.easelArt, opacity: ready?.debug?.easelArtOpacity, action: ready?.debug?.action }));
   if (stateName === 'fading') {
-    check('round 3: Space is pressed during a partial fade',
+    check(`round ${round}: Space is pressed during a partial fade`,
       ready?.debug?.easelArt === 'fading'
         && ready.debug.easelArtOpacity > 0
         && ready.debug.easelArtOpacity < 1,
@@ -487,10 +766,10 @@ async function sampleCrowd(h) {
       }
     }
   }
-  check('four-robot crowd does not move in lockstep across several samples',
+  check('multi-robot crowd does not move in lockstep across several samples',
     mixedSamples >= 3, `${mixedSamples}/${samples.length} samples had mixed states`);
-  check('four-robot crowd has distinct idle pauses', pauses.size > 1, [...pauses].join(', '));
-  check('four-robot crowd positions are not all equal',
+  check('multi-robot crowd has distinct idle pauses', pauses.size > 1, [...pauses].join(', '));
+  check('multi-robot crowd positions are not all equal',
     separatedSamples === samples.length, `${separatedSamples}/${samples.length} separated samples`);
   check('no pair remains in a very small persistent stack',
     worstCloseRun < 8, `longest <0.1-unit run ${worstCloseRun} samples${worstPair ? ` (${worstPair})` : ''}`);
@@ -502,7 +781,74 @@ async function walkToDoor(h) {
   return h.pulseUntil(['KeyW'], (state) => state.debug?.action === 'door', 32, 'door action');
 }
 
-// ---- Session A: four complete rounds and the door turnaround --------------
+async function leaveThroughDoor(h, label, { screenshot = false } = {}) {
+  const { page } = h;
+  await h.waitFor((state) => state.debug?.phase === 'room' && state.debug?.canAct,
+    5000, `${label} room controls`);
+  const atDoor = await walkToDoor(h);
+  check(`${label}: approaching the doorway offers only the door action`,
+    atDoor?.debug?.action === 'door' && atDoor.actionIsDoor,
+    JSON.stringify({ debug: atDoor?.debug?.action, cue: atDoor?.action, class: atDoor?.actionIsDoor }));
+  const newestBefore = atDoor?.debug?.robots?.at(-1) ?? null;
+  await page.keyboard.press('Space');
+  let state = await h.waitFor((next) => next.debug?.phase === 'turnaround', 4000, `${label} turnaround`);
+  check(`${label}: door Space enters turnaround instead of another round`,
+    state?.debug?.phase === 'turnaround', state?.debug?.phase);
+  const newestDuring = state?.debug?.robots?.find((robot) => robot.id === newestBefore?.id);
+  const askerGeometry = newestDuring && state.debug?.player
+    ? {
+      dx: state.debug.player.x - newestDuring.position.x,
+      dz: state.debug.player.z - newestDuring.position.z,
+    }
+    : null;
+  check(`${label}: the newest robot is the turnaround asker`,
+    Boolean(newestDuring
+      && newestDuring.id === state.debug.robots.at(-1)?.id
+      && newestDuring.state === 'idle'
+      && Math.abs(askerGeometry.dx - 1.5) < 0.08
+      && Math.abs(askerGeometry.dz - 1.3) < 0.08
+      && /what color do you like/i.test(state.dialogueBubble ?? '')),
+    JSON.stringify({ newest: newestDuring?.id, state: newestDuring?.state, askerGeometry, bubble: state?.dialogueBubble }));
+  check(`${label}: session stars equal min(3, robotsCompleted) before finishing`,
+    state?.debug?.stars === Math.min(3, state?.debug?.robotsCompleted ?? 0),
+    JSON.stringify({ stars: state?.debug?.stars, robots: state?.debug?.robotsCompleted }));
+  if (screenshot) await page.screenshot({ path: `${OUT}-door-turnaround.png` });
+
+  state = await openFallback(h, 3);
+  check(`${label}: turnaround fallback offers all seven color answers`,
+    state?.fallback?.length === PALETTE.length, state?.fallback?.map((answer) => answer.value).join(', '));
+  const answered = await page.locator('.lesson-hud__fallback[data-value="purple"]')
+    .click({ timeout: 4000 }).then(() => true, () => false);
+  check(`${label}: turnaround answer is accepted through the fallback`, answered);
+  state = await h.waitFor((next) => !next.debug && next.greeting !== null, 10000, `${label} finished hub`);
+  check(`${label}: door turnaround finishes the minigame back at the hub`, Boolean(state), state?.greeting);
+  return state;
+}
+
+async function checkCanvasCentring(viewport) {
+  const size = `${viewport.width}x${viewport.height}`;
+  const h = await openPage(`centring-${size}`, { viewport });
+  const entry = await enterColoring(h);
+  check(`${size}: centring session reaches canvas-question`,
+    entry.state?.phase === 'canvas-question' && entry.state?.canvas, entry.state?.phase);
+  const before = await canvasBox(h.page);
+  await h.page.screenshot({ path: `${OUT}-centring-${size}-before.png` });
+  await answerCanvasQuestion(h, `centring ${size}`, false);
+  const after = await canvasBox(h.page);
+  await h.page.screenshot({ path: `${OUT}-centring-${size}-after.png` });
+  const beforeX = before ? before.x + before.width / 2 : NaN;
+  const afterX = after ? after.x + after.width / 2 : NaN;
+  check(`${size}: canvas centre does not shift when tools appear`,
+    Number.isFinite(beforeX) && Number.isFinite(afterX) && Math.abs(afterX - beforeX) <= 2,
+    `${beforeX.toFixed?.(2)} -> ${afterX.toFixed?.(2)} (delta ${Math.abs(afterX - beforeX).toFixed?.(2)}px)`);
+  await h.page.close();
+}
+
+// The layout contract is checked in isolated pages so every canonical viewport
+// is exercised in this one harness invocation, regardless of argv[4]/argv[5].
+for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
+
+// ---- Session A: persistence visits, six rounds, and door turnarounds ------
 {
   const h = await openPage('multi-round');
   const { page } = h;
@@ -538,25 +884,47 @@ async function walkToDoor(h) {
   const artById = new Map();
   state = await paintRound(h, 1, ROUND_STYLES[0], artById);
 
-  // Round 2 starts before the invitation has begun to fade in.
-  await openNextRound(h, 2, 'blank', (debug) => debug.easelArt === 'blank');
-  state = await paintRound(h, 2, ROUND_STYLES[1], artById);
+  await leaveThroughDoor(h, 'visit 1');
+  await enterColoring(h);
+  // enterColoring returns entry SAMPLES ({phase, room, screen, canvas}), which
+  // carry no `debug`. The restored robots have to be read from a real snapshot.
+  state = await h.ui();
+  check('return after first finish restores the first robot with unchanged artwork',
+    state?.debug?.robots?.length === 1
+      && artById.get(state.debug.robots[0].id) === artKey(state.debug.robots[0].art),
+    JSON.stringify(state?.debug?.robots?.map((robot) => ({ id: robot.id, art: robot.art }))));
+  state = await paintRound(h, 2, ROUND_STYLES[1], artById, { detailedChecks: false });
 
-  // Round 3 interrupts the invitation while its opacity is strictly partial.
-  await openNextRound(h, 3, 'fading', (debug) => debug.easelArt === 'fading'
+  await leaveThroughDoor(h, 'visit 2');
+  await enterColoring(h);
+  state = await h.ui();
+  const returnedArts = state?.debug?.robots?.map((robot) => artKey(robot.art)) ?? [];
+  check('return after second finish restores both robots with unchanged, distinct artwork',
+    state?.debug?.robots?.length === 2
+      && state.debug.robots.every((robot) => artById.get(robot.id) === artKey(robot.art))
+      && new Set(returnedArts).size === 2,
+    JSON.stringify(state?.debug?.robots?.map((robot) => ({ id: robot.id, art: robot.art }))));
+  state = await paintRound(h, 3, ROUND_STYLES[2], artById, { detailedChecks: false });
+
+  // Round 4 starts before the invitation has begun to fade in.
+  await openNextRound(h, 4, 'blank', (debug) => debug.easelArt === 'blank');
+  state = await paintRound(h, 4, ROUND_STYLES[3], artById, { detailedChecks: false });
+
+  // Round 5 interrupts the invitation while its opacity is strictly partial.
+  await openNextRound(h, 5, 'fading', (debug) => debug.easelArt === 'fading'
     && debug.easelArtOpacity > 0 && debug.easelArtOpacity < 1);
-  state = await paintRound(h, 3, ROUND_STYLES[2], artById);
+  state = await paintRound(h, 5, ROUND_STYLES[4], artById, { detailedChecks: false });
 
-  // Round 4 waits until the line art has completely arrived.
-  await openNextRound(h, 4, 'ready', (debug) => debug.easelArt === 'ready');
-  state = await paintRound(h, 4, ROUND_STYLES[3], artById);
-  await h.waitFor((next) => next.debug?.phase === 'room' && next.debug?.canAct, 5000, 'four-robot room controls');
-  await page.screenshot({ path: `${OUT}-room-four-robots.png` });
+  // Round 6 waits until the line art has completely arrived.
+  await openNextRound(h, 6, 'ready', (debug) => debug.easelArt === 'ready');
+  state = await paintRound(h, 6, ROUND_STYLES[5], artById, { detailedChecks: false });
+  await h.waitFor((next) => next.debug?.phase === 'room' && next.debug?.canAct, 5000, 'six-robot room controls');
+  await page.screenshot({ path: `${OUT}-room-six-robots.png` });
 
   await sampleCrowd(h);
   state = await h.ui();
-  check('all four accumulated robots still have their original artwork',
-    state.debug?.robots?.length === 4 && state.debug.robots.every((robot) => artById.get(robot.id) === artKey(robot.art)),
+  check('all six accumulated robots still have their original artwork',
+    state.debug?.robots?.length === 6 && state.debug.robots.every((robot) => artById.get(robot.id) === artKey(robot.art)),
     JSON.stringify(state.debug?.robots?.map((robot) => ({ id: robot.id, art: robot.art }))));
 
   const atDoor = await walkToDoor(h);
@@ -596,8 +964,8 @@ async function walkToDoor(h) {
   state = await h.waitFor((next) => !next.debug && next.greeting !== null, 10000, 'finished hub');
   check('door turnaround finishes the minigame back at the hub', Boolean(state), state?.greeting);
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
-  check('four completed robots finish with three saved stars',
-    saved?.bestStars?.coloring === Math.min(3, 4), JSON.stringify(saved?.bestStars));
+  check('six completed robots finish with three saved stars',
+    saved?.bestStars?.coloring === Math.min(3, 6), JSON.stringify(saved?.bestStars));
 
   const actionsSeen = new Set(h.observedActions);
   check('room UI proves there is no artist, art table, wall frame, or gift action',
@@ -625,7 +993,7 @@ async function walkToDoor(h) {
   // Complete one ordinary round to reveal the room; the dev hook then adds 14
   // more robots, keeping the exercised crowd inside the requested 10–20 band.
   const artById = new Map();
-  await paintRound(h, 1, { color: 'orange', brush: 'large' }, artById,
+  await paintRound(h, 1, ROUND_STYLES[2], artById,
     { screenshots: false, detailedChecks: false });
   await h.waitFor((state) => state.debug?.phase === 'room' && state.debug?.canAct, 5000, 'performance room');
   const spawned = await h.page.evaluate(() => window.__eslDebug.coloringSpawn(14));
@@ -682,7 +1050,11 @@ async function walkToDoor(h) {
 
 check('imported robot geometry contains a paintable centre', insideSilhouette(0.5, 0.5));
 check('the harness covers all palette and brush contracts',
-  ROUND_STYLES.every(({ color, brush }) => PALETTE.includes(color) && BRUSH_IDS.includes(brush))
+  ROUND_STYLES.every(({ colorOffset, brush, decoration }) => Number.isInteger(colorOffset)
+    && colorOffset > 0
+    && colorOffset < PALETTE.length
+    && BRUSH_IDS.includes(brush)
+    && decoration.every(([x, y]) => insideSilhouette(x, y)))
     && BRUSH_IDS.includes(DEFAULT_BRUSH));
 check('no console or page errors', errors.length === 0, errors.slice(0, 4).join(' || '));
 for (const note of notes) console.log(`NOTE  ${note}`);

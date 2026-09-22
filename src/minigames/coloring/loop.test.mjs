@@ -75,6 +75,19 @@ test('nothing ever removes a robot from the room', () => {
   // The only permitted clear-out is teardown.
   const clears = [...source.matchAll(/livingRobots\.length = 0/g)];
   assert.equal(clears.length, 2, 'livingRobots is emptied somewhere other than enter() and exit()');
+  assert.ok(!source.includes('clearColoringSession'), 'controller teardown clears session robots');
+});
+
+test('finished robots are saved before teardown and rebuilt after the world', () => {
+  const save = source.indexOf('saveCompletedRobot(surface.paint, pendingMember)');
+  const paintTeardown = source.indexOf('disposePaintingOverlay();', save);
+  assert.ok(save > 0 && paintTeardown > save,
+    'the live paint canvas is torn down before the detached session copy');
+  const world = source.indexOf('buildWorld();');
+  const restore = source.indexOf('restoreSavedRobots();', world);
+  assert.ok(world > 0 && restore > world, 'saved robots are not rebuilt after the room exists');
+  assert.match(source, /createPaperPuppet\(\{ paint: record\.artwork/);
+  assert.match(source, /crowd\.join\(record\.crowd\)/);
 });
 
 test('there is exactly one call to finish, and it is the turnaround', () => {
@@ -110,6 +123,47 @@ test('the close-up sits below the HUD, so the Talk control is reachable', () => 
   // Both were z-index 20, and this overlay is appended later — so the page
   // covered the only button the child needs in order to ask the question.
   assert.match(source, /\.coloring-screen \{[^}]*z-index: 18/);
+});
+
+test('the canvas has balanced columns and hidden tools keep their space', () => {
+  assert.match(source,
+    /grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(source,
+    /data-stage="asking"\] \.coloring-side,[\s\S]*?visibility: hidden;/);
+  assert.match(source, /class="coloring-side-spacer"/);
+});
+
+test('the emergence retreats the player clear of the landing and holds the view', () => {
+  const playerOffset = Number(source.match(/PLAYER_RETREAT_Z = EASEL\.z \+ ([\d.]+)/)?.[1]);
+  const robotOffset = Number(source.match(/ROBOT_LANDING_Z = EASEL\.z \+ ([\d.]+)/)?.[1]);
+  assert.ok(playerOffset - robotOffset > 1,
+    `player and landed robot are only ${playerOffset - robotOffset} apart`);
+  assert.match(source, /PLAYER_RETREAT_SECONDS = 0\.55/);
+  assert.match(source, /retreatEase = 1 - \(1 - retreatProgress\) \*\* 3/);
+  assert.match(source, /REVEAL_HOLD = 1\.2/);
+  assert.match(source, /startRoaming\(member\.points, \{ \.\.\.member, from \}\)/);
+});
+
+test('room dimensions and all three wall heights come from shared constants', () => {
+  for (const name of ['ROOM_WIDTH', 'ROOM_DEPTH', 'WALL_HEIGHT', 'WALL_THICKNESS',
+    'DOOR_WIDTH', 'DOOR_HEIGHT']) {
+    assert.match(source, new RegExp(`const ${name} =`), `${name} is missing`);
+  }
+  assert.equal([...source.matchAll(/wallMaterial,[^\n]*\n?[^;]*WALL_HEIGHT/g)].length, 4,
+    'the full-height back and side wall pieces do not share WALL_HEIGHT');
+  assert.match(source, /lintelHeight = WALL_HEIGHT - DOOR_HEIGHT/,
+    'the doorway lintel does not reach the shared wall top');
+  assert.ok(!source.includes('5.55'), 'the old hand-tuned back wall remains');
+  assert.ok(!source.includes('3.6, 11.5'), 'the short side-wall dimensions remain');
+});
+
+test('the easel canvas planes share one leaned group', () => {
+  assert.match(source, /canvasGroup\.rotation\.x = -0\.08/);
+  assert.equal([...source.matchAll(/addPart\(canvasGroup, plane/g)].length, 2,
+    'paper and artwork are not both parented to the leaned canvas group');
+  assert.match(source, /leftFrontLeg\.rotation\.z = -0\.15/);
+  assert.match(source, /rightFrontLeg\.rotation\.z = 0\.15/);
+  assert.match(source, /rearLeg\.rotation\.x = 0\.28/);
 });
 
 // --- the copy ---------------------------------------------------------------
