@@ -15,6 +15,24 @@ const STRINGS = UI.coloring;
 const MOVE_SPEED = 5;
 const NPC_RADIUS_SQ = 3 * 3;
 
+/**
+ * The two sounds the shared table does not already have.
+ *
+ * `audio.playSfx` falls back to its second argument when the name is unknown,
+ * so an ad-hoc tone needs no new dependency and no edit to the shared SFX
+ * table, which the other four minigames also read.
+ *
+ * The four Done outcomes used to play the same cheerful blip, which told a
+ * child who cannot read the Japanese quickly nothing at all. Now: a low buzz
+ * for ALMOST, the existing falling `retry` for a failed start-up, the ordinary
+ * tap for INCOMPLETE (it is not a mistake), and rising `complete` for success.
+ */
+const SOUNDS = Object.freeze({
+  partialBuzz: { frequency: 190, endFrequency: 130, duration: 0.22, type: 'square', gain: 0.06 },
+  // A sheet of paper landing on a wooden floor: short, low, and almost quiet.
+  paperTap: { frequency: 220, endFrequency: 120, duration: 0.05, type: 'triangle', gain: 0.045 },
+});
+
 /** The on-page half of the activation: glow, wiggle, a hop, then peel away. */
 const PEEL_SECONDS = 1.65;
 /** The puppet falls to the floor, then plays its startup, then roams. */
@@ -654,15 +672,18 @@ export function createColoring(ctx) {
     }
 
     if (result.outcome === OUTCOMES.ALMOST) {
-      audio.playSfx('interact');
+      audio.playSfx('almost', SOUNDS.partialBuzz);
       showFeedback(STRINGS.almost, STRINGS.almostHint);
       // Only labelled regions may be pointed at. The child can read the word.
       flashWrongLabels(result.wrongLabelIds);
     } else if (result.outcome === OUTCOMES.NOT_READY) {
-      audio.playSfx('interact');
+      // `retry` is the existing falling tone: a power-down, not a buzzer.
+      audio.playSfx('retry');
       showFeedback(STRINGS.notReady);
       sputter();
     } else {
+      // Deliberately the ordinary tap sound. INCOMPLETE is not a mistake, and a
+      // failure noise here would send a child hunting for a wrong colour.
       audio.playSfx('interact');
       showFeedback(STRINGS.incomplete);
     }
@@ -704,8 +725,14 @@ export function createColoring(ctx) {
     finishedCanvas = surface.snapshot(PICTURE_SIZE);
     paintInstruction.textContent = STRINGS.alive;
     canvasWrap.classList.add('coloring-canvas-wrap--alive');
-    audio.playSfx('stamp');
-    puppet = createPaperPuppet({ colors: snapshot });
+    // The rising sparkle, not the stamp thud: this is the robot powering up.
+    audio.playSfx('complete');
+    puppet = createPaperPuppet({
+      colors: snapshot,
+      // A paper tap on every touchdown. The puppet reports the landing rather
+      // than index.js re-deriving the hop clock.
+      onLand: () => audio.playSfx('land', SOUNDS.paperTap),
+    });
     peelRemaining = PEEL_SECONDS;
   }
 
@@ -746,7 +773,12 @@ export function createColoring(ctx) {
     finishedTexture = ownCanvasTexture(finishedCanvas);
     const material = makeMaterial(0xffffff, { map: finishedTexture });
     carriedPicture = new THREE.Mesh(ownGeometry(new THREE.PlaneGeometry(1, 1)), material);
-    carriedPicture.position.set(0, 1.35, 0.57);
+    // Held so the *camera* can read it. On the player's front, facing the NPC,
+    // it is physically right and completely invisible: the camera is a fixed
+    // rear three-quarter follow and the child walks away from it to deliver.
+    // This is the artwork the whole minigame is about, so it faces the viewer.
+    carriedPicture.position.set(0, 1.35, -0.57);
+    carriedPicture.rotation.y = Math.PI;
     carriedPicture.scale.setScalar(0.72);
     player.add(carriedPicture);
   }

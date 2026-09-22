@@ -1,6 +1,6 @@
 // Scripted Coloring playthrough, driven through the mic-free fallback. Run from this repo:
 //   npm run build && npx vite preview --port 5199   (in another terminal)
-//   node scripts/playthrough-coloring.mjs http://localhost:5199/ .tmp/col
+//   node scripts/playthrough-coloring.mjs http://localhost:5199/ .tmp/col [w] [h]
 //
 // Session A walks the whole loop and every one of the four activation outcomes:
 // ask, hear the favourite colour, prove tap-to-fill and the tools, then press
@@ -25,6 +25,13 @@ import { COMPLETION_THRESHOLD, PALETTE } from '../src/minigames/coloring/colorSt
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/col';
+// Viewport is an argument so the same run can be repeated at a real classroom
+// resolution; 1024x600 stays the default because it is the tightest one that
+// still has to work.
+const VIEW = {
+  width: Number(process.argv[4]) || 1024,
+  height: Number(process.argv[5]) || 600,
+};
 const SAVE_KEY = 'esl-likes-save-v1';
 
 const STARRED = REGIONS.find((r) => r.type === 'required-favorite').id;
@@ -47,7 +54,7 @@ const tapPoint = (regionId) => {
 const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
-const context = await browser.newContext({ viewport: { width: 1024, height: 600 } });
+const context = await browser.newContext({ viewport: VIEW });
 await context.addInitScript((key) => {
   if (!sessionStorage.getItem('seeded')) {
     localStorage.setItem(key, JSON.stringify({ version: 1, settings: { micFree: true, difficulty: 1 } }));

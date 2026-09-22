@@ -2170,3 +2170,48 @@ printed on the page anyway, and the favourite is the one thing a child is meant
 to have remembered. A playthrough hears it in the dialogue, like they do, and
 discovers the labelled colours by watching their words fade, which tests that
 behaviour rather than trusting it.
+
+## 2026-09-22 — the puppet-is-the-drawing claim, measured
+
+**Re-rendering each piece is equivalent to cropping the finished canvas, and
+now there is evidence rather than an argument.** The plan asked twice, firmly,
+for puppet pieces to be cropped and masked out of the finished bitmap. The
+objection to re-rendering is only valid if the two differ, so
+`src/dev/robot-preview/index.html` measures it: it draws the finished page and
+each of the nine pieces at full resolution and compares them pixel by pixel on
+a 3px lattice.
+
+Of **16,180 interior samples, 0 differ**. Interior means fully opaque in its
+own piece across its whole neighbourhood *and* alpha exactly 0 in every other
+piece there — a neighbour's antialiased outline owns nothing but still tints the
+page, and counting those as interior is what first made this look like a real
+mismatch. All 92 differences fall in 622 seam samples, where the page carries a
+neighbour's black outline over the join and the lone piece does not. That
+difference is *correct*: the pieces are coming apart, so a neighbour's ink must
+not be baked into them — which is one thing canvas cropping would have got
+wrong. All seven colours survive the cut, and region ownership is exclusive.
+
+Keep those checks. They are the only thing standing between "the puppet is the
+child's drawing" and a claim nobody has tested.
+
+**The four Done outcomes get four distinct sounds.** They all played the same
+cheerful blip, which told a child who cannot read the Japanese quickly nothing
+at all. Now: a low buzz for ALMOST, the existing falling `retry` for a failed
+start-up, the *ordinary tap* for INCOMPLETE — deliberately not a failure noise,
+because nothing is wrong — and the rising `complete` sparkle for success. Plus a
+quiet paper-tap on every landing, which the puppet reports through an `onLand`
+callback driven by the hop stage now carried on the pose, so `index.js` never
+keeps a second copy of the hop clock. `audio.playSfx` falls back to its second
+argument for an unknown name, so the two new tones needed no edit to the SFX
+table the other four minigames share.
+
+**The antenna glow is a halo, not a blob.** A bright additive core washed the
+antenna light to white, and that region is one of the two the child is *graded*
+on — its colour has to stay readable. The gradient now peaks at 0.42 of the
+quad's radius, just outside the light itself, with a nearly clear centre.
+
+**The carried picture faces the camera, not the NPC.** Held in front of the
+player it is physically right and completely invisible: the camera is a fixed
+rear three-quarter follow and the child walks away from it to deliver. It now
+sits on the player's back facing the viewer, unmirrored. This is the artwork the
+whole minigame is about; the delivery walk is pointless if nobody can see it.

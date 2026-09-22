@@ -354,3 +354,29 @@ test('stepping with a nonsense delta neither moves nor breaks the plan', () => {
   assert.ok(insideSafeArea(plan.position));
   assert.deepEqual(plan.position, before, 'a bad delta must not teleport the puppet');
 });
+
+test('a pose carries its hop stage, and only while hopping', () => {
+  for (const state of [STATES.IDLE, STATES.STARTUP]) {
+    assert.equal(poseFor(state, 0.3).stage, null, state);
+  }
+  for (const state of [STATES.HOP, STATES.CELEBRATE]) {
+    const stages = samples(200)
+      .map((k) => poseFor(state, k * DURATIONS[state]).stage);
+    assert.ok(stages.every(Boolean), `${state} left a pose with no stage`);
+    assert.ok(new Set(stages).size === 5, `${state} reported ${new Set(stages).size} stages`);
+  }
+});
+
+test('one hop reports exactly one touchdown', () => {
+  // This is what the paper-tap sound listens for: the air -> land edge. Two
+  // edges per hop would double the sound, none would lose it silently.
+  let previous = null;
+  let landings = 0;
+  const frames = Math.round(DURATIONS[STATES.HOP] * 3 * 60);
+  for (let frame = 0; frame <= frames; frame += 1) {
+    const stage = poseFor(STATES.HOP, (frame / 60)).stage;
+    if (stage === 'land' && previous !== 'land') landings += 1;
+    previous = stage;
+  }
+  assert.equal(landings, 3, 'three hops must make three taps');
+});

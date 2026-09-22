@@ -31,8 +31,9 @@ export const DURATIONS = Object.freeze({
 /**
  * The squash/stretch ceiling, as a fraction either side of 1.
  *
- * A piece group is scaled non-uniformly; nothing deforms and there is no
- * skeleton. 0.18 is a paper toy flexing. Much more and it reads as rubber.
+ * A piece group is scaled non-uniformly. The quads themselves are never bent —
+ * no skeleton and no vertex deformation — so this is a paper toy flexing, and
+ * 0.18 is about the limit before it starts reading as rubber.
  */
 export const SQUASH_LIMIT = 0.18;
 
@@ -152,6 +153,10 @@ function pose(overrides = {}) {
     blink: overrides.blink ?? 0,
     glow: overrides.glow ?? 0,
     progress: overrides.progress ?? 0,
+    // Which part of a hop this is, or null when the state is not hopping.
+    // Carried on the pose so the renderer can notice the touchdown and make a
+    // paper-tap sound without keeping a second clock of its own.
+    stage: overrides.stage ?? null,
   };
 }
 
@@ -261,6 +266,7 @@ export function poseFor(state, t = 0) {
     blink: celebrating ? 0 : blinkAt(seconds),
     glow: celebrating ? 0.6 : 0.25,
     progress: hopProgress(cycle),
+    stage: phase.stage,
   });
 }
 

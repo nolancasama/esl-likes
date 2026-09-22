@@ -125,9 +125,17 @@ const shadowTexture = () => radialTexture([
   [1, 'rgba(59,47,74,0)'],
 ]);
 
+/**
+ * A halo, not a blob.
+ *
+ * A bright core washed the antenna light to white — and that region is one of
+ * the two the child is *graded* on, so its colour has to stay readable. The
+ * peak therefore sits at 0.42 of the quad's radius, just outside the light
+ * itself, and the centre is nearly clear.
+ */
 const glowTexture = () => radialTexture([
-  [0, 'rgba(255,246,196,1)'],
-  [0.3, 'rgba(255,225,120,0.72)'],
+  [0, 'rgba(255,240,170,0.16)'],
+  [0.42, 'rgba(255,230,140,0.6)'],
   [1, 'rgba(255,214,90,0)'],
 ]);
 
@@ -138,7 +146,7 @@ const glowTexture = () => radialTexture([
  * @param {object} options.colors  the child's finished region colours
  * @param {number} [options.textureSize] picture size the textures are drawn at
  */
-export function createPaperPuppet({ colors = {}, textureSize = 900 } = {}) {
+export function createPaperPuppet({ colors = {}, textureSize = 900, onLand } = {}) {
   const disposables = { geometries: new Set(), materials: new Set(), textures: new Set(), canvases: [] };
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
 
@@ -294,6 +302,9 @@ export function createPaperPuppet({ colors = {}, textureSize = 900 } = {}) {
   let mirror = 1;
 
   function applyPose(newPose) {
+    // The touchdown, reported once per hop. The pose carries the hop stage, so
+    // noticing the air -> land edge here needs no second clock.
+    if (newPose.stage === 'land' && lastPose.stage !== 'land') onLand?.();
     lastPose = newPose;
     body.position.set(
       newPose.root.x * PUPPET_HEIGHT * 0.5,

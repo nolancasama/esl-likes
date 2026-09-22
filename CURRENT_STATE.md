@@ -11,12 +11,18 @@ either way; the numbers in this file go stale within hours.
 
 ## Latest pass (2026-09-22) — the Coloring robot comes alive
 
-Claude direct (the router found no delegating worker). **Nothing is committed
-for this pass** — the owner asked for no commit or push until they have looked
-at it. The one commit on the branch, `de8f62e`, predates the plan and only fixes
-the three rendering defects the previous pass recorded. Branch
-`coloring-robot-alive`, off `main` at `9bbac23` (which is pushed; the earlier
-note that `main` sat at `8d83807` was stale).
+Claude direct (the router found no delegating worker). Two rounds of work:
+the rebuild, **committed and pushed** as `de8f62e` + `1bd0f13` on branch
+`coloring-robot-alive`; then a follow-up pass answering a second plan, which is
+**complete, green and deliberately uncommitted** because that plan said not to
+commit or push. `main` is untouched at `9bbac23` (pushed).
+
+The follow-up plan was written against the pre-rebuild tree — it expected
+`scoring.js` to still exist, `robotPuppet.js` not to, and no living robot in the
+atelier, all of which were already done. It still caught three real things: a
+stale "nothing deforms" comment in `robotDefinition.js`, four Done outcomes all
+playing the same sound with no landing sound at all, and camera readability
+needing an actual look at a classroom resolution. All three are fixed.
 
 The whole loop now works: **listen → remember a favourite colour → colour the
 required parts → decorate freely → press できた → the child's exact robot comes
@@ -52,38 +58,54 @@ alive and hops around the 3D atelier as a paper puppet.**
 
 ### Verified
 
-`npm test` **568/568**. `npm run build` OK. The rewritten
-`npm run playthrough:coloring` passes **59/59**, covering all four activation
-outcomes, undo/eraser/reset, keyboard filling, the hop, and the anti-shortcut
-route. **The harness is TRUSTED**: it was proved both ways — 59/59 known-good,
-and 58/59 with `HOP_HEIGHT` forced to 0, failing on exactly the hop check.
-Layout checked at 760×420, 1024×600 and 1366×768 with no overflow and 44px+
-swatches. Claude looked at the colouring page, the piece cut, the hop frames and
-the room.
+`npm test` **570/570**. `npm run build` OK. `npm run playthrough:coloring`
+passes **59/59** at both 1024x600 and 1366x768 (the viewport is now argv[4]/[5]),
+covering all four activation outcomes, undo/eraser/reset, keyboard filling, the
+hop and the anti-shortcut route. **The harness is TRUSTED** — proved both ways:
+59/59 known-good, and 58/59 with `HOP_HEIGHT` forced to 0, failing on exactly
+the hop check. Layout checked at 760x420, 1024x600 and 1366x768 with no overflow
+and 44px+ swatches.
+
+**The "puppet is the child's drawing" claim is measured, not asserted.**
+`src/dev/robot-preview/index.html` compares the finished page against all nine
+piece renders pixel by pixel and prints five verdicts on the page (and to
+`window.__checks`): **16,180 interior samples, 0 differ**; all 92 differences
+sit in 622 seam samples where the page carries a neighbour's outline over the
+join and the lone piece correctly does not; all seven colours survive; region
+ownership is exclusive. Keep this check.
 
 ### Three things that were not obvious
 
 1. **A flat cut-out must not face its travel direction.** Rotating it to its
    heading showed the camera its edge and the robot was an invisible sliver. It
    flips (mirror on X) and leans at most 0.17rad instead.
-2. **An untextured quad is a rectangle.** The antenna's additive "glow" rendered
-   as a white box above the robot's head, and the shadow as a grey card. Both
-   needed radial-gradient textures. Only a screenshot showed this.
-3. **A bounding-box centre is not inside its region.** See `tappablePoint`.
+2. **An untextured quad is a rectangle.** The antenna's additive "glow"
+   rendered as a white box above the robot's head and the shadow as a grey
+   card; both needed radial-gradient textures. The glow then still washed the
+   antenna light — a *graded* region — to white, so it is now a halo peaking
+   outside the light rather than a bright core.
+3. **A bounding-box centre is not inside its region.** The middle of the torso
+   belongs to the chest panel. See `tappablePoint`.
 
 ### NEXT STEPS for a fresh session
 
-1. **Owner acceptance.** `npm run dev`, enter the Atelier, and play a round.
-   Judge the hop and the activation by watching them. Nothing is committed.
-2. **Commit when the owner is happy** — the work is complete and green, it is
-   held back only by their instruction.
-3. Optional polish noticed but not done: the carried picture plane faces away
-   from the camera while the child walks it to the artist (pre-existing, not a
-   regression); and the effective on-screen size of a small region is ~26px at
-   1024×600, comfortable for a cursor but tight for a finger.
-4. **Owner acceptance of the scene editor** is still outstanding from the
+1. **Owner acceptance.** `npm run dev`, enter the Atelier, play a round, and
+   judge the hop and the activation by watching them.
+2. **The pass is complete and green but NOT committed** — the follow-up plan
+   said not to commit or push. The earlier half of this work *is* pushed:
+   `main` is at `9bbac23` and branch `coloring-robot-alive` at `1bd0f13` is on
+   `origin`. Everything since `1bd0f13` is uncommitted in the tree.
+3. **Owner acceptance of the scene editor** is still outstanding from the
    previous pass: open the Zoo with `npm run dev` and press `P`.
-5. **Migrate scenery placements to layout JSON** — still not started.
+4. **Migrate scenery placements to layout JSON** — still not started.
+
+### Known visual limits
+
+- A small region's on-screen size is ~26px at 1024x600 and ~36px at 1366x768.
+  Comfortable for a cursor or touchpad, which is the target; tight for a finger.
+- The puppet stays nearly parallel to the camera plane by design, so it never
+  turns to show its side. Viewed exactly edge-on it is a sliver, which is what
+  paper does; the lean cap keeps it out of that range in play.
 
 ## Previous pass (2026-09-22) — a reusable scene placement editor
 

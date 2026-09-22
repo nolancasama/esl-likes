@@ -37,8 +37,13 @@ export const PIECES = Object.freeze([
 ]);
 
 /**
- * Where each piece turns when the puppet walks, in the same normalised space.
- * A piece rotates about its own pivot; nothing deforms.
+ * Where each piece turns when the puppet hops, in the same normalised space.
+ *
+ * A piece rotates about its own pivot. It is also lightly squashed and
+ * stretched — see `SQUASH_LIMIT` in `robotPuppet.js` — because a hop with no
+ * compression on landing reads as a sprite being teleported upward. That is
+ * non-uniform scaling of a whole group, so the flat quads themselves are never
+ * bent: no skeleton, no vertex deformation, and nothing here changes shape.
  */
 export const PIVOTS = deepFreeze({
   head: { x: 0.5, y: 0.345 },
