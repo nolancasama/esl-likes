@@ -163,28 +163,24 @@ function pose(overrides = {}) {
 /**
  * Limbs during a hop, deliberately loose.
  *
- * Arms flare outward, legs spread a little in the air, and the forearms and the
- * antenna are sampled from *earlier* in the cycle so they trail the piece they
- * hang from. That lag is the whole reason this reads as a puppet rather than a
- * rigid sprite being moved up and down.
+ * Five pieces now, not nine: one arm each side and one leg each side. The
+ * forearm and antenna lag that used to sell this are gone with their pieces, so
+ * the lag moves to the whole limb — each arm is sampled from slightly *earlier*
+ * in the cycle than the body, which is what still reads as a puppet rather than
+ * a rigid sprite being moved up and down. The antenna rides the body now.
  */
 function hopRotations(t, flare = 1) {
   const here = airborneness(hopPhase(t).height);
-  const lagged = airborneness(hopPhase(t - 0.09).height);
-  const trail = airborneness(hopPhase(t - 0.16).height);
+  const lagged = airborneness(hopPhase(t - 0.1).height);
 
-  const arm = (0.16 + 0.95 * here) * flare;
-  const forearm = (0.1 + 0.7 * lagged) * flare;
-  const leg = 0.2 * here * flare;
+  // The arm trails the body, so it is driven by the lagged phase, not `here`.
+  const arm = (0.18 + 0.95 * lagged) * flare;
+  const leg = 0.22 * here * flare;
 
   return {
-    head: -0.05 * here,
-    antenna: 0.34 * trail * flare,
-    torso: 0,
-    leftUpperArm: -arm,
-    leftForearm: -forearm,
-    rightUpperArm: arm,
-    rightForearm: forearm,
+    body: 0,
+    leftArm: -arm,
+    rightArm: arm,
     leftLeg: -leg,
     rightLeg: leg,
   };
@@ -210,12 +206,10 @@ export function poseFor(state, t = 0) {
         scale: squashStretch(-0.06 * bob),
       },
       rotations: {
-        head: 0.03 * Math.sin(cycle * Math.PI * 2 + 1.1),
-        antenna: 0.16 * Math.sin(cycle * Math.PI * 2 * 1.35),
-        leftUpperArm: -0.07 - 0.04 * bob,
-        rightUpperArm: 0.07 + 0.04 * bob,
-        leftForearm: -0.05 - 0.03 * bob,
-        rightForearm: 0.05 + 0.03 * bob,
+        leftArm: -0.08 - 0.05 * bob,
+        rightArm: 0.08 + 0.05 * bob,
+        leftLeg: -0.015 * bob,
+        rightLeg: 0.015 * bob,
       },
       blink: blinkAt(seconds),
     });
@@ -237,12 +231,10 @@ export function poseFor(state, t = 0) {
         scale: squashStretch(0.35 * (1 - k) - 0.55 * bounce),
       },
       rotations: {
-        head: -0.06 * bounce,
-        antenna: 0.5 * bounce + shake * 3,
-        leftUpperArm: -(0.1 + 1.0 * flare),
-        rightUpperArm: 0.1 + 1.0 * flare,
-        leftForearm: -0.75 * flare,
-        rightForearm: 0.75 * flare,
+        leftArm: -(0.1 + 1.05 * flare),
+        rightArm: 0.1 + 1.05 * flare,
+        leftLeg: -0.12 * bounce,
+        rightLeg: 0.12 * bounce,
       },
       // Powering up: the glow leads the movement.
       glow: easeOut(clamp(k / 0.7, 0, 1)),
@@ -415,21 +407,24 @@ export const PIECE_LAYOUTS = Object.freeze(PIECES.map(pieceLayout));
  * piece is still a rigid flat quad.
  */
 export const PIECE_PARENTS = Object.freeze({
-  torso: null,
-  head: 'torso',
-  antenna: 'head',
-  leftUpperArm: 'torso',
-  leftForearm: 'leftUpperArm',
-  rightUpperArm: 'torso',
-  rightForearm: 'rightUpperArm',
-  leftLeg: 'torso',
-  rightLeg: 'torso',
+  body: null,
+  leftArm: 'body',
+  rightArm: 'body',
+  leftLeg: 'body',
+  rightLeg: 'body',
 });
 
-/** Depth order front to back, so the arms sit in front of the torso. */
+/**
+ * Depth order front to back.
+ *
+ * Every limb sits **behind** the body, which is the whole trick for hiding the
+ * seams: each limb shape overlaps the torso in the definition, and with the
+ * body in front that overlap is covered at rest. Put an arm in front instead
+ * and the join becomes a visible step, with the torso's paint showing on the
+ * arm where the two share pixels.
+ */
 export const PIECE_DEPTH = Object.freeze({
-  leftLeg: -0.4, rightLeg: -0.4, torso: 0, head: 0.2, antenna: -0.2,
-  leftUpperArm: 0.6, rightUpperArm: 0.6, leftForearm: 0.8, rightForearm: 0.8,
+  leftArm: -0.5, rightArm: -0.5, leftLeg: -0.7, rightLeg: -0.7, body: 0,
 });
 
 /**

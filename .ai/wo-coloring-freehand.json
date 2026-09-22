@@ -1,0 +1,67 @@
+{
+  "task": "Reverse the Coloring minigame's interaction model: replace tap-to-fill over 18 instructional regions with true freehand brush painting over one simple connected robot, gated by a ROBOT POWER bar that fills from unique painted area, and simplify the paper puppet from nine pieces to five. Keep the working come-to-life system.",
+  "context": "esl-likes is a five-minigame 3D ESL game for Japanese elementary classrooms, deployed to GitHub Pages from main. The Coloring minigame was just rebuilt into tap-to-fill colouring over an 18-region robot with a required-favourite star region, two labelled required colours, four activation outcomes, and a nine-piece paper puppet that hops around the 3D atelier. The owner has judged that design 'too segmented and instructional' - the robot reads as a worksheet and as disconnected construction pieces. The new direction is free brush painting, a simpler connected robot, three brush sizes, and a power bar that fills as unique robot area gets coloured; the robot comes alive automatically at full power. The puppet, the hop, the roam and the wall-frame behaviour all WORK and must not regress. Read .ai/coloring-freehand-spec.md first - it is the frozen contract and records which parts of the previous design are being deliberately deleted and why.",
+  "requirements": [
+    "Read .ai/coloring-freehand-spec.md first and treat it as the contract. The new robot geometry and silhouette in robotDefinition.js are already rewritten and visually accepted by the controller - build against them, do not redesign them.",
+    "Rewrite the painting surface as freehand brush painting: pointer down/move/up, round brush, interpolated segments so a fast touchpad drag leaves no gap, and the black line art redrawn over the paint on every frame. Reference the original implementation at commit 720d86d (src/minigames/coloring/picture.js) for the stroke interpolation, which was already touchpad-friendly.",
+    "Three brush sizes, no slider: Small 18px, Medium 38px, Large 70px diameter at the 720px picture size, Medium selected by default. The UI must read at a glance - three brush-circle icons sized in proportion. Large must make filling the head and torso fast; Small must make the antenna, eyes and feet practical.",
+    "All seven lesson colours stay. Do not reintroduce the old three-colour restriction.",
+    "ROBOT POWER: a large bar low on the colouring screen, filling from UNIQUE painted area inside the robot silhouette. Repainting the same place must never charge it further, background paint must never charge it, and stroke count, time and brush travel must never charge it. Use the coarse coverage grid in coverage.js, which is already built and tested.",
+    "Full power is reached at the spec's coverage threshold, not at 100% - the robot must come alive well before every corner is filled. Report how many seconds of large-brush painting it actually takes in the browser, and say so if that is too fast to feel personal.",
+    "The favourite colour is a BONUS, never a requirement: new area painted in the NPC's favourite colour charges the bar 1.5x. A child who never remembers the colour must still be able to activate the robot by colouring enough. No failure state, no correctness, and nothing on the robot may name or mark a colour.",
+    "Listen Again stays, may still cost a small memory bonus, and must never block activation.",
+    "Power milestones, brief and playful, not interrupting: a bar pulse around 25%, the antenna flickering around 50%, the eyes blinking or glowing around 75-80%, and a strong pulse plus a charging sound at full.",
+    "At full power, activation happens AUTOMATICALLY: paint input stops, the charging sound plays, the robot wiggles, blinks, its antenna reacts, it hops in place, peels off the page, and the existing transition carries it into the atelier where it lands and starts hopping. Remove the Done button - the bar replaces it.",
+    "Simplify the puppet to FIVE pieces: body (head + neck + torso + antenna as one continuous central cutout), leftArm, rightArm, leftLeg, rightLeg. No separate upper-arm/forearm, and no separate antenna piece.",
+    "Seams must be invisible at rest. The limb shapes already overlap the torso in the new definition; the piece masks must keep that overlap, and the body piece draws in front of the limbs. Standing still, the puppet must read as one connected paper robot, not five rectangles.",
+    "PUPPET TEXTURES NOW COME FROM THE PAINT CANVAS, which is the one real change of mechanism from the previous pass. With freehand painting the canvas holds information no region data can reproduce, so each piece's texture is the finished canvas cropped to that piece's bounds and masked by that piece's silhouette shapes, with the line art composited on top. Do NOT rebuild colours from region data - there are no region colours any more.",
+    "Paint may spill slightly outside the line art and that is fine - a colouring book tolerates it. Only paint inside the silhouette counts toward power, and only the silhouette is cut out for the puppet, so a spill is visible on the page and absent from the robot.",
+    "Keep Undo and the Eraser. Undo reverses a whole stroke, not a pixel, and must restore the coverage grid to what it was before that stroke. The eraser removes paint and gives back the coverage it removes.",
+    "Keep the hop exactly as it is - crouch, hop, airborne tilt, land, squash, recover - and keep the roam loop, the mirror-not-rotate facing, the soft shadow and the paper cut edge. Adapt the limb poses to one-piece arms and legs: arms flare and lag, legs spread and stretch, the body squashes and stretches and tilts. The antenna moves through the body's own motion now that it is part of the body piece.",
+    "Keep the wall frame showing the finished static artwork while the living robot hops around the room.",
+    "Delete the systems that only existed for region colouring: required-favorite and required-label types, label placement and leader lines, tap-to-fill hit testing, required-region correctness, the four outcomes, and the 40% free-region rule. Keep whatever the puppet still needs (piece bounds, pivots, silhouette shapes). Do not leave two competing systems live.",
+    "Scoring is simple: coverage, the favourite-colour bonus, and a small no-Listen-Again bonus. Never score neatness, colour correctness or staying inside the lines.",
+    "Update the unit tests to the new model, and rewrite scripts/playthrough-coloring.mjs, which currently drives tap-to-fill and asserts the four outcomes. It must now drag strokes, prove that repainting does not farm power, that background paint does not charge, that the favourite colour charges faster, and that full power activates automatically.",
+    "Append a dated entry to DESIGN_DECISIONS.md recording what is being deleted and why, and that puppet textures now come from the canvas because freehand painting made that the only lossless source.",
+    "Report: the v1 geometry reused, the final silhouette, the piece count, the brush sizes, the power threshold, the favourite multiplier, how unique coverage is measured, how undo and the eraser affect coverage, how the puppet preserves the freehand artwork, whether seams show at rest, the hop after simplification, the test count, the browser playthrough result, and anything still visually wrong."
+  ],
+  "constraints": [
+    "Do NOT regress the come-to-life system. The hop maths, the roam loop, the mirror-not-rotate facing, the squash limits, the paper cut edge, the soft shadow and the glow halo all work and were hard won.",
+    "Do NOT reintroduce a walk cycle, a rigged or modelled 3D robot, or a separate antenna piece.",
+    "Do NOT write any colour name or instruction marker on the robot. No labels, no star, no required region. The child must see a colouring book page, not a worksheet.",
+    "Do NOT let repainting, stroke count, painting time or brush travel charge the power bar. Unique area inside the silhouette only.",
+    "Do NOT make the favourite colour mandatory or introduce any failure state. Creativity is never graded.",
+    "Do NOT clip brush strokes to the robot outline while drawing unless testing shows it feels better.",
+    "Source edits go through structured file writes. If a shell quoting or escaping attempt fails even once while editing a file, stop using the shell for that edit and write the file directly.",
+    "No new runtime or dev dependencies.",
+    "Do not attempt a browser playthrough; the sandbox cannot start this project's preview server. Behavioural acceptance is the controller's."
+  ],
+  "startingPoints": [
+    ".ai/coloring-freehand-spec.md",
+    "src/minigames/coloring/robotDefinition.js",
+    "src/minigames/coloring/coverage.js",
+    "src/minigames/coloring/robotRenderer.js",
+    "src/minigames/coloring/picture.js",
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/robotPuppet.js",
+    "src/minigames/coloring/robotScoring.js",
+    "src/minigames/coloring/colorState.js",
+    "scripts/playthrough-coloring.mjs",
+    "src/dev/robot-preview/index.html"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Play a full round in a real browser at 760x420, 1024x600 and 1366x768: hear a favourite colour, paint freely with all three brushes, watch the power bar fill only from new area inside the robot, confirm repainting and background paint charge nothing, confirm the favourite colour charges faster, and confirm the robot activates automatically at full power carrying the child's exact brush strokes into the atelier as a five-piece puppet with no visible seams at rest. The worker sandbox cannot start this project's vite preview."
+  },
+  "category": "feature",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large"
+}

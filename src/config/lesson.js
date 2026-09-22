@@ -132,9 +132,7 @@ export const UI = Object.freeze({
     askArtist: 'ボタンを おして、しつもんしよう',
     paintTitle: 'ロボットに いろを ぬろう',
     chooseColor: 'まず いろを えらぼう',
-    paintHint: '★の ところは おともだちの すきないろで ぬろう',
-    tapHint: 'いろを えらんで、ぬりたい ところを タップ！',
-    ready: 'すてき！ できたら「できた」を おそう',
+    paintHint: 'いろを えらんで、ロボットを ぬろう！',
     paletteLabel: 'いろを えらぶ',
     colors: {
       red: 'あか',
@@ -145,6 +143,12 @@ export const UI = Object.freeze({
       purple: 'むらさき',
       orange: 'オレンジ',
     },
+    brushLabel: 'ふでの おおきさ',
+    brushes: {
+      small: 'ちいさい',
+      medium: 'ふつう',
+      large: 'おおきい',
+    },
     tools: {
       eraser: 'けしゴム',
       eraserLabel: 'けしゴム（ぬった ところを けす）',
@@ -154,12 +158,8 @@ export const UI = Object.freeze({
       resetYes: 'けす',
       resetNo: 'やめる',
     },
-    done: 'できた',
-    // Activation feedback. None of these may name or hint at the favourite colour.
-    almost: 'もうすこし！',
-    almostHint: 'ラベルの いろを もういちど みてみよう',
-    notReady: 'うごかない… ★の いろを おもいだして！',
-    incomplete: 'もっと かざって あげよう！',
+    power: 'ロボットパワー',
+    powerFull: 'パワー まんタン！',
     alive: 'うごいた！',
     walkToGive: 'おともだちに えを とどけよう',
     givePicture: 'スペースで えを わたす',

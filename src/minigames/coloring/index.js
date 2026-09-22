@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
-import { createColoringSurface } from './picture.js';
-import { PALETTE, PALETTE_HEX, createColorState } from './colorState.js';
+import { createPaintingSurface } from './picture.js';
+import { PALETTE, PALETTE_HEX } from './palette.js';
+import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from './brushes.js';
 import { PICTURE_SIZE } from './robotDefinition.js';
-import { drawRobot } from './robotRenderer.js';
-import { OUTCOMES, pickRound, scoreRound } from './robotScoring.js';
+import { drawPage } from './robotRenderer.js';
+import { createCoverage, scoreRound } from './coverage.js';
 import { createPaperPuppet } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 
@@ -21,17 +22,16 @@ const NPC_RADIUS_SQ = 3 * 3;
  * `audio.playSfx` falls back to its second argument when the name is unknown,
  * so an ad-hoc tone needs no new dependency and no edit to the shared SFX
  * table, which the other four minigames also read.
- *
- * The four Done outcomes used to play the same cheerful blip, which told a
- * child who cannot read the Japanese quickly nothing at all. Now: a low buzz
- * for ALMOST, the existing falling `retry` for a failed start-up, the ordinary
- * tap for INCOMPLETE (it is not a mistake), and rising `complete` for success.
  */
 const SOUNDS = Object.freeze({
-  partialBuzz: { frequency: 190, endFrequency: 130, duration: 0.22, type: 'square', gain: 0.06 },
+  // A power milestone: a short rising ping, quiet enough to be a hint.
+  spark: { frequency: 620, endFrequency: 960, duration: 0.12, type: 'triangle', gain: 0.055 },
   // A sheet of paper landing on a wooden floor: short, low, and almost quiet.
   paperTap: { frequency: 220, endFrequency: 120, duration: 0.05, type: 'triangle', gain: 0.045 },
 });
+
+/** The charging beat: full bar, blinks and a spark before the page peels. */
+const CHARGE_SECONDS = 1.1;
 
 /** The on-page half of the activation: glow, wiggle, a hop, then peel away. */
 const PEEL_SECONDS = 1.65;
@@ -70,12 +70,13 @@ export function createColoring(ctx) {
   let surface = null;
   let palette = null;
   let paintInstruction = null;
-  let doneButton = null;
+  let brushBar = null;
+  let powerBar = null;
+  let powerFill = null;
   let undoButton = null;
   let eraserButton = null;
   let resetButton = null;
   let resetConfirm = null;
-  let feedback = null;
   let answerNotice = null;
   let listenAgain = null;
   let style = null;
@@ -91,22 +92,21 @@ export function createColoring(ctx) {
   let replayed = false;
   let answerSentence = '';
   let selectedColor = null;
+  let brushId = DEFAULT_BRUSH;
   let erasing = false;
   let answerRemaining = 0;
   let reactionRemaining = 0;
   let finishRemaining = 0;
   let answerNoticeRemaining = 0;
-  let feedbackRemaining = 0;
-  let hintRemaining = 0;
+  let chargeRemaining = 0;
   let peelRemaining = 0;
   let dropRemaining = 0;
-  let scoreResult = null;
+  let score = null;
   let acceptedAnswer = null;
   let finishCalled = false;
   let elapsed = 0;
-  let round = null;
-  let colors = null;
-  let lastOutcome = null;
+  let favourite = null;
+  let coverage = null;
   let debugRootCreated = false;
 
   const geometries = new Set();
@@ -172,11 +172,22 @@ export function createColoring(ctx) {
       .coloring-screen__work { min-height: 0; min-width: 0; overflow: hidden;
         display: grid; grid-template-columns: auto minmax(0, 1fr);
         align-items: center; justify-items: center; gap: clamp(.6rem, 1.6vw, 1.2rem); }
+      .coloring-side { display: flex; flex-direction: column; gap: .5rem; align-items: center; }
       /* Seven swatches no longer fit in one column, so the palette wraps in a
          two-wide grid beside the picture and reflows to a row when it is short. */
       .coloring-palette { display: grid; grid-template-columns: repeat(2, auto); gap: .5rem;
         padding: .55rem; border: .2rem solid #d9cfbf; border-radius: 1.3rem;
         background: rgb(255 255 255 / .78); }
+      /* Three brushes, shown as three dots at their true relative size. */
+      .coloring-brushes { display: grid; grid-template-columns: repeat(3, auto); gap: .3rem;
+        padding: .4rem; border: .2rem solid #d9cfbf; border-radius: 1.1rem;
+        background: rgb(255 255 255 / .78); }
+      .coloring-brush { width: 2.6rem; height: 2.6rem; display: grid; place-items: center;
+        padding: 0; border: .18rem solid #fff; border-radius: .8rem; background: #efe8db;
+        box-shadow: 0 0 0 .14rem #273858; cursor: pointer; }
+      .coloring-brush__dot { display: block; border-radius: 50%; background: #273858; }
+      .coloring-brush[aria-pressed="true"] { background: #fff2c9;
+        outline: .3rem solid #273858; outline-offset: .2rem; }
       .coloring-palette--invite .coloring-swatch { animation: coloring-invite 1.55s ease-in-out infinite; }
       .coloring-palette--invite .coloring-swatch:nth-child(2n) { animation-delay: .18s; }
       .coloring-palette--invite .coloring-swatch:nth-child(3n) { animation-delay: .36s; }
@@ -209,22 +220,36 @@ export function createColoring(ctx) {
         touch-action: none; cursor: pointer; border-radius: .65rem; }
       .coloring-screen__bottom { display: flex; justify-content: center; align-items: center;
         flex-wrap: wrap; gap: .5rem clamp(.5rem, 2vw, 1.4rem); }
-      .coloring-done { min-width: min(82vw, 18rem); min-height: 3.6rem;
-        padding: .6rem 1.2rem; border: .25rem solid #fff; border-radius: 1.35rem;
-        background: #4f9b68; color: #fff; box-shadow: 0 .35rem 0 rgb(32 49 75 / .28);
-        font: 900 calc(1.2rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
+      /* ROBOT POWER. No number on it: a child reads a filling bar, and a
+         percentage invites them to treat it as a mark. */
+      .coloring-power { flex: 1 1 18rem; min-width: min(72vw, 16rem); max-width: 34rem;
+        display: flex; flex-direction: column; gap: .15rem; }
+      .coloring-power__label { font: 900 calc(.95rem * var(--ui-scale, 1)) system-ui, sans-serif;
+        letter-spacing: .04em; }
+      .coloring-power__track { display: block; height: 1.6rem; padding: .18rem;
+        box-sizing: border-box; border: .2rem solid #273858; border-radius: 999px;
+        background: #e7dfd0; box-shadow: inset 0 .12rem .3rem rgb(39 56 88 / .18); }
+      .coloring-power__fill { display: block; width: 0; height: 100%; border-radius: 999px;
+        background: linear-gradient(90deg, #62c46b, #f2c53d 65%, #ffae2e);
+        transition: width .18s ease-out; }
+      .coloring-power--full .coloring-power__fill {
+        background: linear-gradient(90deg, #ffd34d, #fff2b0, #ffd34d); }
+      .coloring-power--pulse { animation: coloring-power-pulse .6s ease-out 1; }
+      @keyframes coloring-power-pulse {
+        0%, 100% { transform: none; filter: none; }
+        45% { transform: scale(1.035); filter: brightness(1.22); }
+      }
       .coloring-answer-notice { position: absolute; top: 4.6rem; left: 50%; z-index: 24;
         transform: translateX(-50%); width: max-content; max-width: 82vw; padding: .6rem 1.1rem;
         border: .22rem solid #273858; border-radius: 999px; background: #fff;
         box-shadow: 0 .3rem 0 rgb(39 56 88 / .2); font-size: calc(1.3rem * var(--ui-scale, 1));
         font-weight: 900; text-align: center; }
-      .coloring-feedback { position: absolute; top: 50%; left: 50%; z-index: 25;
-        transform: translate(-50%, -50%); width: max-content; max-width: 86vw;
-        padding: .9rem 1.5rem; border: .28rem solid #273858; border-radius: 1.4rem;
-        background: #fff6d8; box-shadow: 0 .45rem 0 rgb(39 56 88 / .28); text-align: center;
-        font-size: calc(1.5rem * var(--ui-scale, 1)); font-weight: 900; }
-      .coloring-feedback small { display: block; margin-top: .35rem;
-        font-size: calc(1rem * var(--ui-scale, 1)); font-weight: 700; }
+      /* The robot stirring as it charges: one short warm flare on the page. */
+      .coloring-canvas-wrap--spark { animation: coloring-spark .7s ease-out 1; }
+      @keyframes coloring-spark {
+        0%, 100% { box-shadow: 0 .55rem 0 rgb(39 56 88 / .18); }
+        40% { box-shadow: 0 .55rem 0 rgb(39 56 88 / .18), 0 0 2rem .5rem rgb(255 231 140 / .9); }
+      }
       .coloring-reset-confirm { position: absolute; inset: 0; z-index: 26; display: grid;
         place-items: center; padding: 1rem; background: rgb(31 42 65 / .6); }
       .coloring-reset-confirm__card { width: min(88vw, 24rem); padding: 1.6rem 1.3rem;
@@ -248,25 +273,47 @@ export function createColoring(ctx) {
         100% { transform: translateY(-11rem) rotate(7deg) scale(1.16); opacity: 0;
                box-shadow: 0 0 3rem .8rem rgb(255 231 140 / .6); }
       }
-      /* Short or narrow: one column — palette, picture, tools — in DOM order, so
-         nothing can end up behind anything else. All seven swatches go in one
-         row; they stay above the 44px touch floor. */
-      @media (max-width: 46rem), (max-height: 34rem) {
-        .coloring-screen__work { grid-template-columns: minmax(0, 1fr);
-          grid-template-rows: auto minmax(0, 1fr); gap: .45rem; }
-        .coloring-palette { grid-template-columns: repeat(7, auto); gap: .35rem; padding: .35rem; }
-        .coloring-swatch { width: 2.8rem; height: 2.8rem; border-width: .22rem; }
-        .coloring-tool { min-width: 4.4rem; min-height: 2.6rem; }
-        /* Stacked, and out from under the settings button: on one line the
-           title and the hint ran off the right edge at 760px. */
+      /* Narrow only: the title and the hint cannot share a line. Keyed to width
+         alone — stacking them on a merely *short* screen cost the picture 30px
+         it needed more. */
+      @media (max-width: 46rem) {
         .coloring-screen__top { flex-direction: column; gap: .1rem; padding-right: 6.5rem; }
         .coloring-screen__top h1 { font-size: calc(1rem * var(--ui-scale, 1)); }
         .coloring-screen__instruction { font-size: calc(.9rem * var(--ui-scale, 1)); }
-        .coloring-done { min-height: 3rem; min-width: min(50vw, 11rem); }
+      }
+      /* Short or narrow: one column of work, and everything else as tight as it
+         goes, because the picture is the game. At 760x420 the palette, the power
+         bar and the tools each took a row of their own and left the canvas
+         130px — too small to paint a robot on. */
+      @media (max-width: 46rem), (max-height: 34rem) {
+        .coloring-screen { padding: .45rem; gap: .35rem; }
+        /* The shell's せってい button floats top-right over this screen, and at
+           760px the hint ran underneath it. Reserved here rather than in the
+           narrow-only rule, because the collision is with a fixed button and so
+           happens at any width once the header is this close to the top. */
+        .coloring-screen__top { padding-right: 6.5rem; }
+        .coloring-screen__work { grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: auto minmax(0, 1fr); gap: .35rem; }
+        .coloring-side { flex-direction: row; gap: .35rem; }
+        .coloring-palette { grid-template-columns: repeat(7, auto); gap: .3rem; padding: .3rem; }
+        .coloring-brushes { padding: .28rem; gap: .25rem; }
+        .coloring-brush { width: 2.3rem; height: 2.3rem; }
+        .coloring-swatch { width: 2.8rem; height: 2.8rem; border-width: .22rem; }
+        .coloring-tool { min-width: 4.2rem; min-height: 2.5rem; font-size: calc(.85rem * var(--ui-scale, 1)); }
+        .coloring-canvas-wrap { padding: .3rem; border-width: .22rem; }
+        /* The bar's label moves beside its track, and the tools stay on the
+           same line, so the whole bottom is one row instead of three. */
+        .coloring-screen__bottom { flex-wrap: nowrap; gap: .5rem; }
+        .coloring-power { flex: 1 1 10rem; min-width: 0; flex-direction: row;
+          align-items: center; gap: .45rem; }
+        .coloring-power__label { white-space: nowrap; font-size: calc(.8rem * var(--ui-scale, 1)); }
+        .coloring-power__track { flex: 1 1 auto; height: 1.2rem; }
       }
       @media (prefers-reduced-motion: reduce) {
         .coloring-palette--invite .coloring-swatch { animation: none; }
         .coloring-canvas-wrap--alive { animation-duration: .4s; }
+        .coloring-canvas-wrap--spark, .coloring-power--pulse { animation: none; }
+        .coloring-power__fill { transition: none; }
       }
     `;
     document.head.append(style);
@@ -288,15 +335,12 @@ export function createColoring(ctx) {
     document.querySelector('#ui-layer').append(roomOverlay);
   }
 
-  /** The blank picture the artist is holding: line art, the ★ and the two words. */
+  /** The blank page the artist is holding. No instructions on it — there are none. */
   function createLineArtCanvas(size = 512) {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#f7f4ee';
-    context.fillRect(0, 0, size, size);
-    drawRobot(context, { size, colors: {}, round });
+    drawPage(canvas.getContext('2d'), { size });
     return canvas;
   }
 
@@ -443,7 +487,7 @@ export function createColoring(ctx) {
     hud.setTalkState('accepted');
     audio.playSfx('accept');
     npc.playAnimation?.('emote-yes');
-    answerSentence = answerFor(LESSON, round.favourite);
+    answerSentence = answerFor(LESSON, favourite);
     // The first playback is manual. Only an actual press of the bubble replay
     // counts as listening again and forfeits the memory bonus.
     dialogue.show({ text: answerSentence, anchor: npc, offsetY: 1.75, speak: false, onReplay: replayAnswer });
@@ -459,7 +503,14 @@ export function createColoring(ctx) {
     erasing = false;
     palette.classList.remove('coloring-palette--invite');
     refreshTools();
-    paintInstruction.textContent = STRINGS.tapHint;
+    paintInstruction.textContent = STRINGS.paintHint;
+    audio.playSfx('interact');
+  }
+
+  function selectBrush(id) {
+    if (phase !== 'painting') return;
+    brushId = id;
+    refreshTools();
     audio.playSfx('interact');
   }
 
@@ -467,8 +518,11 @@ export function createColoring(ctx) {
     for (const button of palette.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(!erasing && button.dataset.color === selectedColor));
     }
+    for (const button of brushBar.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.brush === brushId));
+    }
     eraserButton.setAttribute('aria-pressed', String(erasing));
-    undoButton.disabled = !colors.canUndo;
+    undoButton.disabled = !surface?.canUndo;
   }
 
   function toggleEraser() {
@@ -480,9 +534,8 @@ export function createColoring(ctx) {
   }
 
   function undo() {
-    if (phase !== 'painting' || !colors.canUndo) return;
-    colors.undo();
-    surface.render();
+    if (phase !== 'painting' || !surface?.canUndo) return;
+    surface.undo();
     refreshTools();
     audio.playSfx('interact');
   }
@@ -499,41 +552,81 @@ export function createColoring(ctx) {
   }
 
   function confirmReset() {
-    colors.reset();
-    surface.render();
+    // Undo every stroke rather than clearing two things separately: the paint
+    // and the coverage grid must never disagree about what has been coloured.
+    while (surface.canUndo) surface.undo();
+    coverage.reset();
+    setPower(0);
     refreshTools();
     closeReset();
     audio.playSfx('interact');
   }
 
-  function showFeedback(text, hint = '') {
-    feedback.innerHTML = '';
-    feedback.append(document.createTextNode(text));
-    if (hint) {
-      const small = document.createElement('small');
-      small.textContent = hint;
-      feedback.append(small);
-    }
-    feedback.hidden = false;
-    feedbackRemaining = 2.4;
+  /** The ⚡ bar. No number: a child reads a filling bar, not a percentage. */
+  function setPower(value) {
+    if (!powerFill) return;
+    const clamped = Math.min(1, Math.max(0, value));
+    powerFill.style.width = `${(clamped * 100).toFixed(1)}%`;
+    powerBar.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
+    powerBar.classList.toggle('coloring-power--full', clamped >= 1);
+  }
+
+  /** A brief, playful flash on an element, without keeping a timer per element. */
+  function flash(element, className, ms) {
+    if (!element) return;
+    element.classList.add(className);
+    setTimeout(() => element?.classList.remove(className), ms);
   }
 
   /**
-   * Answers a tap. Nothing here can be wrong — correctness is only ever
-   * evaluated when Done is pressed, and only for the required regions.
+   * The robot stirring as it charges.
+   *
+   * Brief on purpose: a child painting should not be interrupted, so each
+   * milestone is one short flicker and nothing blocks the brush. `takeMilestone`
+   * is edge-triggered, so none of these can repeat.
    */
-  function onRegionChanged(regionId, action) {
-    if (phase !== 'painting') return;
-    if (action === 'no-color') {
+  function fireMilestone(milestone) {
+    if (milestone.index === 0) {
+      flash(powerBar, 'coloring-power--pulse', 620);
+      audio.playSfx('spark', SOUNDS.spark);
+    } else if (milestone.index === 1) {
+      flash(canvasWrap, 'coloring-canvas-wrap--spark', 700);
+      audio.playSfx('spark', SOUNDS.spark);
+    } else {
+      blinkOnce(2);
+      flash(powerBar, 'coloring-power--pulse', 620);
+      audio.playSfx('accept');
+    }
+  }
+
+  /** Closes and opens the robot's eyes, `times` times. */
+  function blinkOnce(times = 1) {
+    if (!surface) return;
+    let left = times;
+    const shut = () => {
+      if (!surface) return;
+      surface.setBlink(1);
+      setTimeout(() => {
+        if (!surface) return;
+        surface.setBlink(0);
+        left -= 1;
+        if (left > 0) setTimeout(shut, 130);
+      }, 140);
+    };
+    shut();
+  }
+
+  /** Answers the surface after every stroke: the bar, the tools, activation. */
+  function onPaintChanged(info) {
+    if (info.needsColor) {
       paintInstruction.textContent = STRINGS.chooseColor;
+      flash(palette, 'coloring-palette--invite', 1600);
       return;
     }
-    if (action === 'fill' || action === 'erase') {
-      if (hintRemaining > 0) { hintRemaining = 0; surface.setHint(null); }
-      audio.playSfx('interact');
-      refreshTools();
-      paintInstruction.textContent = colors.isDecoratedEnough() ? STRINGS.ready : STRINGS.tapHint;
-    }
+    setPower(info.power);
+    if (undoButton) undoButton.disabled = !info.canUndo;
+    if (info.milestone) fireMilestone(info.milestone);
+    if (info.power >= 1 && phase === 'painting') beginCharging();
   }
 
   function createPaintingOverlay() {
@@ -542,19 +635,24 @@ export function createColoring(ctx) {
     paintingOverlay.innerHTML = `
       <header class="coloring-screen__top"><h1></h1><p class="coloring-screen__instruction"></p></header>
       <div class="coloring-screen__work">
-        <div class="coloring-palette coloring-palette--invite" role="group"></div>
+        <div class="coloring-side">
+          <div class="coloring-palette coloring-palette--invite" role="group"></div>
+          <div class="coloring-brushes" role="group"></div>
+        </div>
         <div class="coloring-canvas-wrap"><canvas class="coloring-canvas"></canvas></div>
       </div>
       <div class="coloring-screen__bottom">
+        <div class="coloring-power" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span class="coloring-power__label"></span>
+          <span class="coloring-power__track"><span class="coloring-power__fill"></span></span>
+        </div>
         <div class="coloring-tools">
           <button class="coloring-tool coloring-tool--undo" type="button" disabled></button>
           <button class="coloring-tool coloring-tool--eraser" type="button" aria-pressed="false"></button>
           <button class="coloring-tool coloring-tool--reset" type="button"></button>
         </div>
-        <button class="coloring-done" type="button"></button>
       </div>
       <div class="coloring-answer-notice" role="status" aria-live="polite" hidden></div>
-      <div class="coloring-feedback" role="status" aria-live="polite" hidden></div>
       <div class="coloring-reset-confirm" hidden>
         <section class="coloring-reset-confirm__card">
           <p></p>
@@ -584,9 +682,35 @@ export function createColoring(ctx) {
       palette.append(swatch);
     }
 
+    // Three brushes shown as three dots at their real relative size, so the
+    // choice needs no reading at all.
+    brushBar = paintingOverlay.querySelector('.coloring-brushes');
+    brushBar.setAttribute('aria-label', STRINGS.brushLabel);
+    for (const id of BRUSH_IDS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'coloring-brush';
+      button.dataset.brush = id;
+      button.setAttribute('aria-pressed', String(id === brushId));
+      button.setAttribute('aria-label', STRINGS.brushes[id]);
+      button.title = STRINGS.brushes[id];
+      const dot = document.createElement('span');
+      dot.className = 'coloring-brush__dot';
+      // Shown at a third of true size, which keeps Large inside the button.
+      dot.style.width = `${BRUSHES[id].diameter / 3}px`;
+      dot.style.height = `${BRUSHES[id].diameter / 3}px`;
+      button.append(dot);
+      button.addEventListener('click', onBrushClick);
+      brushBar.append(button);
+    }
+
     canvasWrap = paintingOverlay.querySelector('.coloring-canvas-wrap');
     paintingCanvas = paintingOverlay.querySelector('.coloring-canvas');
     paintingCanvas.setAttribute('aria-label', STRINGS.paintTitle);
+
+    powerBar = paintingOverlay.querySelector('.coloring-power');
+    powerBar.querySelector('.coloring-power__label').textContent = `⚡ ${STRINGS.power}`;
+    powerFill = paintingOverlay.querySelector('.coloring-power__fill');
 
     undoButton = paintingOverlay.querySelector('.coloring-tool--undo');
     undoButton.textContent = STRINGS.tools.undo;
@@ -608,27 +732,31 @@ export function createColoring(ctx) {
     resetYes.textContent = STRINGS.tools.resetYes;
     resetYes.addEventListener('click', confirmReset);
 
-    doneButton = paintingOverlay.querySelector('.coloring-done');
-    doneButton.textContent = STRINGS.done;
-    doneButton.addEventListener('click', attemptActivation);
     answerNotice = paintingOverlay.querySelector('.coloring-answer-notice');
-    feedback = paintingOverlay.querySelector('.coloring-feedback');
 
     document.querySelector('#ui-layer').append(paintingOverlay);
-    surface = createColoringSurface({
+    surface = createPaintingSurface({
       canvas: paintingCanvas,
-      state: colors,
-      round,
-      onChange: onRegionChanged,
-      selectedColor: () => selectedColor,
+      coverage,
+      color: () => selectedColor,
+      brush: () => brushId,
       erasing: () => erasing,
+      // Paint stops the instant the bar fills; the robot is waking up.
+      locked: () => phase !== 'painting',
+      onChange: onPaintChanged,
     });
+    setPower(coverage.power());
     listenAgain = createListenAgain({ root: paintingOverlay, label: UI.listenAgain, onPress: replayAnswer });
     listenAgain.show();
   }
 
   function onSwatchClick(event) {
     selectColor(event.currentTarget.dataset.color);
+    if (event.detail > 0) event.currentTarget.blur();
+  }
+
+  function onBrushClick(event) {
+    selectBrush(event.currentTarget.dataset.brush);
     if (event.detail > 0) event.currentTarget.blur();
   }
 
@@ -650,87 +778,41 @@ export function createColoring(ctx) {
   }
 
   /**
-   * Done is an activation attempt, not a submission.
+   * Full power. There is no Done button and no way to fail — the bar filling
+   * *is* the win, so activation starts by itself.
    *
-   * Three of the four outcomes return the child to the page with every colour
-   * they chose still there. NOT_READY deliberately says nothing about the
-   * starred region — naming it would hand over the listening task.
+   * The charging beat comes first: a strong pulse, a couple of blinks and a
+   * spark on the page, so the child sees the robot stirring before the peel
+   * animation takes the page away from them.
    */
-  function attemptActivation() {
-    if (!active || phase !== 'painting') return;
-    const snapshot = colors.snapshot();
-    const result = scoreRound(round, snapshot, {
-      completion: colors.completion(),
-      usedListenAgain: replayed,
-    });
-    scoreResult = result;
-    lastOutcome = result.outcome;
-
-    if (result.outcome === OUTCOMES.FULL) {
-      activate(snapshot);
-      return;
-    }
-
-    if (result.outcome === OUTCOMES.ALMOST) {
-      audio.playSfx('almost', SOUNDS.partialBuzz);
-      showFeedback(STRINGS.almost, STRINGS.almostHint);
-      // Only labelled regions may be pointed at. The child can read the word.
-      flashWrongLabels(result.wrongLabelIds);
-    } else if (result.outcome === OUTCOMES.NOT_READY) {
-      // `retry` is the existing falling tone: a power-down, not a buzzer.
-      audio.playSfx('retry');
-      showFeedback(STRINGS.notReady);
-      sputter();
-    } else {
-      // Deliberately the ordinary tap sound. INCOMPLETE is not a mistake, and a
-      // failure noise here would send a child hunting for a wrong colour.
-      audio.playSfx('interact');
-      showFeedback(STRINGS.incomplete);
-    }
+  function beginCharging() {
+    if (phase !== 'painting') return;
+    phase = 'charging';
+    paintInstruction.textContent = STRINGS.powerFull;
+    setPower(1);
+    flash(powerBar, 'coloring-power--pulse', 900);
+    flash(canvasWrap, 'coloring-canvas-wrap--spark', 900);
+    audio.playSfx('complete');
+    blinkOnce(2);
+    chargeRemaining = CHARGE_SECONDS;
   }
 
-  /** A weak failed start-up: a small shake of the page, nothing destructive. */
-  function sputter() {
-    if (!canvasWrap) return;
-    canvasWrap.animate?.(
-      [
-        { transform: 'translateX(0)' },
-        { transform: 'translateX(-.35rem) rotate(-1deg)' },
-        { transform: 'translateX(.35rem) rotate(1deg)' },
-        { transform: 'translateX(-.2rem)' },
-        { transform: 'translateX(0)' },
-      ],
-      { duration: 340, easing: 'ease-out' },
-    );
-  }
-
-  /**
-   * Rings a labelled region that is still the wrong colour. Its English colour
-   * word is already on the page, so pointing at it tells the child nothing they
-   * were supposed to remember. `wrongLabelIds` from `robotScoring` never
-   * contains the starred region, which is the whole reason it exists.
-   */
-  function flashWrongLabels(regionIds) {
-    if (!regionIds?.length || !surface) return;
-    surface.setHint(regionIds[0]);
-    hintRemaining = 2.4;
-  }
-
-  /** FULL: the page half of the cinematic, then the cut into the room. */
-  function activate(snapshot) {
+  /** The page half of the cinematic: it wiggles, hops, and peels away. */
+  function activate() {
     phase = 'activation';
     listenAgain.hide();
-    feedback.hidden = true;
-    doneButton.disabled = true;
+    score = scoreRound({
+      coverage: coverage.coverage(),
+      favouriteShare: coverage.favouriteShare(),
+      usedListenAgain: replayed,
+    });
     finishedCanvas = surface.snapshot(PICTURE_SIZE);
     paintInstruction.textContent = STRINGS.alive;
     canvasWrap.classList.add('coloring-canvas-wrap--alive');
-    // The rising sparkle, not the stamp thud: this is the robot powering up.
-    audio.playSfx('complete');
     puppet = createPaperPuppet({
-      colors: snapshot,
-      // A paper tap on every touchdown. The puppet reports the landing rather
-      // than index.js re-deriving the hop clock.
+      // The child's strokes, not a reconstruction: with freehand painting the
+      // canvas holds what no region data could reproduce.
+      paint: surface.paint,
       onLand: () => audio.playSfx('land', SOUNDS.paperTap),
     });
     peelRemaining = PEEL_SECONDS;
@@ -744,12 +826,14 @@ export function createColoring(ctx) {
     for (const swatch of palette?.querySelectorAll('button') ?? []) {
       swatch.removeEventListener('click', onSwatchClick);
     }
+    for (const button of brushBar?.querySelectorAll('button') ?? []) {
+      button.removeEventListener('click', onBrushClick);
+    }
     undoButton?.removeEventListener('click', undo);
     eraserButton?.removeEventListener('click', toggleEraser);
     resetButton?.removeEventListener('click', askReset);
     resetConfirm?.querySelector('[data-reset="no"]')?.removeEventListener('click', closeReset);
     resetConfirm?.querySelector('[data-reset="yes"]')?.removeEventListener('click', confirmReset);
-    doneButton?.removeEventListener('click', attemptActivation);
     paintingOverlay?.remove();
     if (paintingCanvas) {
       paintingCanvas.width = 0;
@@ -759,13 +843,14 @@ export function createColoring(ctx) {
     paintingCanvas = null;
     canvasWrap = null;
     palette = null;
+    brushBar = null;
     paintInstruction = null;
-    doneButton = null;
+    powerBar = null;
+    powerFill = null;
     undoButton = null;
     eraserButton = null;
     resetButton = null;
     resetConfirm = null;
-    feedback = null;
     answerNotice = null;
   }
 
@@ -879,26 +964,24 @@ export function createColoring(ctx) {
    * The harness window, following the same `__eslDebug` convention the
    * Restaurant, Drink Stand and Zoo already use.
    *
-   * It deliberately does NOT expose the favourite colour. The two labelled
-   * colours are printed on the page anyway, so a harness reading them back is
-   * only reading the screen; the favourite is the one thing a child is meant to
-   * have remembered, and a playthrough can hear it in the dialogue like they do.
+   * It deliberately does NOT expose the favourite colour. That is the one thing
+   * a child is meant to have remembered, and a playthrough can hear it in the
+   * dialogue exactly as they do.
    */
   function debugSnapshot() {
     return {
       phase,
-      outcome: lastOutcome,
-      stars: scoreResult?.stars ?? null,
+      stars: score?.stars ?? null,
       usedListenAgain: replayed,
-      starredRegion: round?.starred ?? null,
-      requiredLabels: Object.fromEntries((round?.labelled ?? []).map((e) => [e.regionId, e.color])),
-      colors: colors?.snapshot() ?? {},
-      completion: colors?.completion() ?? 0,
-      decoratedEnough: colors?.isDecoratedEnough() ?? false,
-      canUndo: Boolean(colors?.canUndo),
+      power: coverage?.power() ?? 0,
+      coverage: coverage?.coverage() ?? 0,
+      favouriteShare: coverage?.favouriteShare() ?? 0,
+      robotCells: coverage?.robotCells ?? 0,
+      strokes: surface?.strokeCount ?? 0,
+      canUndo: Boolean(surface?.canUndo),
       erasing,
       selectedColor,
-      hint: surface?.highlight ?? null,
+      brush: brushId,
       puppet: puppet
         ? {
           present: Boolean(puppet.group.parent),
@@ -938,17 +1021,16 @@ export function createColoring(ctx) {
     reactionRemaining = 0;
     finishRemaining = 0;
     answerNoticeRemaining = 0;
-    feedbackRemaining = 0;
-    hintRemaining = 0;
+    chargeRemaining = 0;
     peelRemaining = 0;
     dropRemaining = 0;
-    scoreResult = null;
+    score = null;
     acceptedAnswer = null;
     finishCalled = false;
     elapsed = 0;
-    round = pickRound();
-    colors = createColorState();
-    lastOutcome = null;
+    brushId = DEFAULT_BRUSH;
+    favourite = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    coverage = createCoverage({ favourite });
     installStyle();
     createRoomOverlay();
     buildWorld();
@@ -969,13 +1051,9 @@ export function createColoring(ctx) {
       answerNoticeRemaining -= safeDt;
       if (answerNoticeRemaining <= 0 && answerNotice) answerNotice.hidden = true;
     }
-    if (feedbackRemaining > 0) {
-      feedbackRemaining -= safeDt;
-      if (feedbackRemaining <= 0 && feedback) feedback.hidden = true;
-    }
-    if (hintRemaining > 0) {
-      hintRemaining -= safeDt;
-      if (hintRemaining <= 0) surface?.setHint(null);
+    if (phase === 'charging') {
+      chargeRemaining -= safeDt;
+      if (chargeRemaining <= 0) activate();
     }
 
     if (phase === 'approach') {
@@ -1030,7 +1108,7 @@ export function createColoring(ctx) {
         finishCalled = true;
         hud.hide();
         finish({
-          stars: scoreResult?.stars ?? 1,
+          stars: score?.stars ?? 1,
           detail: { category: LESSON.category, answer: acceptedAnswer },
         });
       }
@@ -1100,10 +1178,9 @@ export function createColoring(ctx) {
     finishedCanvas = null;
     lineArtTexture = null;
     finishedTexture = null;
-    round = null;
-    colors = null;
-    scoreResult = null;
-    lastOutcome = null;
+    favourite = null;
+    coverage = null;
+    score = null;
   }
 
   return { id: 'coloring', enter, update, exit };

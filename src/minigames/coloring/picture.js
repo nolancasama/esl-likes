@@ -1,48 +1,32 @@
 /**
- * The live colouring page.
+ * The colouring page: a brush, three sizes, and an eraser.
  *
- * Tap to fill: a pointer lands on a region, the region takes the selected
- * colour, done. There is no brush and nothing to be neat about — see
- * `.ai/coloring-robot-spec.md` for why a neatness margin cannot survive a dozen
- * small accent regions on a Chromebook touchpad.
+ * Freehand again. The previous version filled named regions on a tap, which
+ * graded beautifully and turned the robot into a worksheet; this one lets a
+ * child drag paint wherever they like, including over the lines.
  *
- * This module owns only the canvas and the input. What the robot looks like
- * lives in `robotDefinition.js`, how it is drawn lives in `robotRenderer.js`,
- * and what the child has chosen lives in `colorState.js`. Nothing here decides
- * whether an answer is right.
+ * Two canvases. The **paint** canvas holds only the child's strokes and is the
+ * single source of truth for both the display and the puppet's textures — that
+ * is what guarantees the living robot carries the real brushwork. The
+ * **display** canvas is redrawn from it every frame as paper, blank body,
+ * paint, line art.
+ *
+ * Undo replays rather than snapshots: a list of strokes costs almost nothing to
+ * keep, where a 720x720 image per stroke would cost megabytes on a Chromebook.
  */
 
-import { PICTURE_SIZE, REGIONS, regionAt, regionBounds } from './robotDefinition.js';
-import { drawRobot } from './robotRenderer.js';
+import { PICTURE_SIZE } from './robotDefinition.js';
+import { drawPage } from './robotRenderer.js';
+import { PALETTE_HEX } from './palette.js';
+import { BRUSHES, DEFAULT_BRUSH, brushFor } from './brushes.js';
 
 export { PICTURE_SIZE };
 
-const PAPER = '#f7f4ee';
-
 /**
- * Regions in reading order — top to bottom, then left to right.
- *
- * This is the keyboard's traversal order, so it has to be the order a child
- * would point at things in, not the order they happen to be declared in or the
- * draw order (which puts the antenna light first because it is drawn last).
- */
-export function readingOrder() {
-  return REGIONS
-    .map((region) => {
-      const box = regionBounds(region.id);
-      return { id: region.id, y: (box.minY + box.maxY) / 2, x: (box.minX + box.maxX) / 2 };
-    })
-    // A band, so two things at roughly the same height sort left to right rather
-    // than by a pixel of difference.
-    .sort((a, b) => Math.round(a.y * 12) - Math.round(b.y * 12) || a.x - b.x)
-    .map((entry) => entry.id);
-}
-
-/**
- * Maps a pointer event to normalised picture coordinates.
+ * Maps a pointer to normalised picture coordinates.
  *
  * Exported because the canvas is letterboxed by `object-fit: contain`, and
- * getting this wrong is invisible until every click lands slightly high.
+ * getting this wrong is invisible until every stroke lands slightly high.
  */
 export function pointToPicture(rect, clientX, clientY) {
   const size = Math.min(rect.width, rect.height);
@@ -53,35 +37,69 @@ export function pointToPicture(rect, clientX, clientY) {
 }
 
 /**
- * The colouring surface.
+ * Lays one stroke onto a paint context.
+ *
+ * Exported so undo can replay a whole list through exactly the same code that
+ * drew it live — a second drawing path is a second thing to get wrong.
+ */
+export function replayStroke(ctx, stroke, size = PICTURE_SIZE) {
+  const { color, diameter, points } = stroke;
+  if (!points.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = color === null ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = color === null ? 'rgba(0,0,0,1)' : PALETTE_HEX[color];
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = diameter * size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (points.length === 1) {
+    // A tap is a dot, not nothing.
+    ctx.beginPath();
+    ctx.arc(points[0][0] * size, points[0][1] * size, (diameter * size) / 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(points[0][0] * size, points[0][1] * size);
+    for (const [x, y] of points.slice(1)) ctx.lineTo(x * size, y * size);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * The live painting surface.
  *
  * @param {object} options
- * @param {HTMLCanvasElement} options.canvas
- * @param {object} options.state   a `createColorState()`
- * @param {object} options.round   for the ★ and the colour words
- * @param {(regionId: string, action: string) => void} [options.onChange]
- * @param {() => string|null} options.selectedColor  null while nothing is chosen
+ * @param {HTMLCanvasElement} options.canvas   the visible canvas
+ * @param {object} options.coverage            a `createCoverage()`
+ * @param {() => string} options.color         the selected palette colour
+ * @param {() => string} [options.brush]       the selected brush id
  * @param {() => boolean} [options.erasing]
+ * @param {() => boolean} [options.locked]     true once the robot is activating
+ * @param {(info: object) => void} [options.onChange]
  */
-export function createColoringSurface({
+export function createPaintingSurface({
   canvas,
-  state,
-  round,
-  onChange,
-  selectedColor,
+  coverage,
+  color,
+  brush = () => DEFAULT_BRUSH,
   erasing = () => false,
+  locked = () => false,
+  onChange,
 }) {
-  const order = readingOrder();
+  const paint = document.createElement('canvas');
+  paint.width = PICTURE_SIZE;
+  paint.height = PICTURE_SIZE;
+  const paintCtx = paint.getContext('2d');
   const ctx = canvas.getContext('2d');
-  let highlight = null;
-  let hint = null;
-  let focusIndex = -1;
-  let keyboardDriven = false;
+
+  /** Every stroke so far, in order. Undo pops and replays. */
+  const strokes = [];
+  let live = null;
+  let pointerId = null;
+  let blink = 0;
   let disposed = false;
 
-  // The picture is authored at PICTURE_SIZE; drawing at the same size on a
-  // device-pixel-scaled backing store keeps the line art crisp on a Chromebook
-  // without threading a second coordinate system through the renderer.
   function resize() {
     const ratio = Math.min(3, Math.max(1, globalThis.devicePixelRatio || 1));
     const pixels = Math.round(PICTURE_SIZE * ratio);
@@ -96,127 +114,131 @@ export function createColoringSurface({
     if (disposed) return;
     const ratio = resize();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.fillStyle = PAPER;
-    ctx.fillRect(0, 0, PICTURE_SIZE, PICTURE_SIZE);
-    drawRobot(ctx, { size: PICTURE_SIZE, colors: state.snapshot(), round, highlight: highlight ?? hint });
+    drawPage(ctx, { size: PICTURE_SIZE, paint, blink });
   }
 
-  function setHighlight(regionId) {
-    if (highlight === regionId) return;
-    highlight = regionId;
+  function rebuildPaint() {
+    paintCtx.clearRect(0, 0, PICTURE_SIZE, PICTURE_SIZE);
+    for (const stroke of strokes) replayStroke(paintCtx, stroke, PICTURE_SIZE);
+  }
+
+  function report() {
+    onChange?.({
+      power: coverage.power(),
+      coverage: coverage.coverage(),
+      milestone: coverage.takeMilestone(),
+      canUndo: strokes.length > 0,
+    });
+  }
+
+  function begin(point) {
+    const diameter = brushFor(brush()).diameter / PICTURE_SIZE;
+    const chosen = erasing() ? null : color();
+    if (!erasing() && !chosen) {
+      onChange?.({ needsColor: true, power: coverage.power(), coverage: coverage.coverage() });
+      return false;
+    }
+    live = { color: chosen, diameter, points: [[point.x, point.y]] };
+    coverage.beginStroke();
+    // A tap alone must mark something, so seed the coverage with a dot.
+    coverage.paintSegment([point.x, point.y], [point.x, point.y], diameter, chosen);
+    replayStroke(paintCtx, live, PICTURE_SIZE);
     render();
+    report();
+    return true;
   }
 
-  /** Fill or erase one region, and tell the caller what actually happened. */
-  function apply(regionId) {
-    if (!regionId) return null;
-    if (erasing()) {
-      if (!state.clear(regionId)) return null;
-      onChange?.(regionId, 'erase');
-      render();
-      return 'erase';
-    }
-    const color = selectedColor();
-    if (!color) {
-      onChange?.(regionId, 'no-color');
-      return null;
-    }
-    if (!state.fill(regionId, color)) {
-      // Re-tapping a region in the colour it already holds is not an error and
-      // must not cost an undo step; the caller may still want to answer it.
-      onChange?.(regionId, 'unchanged');
-      return null;
-    }
-    onChange?.(regionId, 'fill');
+  function extend(point) {
+    if (!live) return;
+    const previous = live.points[live.points.length - 1];
+    if (Math.hypot(point.x - previous[0], point.y - previous[1]) < 0.002) return;
+    live.points.push([point.x, point.y]);
+    // The coverage grid interpolates for itself, so a fast touchpad flick
+    // leaves no gap in either the paint or the bar.
+    coverage.paintSegment(previous, [point.x, point.y], live.diameter, live.color);
+    // Draw only the new segment rather than the whole stroke again.
+    replayStroke(paintCtx, {
+      color: live.color,
+      diameter: live.diameter,
+      points: [previous, [point.x, point.y]],
+    }, PICTURE_SIZE);
     render();
-    return 'fill';
+    report();
   }
 
-  function regionFor(event) {
-    const point = pointToPicture(canvas.getBoundingClientRect(), event.clientX, event.clientY);
-    return regionAt(point.x, point.y);
+  function finish() {
+    if (!live) return;
+    strokes.push(live);
+    live = null;
+    coverage.endStroke();
+    report();
   }
 
   function onPointerDown(event) {
-    if (event.button > 0) return;
+    if (locked() || event.button > 0 || pointerId !== null) return;
     event.preventDefault();
-    const regionId = regionFor(event);
-    if (!regionId) return;
-    keyboardDriven = false;
-    focusIndex = order.indexOf(regionId);
-    setHighlight(regionId);
-    apply(regionId);
+    canvas.setPointerCapture?.(event.pointerId);
+    pointerId = event.pointerId;
+    if (!begin(pointToPicture(canvas.getBoundingClientRect(), event.clientX, event.clientY))) {
+      pointerId = null;
+    }
   }
 
   function onPointerMove(event) {
-    if (keyboardDriven) return;
-    setHighlight(regionFor(event));
-  }
-
-  function onPointerLeave() {
-    if (!keyboardDriven) setHighlight(null);
-  }
-
-  function step(delta) {
-    keyboardDriven = true;
-    focusIndex = focusIndex < 0
-      ? (delta > 0 ? 0 : order.length - 1)
-      : (focusIndex + delta + order.length) % order.length;
-    setHighlight(order[focusIndex]);
-  }
-
-  function onKeyDown(event) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') step(1);
-    else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') step(-1);
-    else if (event.key === 'Enter' || event.key === ' ') {
-      if (focusIndex < 0) step(1);
-      else apply(order[focusIndex]);
-    } else return;
+    if (event.pointerId !== pointerId || locked()) return;
     event.preventDefault();
+    extend(pointToPicture(canvas.getBoundingClientRect(), event.clientX, event.clientY));
   }
 
-  function onBlur() {
-    keyboardDriven = false;
-    setHighlight(null);
+  function onPointerUp(event) {
+    if (event.pointerId !== pointerId) return;
+    event.preventDefault();
+    if (canvas.hasPointerCapture?.(pointerId)) canvas.releasePointerCapture(pointerId);
+    pointerId = null;
+    finish();
   }
 
-  canvas.tabIndex = 0;
   canvas.style.touchAction = 'none';
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
-  canvas.addEventListener('pointerleave', onPointerLeave);
-  canvas.addEventListener('keydown', onKeyDown);
-  canvas.addEventListener('blur', onBlur);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
   render();
 
   return {
     render,
-    get highlight() { return highlight ?? hint; },
+    /** The child's strokes alone. The puppet's textures are cut from this. */
+    get paint() { return paint; },
+    get strokeCount() { return strokes.length; },
+    get canUndo() { return strokes.length > 0; },
 
-    /**
-     * Rings a region to point at it, without moving the pointer's own
-     * highlight. Used to say "this labelled one is still wrong" — never for the
-     * starred region, where pointing at it would be a step towards telling.
-     */
-    setHint(regionId) {
-      hint = regionId ?? null;
+    /** Closes the eyes, for the power milestones and the wake-up. */
+    setBlink(value) {
+      blink = Math.min(1, Math.max(0, value));
       render();
     },
 
+    /** Reverses the last whole stroke, paint and power together. */
+    undo() {
+      if (!strokes.length) return false;
+      strokes.pop();
+      coverage.undoStroke();
+      rebuildPaint();
+      render();
+      report();
+      return true;
+    },
+
     /**
-     * The finished artwork with no instructions on it, for the wall frame.
-     *
-     * Drawn fresh rather than copied off the display canvas, so the ★ and any
-     * remaining colour words are absent and the highlight cannot be baked in.
+     * The finished page for the wall frame: paper, body, paint, line art, eyes
+     * open. Drawn fresh rather than copied off the display canvas so a blink
+     * or a mid-stroke frame can never be baked in.
      */
     snapshot(size = PICTURE_SIZE) {
       const result = document.createElement('canvas');
       result.width = size;
       result.height = size;
-      const out = result.getContext('2d');
-      out.fillStyle = PAPER;
-      out.fillRect(0, 0, size, size);
-      drawRobot(out, { size, colors: state.snapshot(), labels: false });
+      drawPage(result.getContext('2d'), { size, paint, blink: 0 });
       return result;
     },
 
@@ -224,10 +246,14 @@ export function createColoringSurface({
       disposed = true;
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
-      canvas.removeEventListener('pointerleave', onPointerLeave);
-      canvas.removeEventListener('keydown', onKeyDown);
-      canvas.removeEventListener('blur', onBlur);
-      highlight = null;
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
+      strokes.length = 0;
+      live = null;
+      paint.width = 0;
+      paint.height = 0;
     },
   };
 }
+
+export { BRUSHES, DEFAULT_BRUSH };

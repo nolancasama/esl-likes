@@ -9,103 +9,85 @@ chose **Claude direct** for the whole Coloring pass. Always re-check with
 `node ~/.claude/workers/bin/route.js .ai/<order>.json` rather than assuming
 either way; the numbers in this file go stale within hours.
 
-## Latest pass (2026-09-22) — the Coloring robot comes alive
+## Latest pass (2026-09-22) — Coloring goes back to freehand
 
-Claude direct (the router found no delegating worker). Two rounds of work:
-the rebuild, **committed and pushed** as `de8f62e` + `1bd0f13` on branch
-`coloring-robot-alive`; then a follow-up pass answering a second plan, which is
-**complete, green and deliberately uncommitted** because that plan said not to
-commit or push. `main` is untouched at `9bbac23` (pushed).
+Claude direct (the router found no delegating worker: Codex inside a usage-limit
+window to 11:00, Gemini and the agy-* workers quarantined, Qwen declines hard
+work). **Committed and pushed**, and `main` is deployed to GitHub Pages.
 
-The follow-up plan was written against the pre-rebuild tree — it expected
-`scoring.js` to still exist, `robotPuppet.js` not to, and no living robot in the
-atelier, all of which were already done. It still caught three real things: a
-stale "nothing deforms" comment in `robotDefinition.js`, four Done outcomes all
-playing the same sound with no landing sound at all, and camera readability
-needing an actual look at a classroom resolution. All three are fixed.
+The owner judged the tap-to-fill robot "too segmented and instructional" and
+reversed the interaction model. The come-to-life system was kept intact.
 
-The whole loop now works: **listen → remember a favourite colour → colour the
-required parts → decorate freely → press できた → the child's exact robot comes
-alive and hops around the 3D atelier as a paper puppet.**
+**The loop now is:** ask the artist → hear `I like ___` → paint the robot
+freehand with three brush sizes and seven colours → the ⚡ ROBOT POWER bar fills
+from unique painted area → at full power the robot activates **by itself** and
+hops into the atelier as a five-piece paper puppet carrying the real brushwork.
 
-### What changed
+### What this pass deleted
 
-- **`robotDefinition.js`** — arms narrowed 0.105→0.072 and lengthened (they read
-  as two blobs before), the shoulder plank became two shoulder caps that bridge
-  torso to arm, legs tucked under the torso, `buttons` drawn as three studs, and
-  a `labelBox`/`labelPlacement` model so a colour word can sit on clear paper
-  with a leader when its own shape cannot hold `ORANGE`. `tappablePoint()` is
-  exported: **a region's bounding-box centre is not necessarily in that region**
-  (the middle of the torso belongs to the chest panel), which broke the harness
-  before it broke anything else.
-- **`picture.js`** — rewritten as the live tap-to-fill surface. Pointer, hover
-  highlight, keyboard traversal in reading order, a `setHint` ring for a wrong
-  labelled region, and a labels-free `snapshot()` for the wall frame. The
-  freehand brush, the 72×72 grid and `scoring.js` are **deleted**.
-- **`robotPuppet.js`** (new, pure) — four states, the hop curve, squash/stretch
-  clamped to 0.82–1.18, limb lag, the piece layout/parent/depth tables and the
-  authored roam loop. 30 tests, no three.js.
-- **`paperPuppet.js`** (new) — nine unlit flat quads textured by
-  `robotRenderer.drawPiece`, each with a cream *silhouette* backing for the cut
-  edge, a gradient shadow and a gradient antenna glow.
-- **`index.js`** — seven-colour palette, undo/eraser/guarded reset, the four
-  outcomes, the activation cinematic, the roaming puppet, the old star panel
-  gone, and an `__eslDebug.coloring` snapshot for the harness.
-- **`src/dev/robot-preview/`** — `index.html` renders the page and the nine cut
-  pieces; `puppet.html` renders a hop frame by frame and from several angles.
-  **Use these to judge anything visual here**; three real defects were found
-  this way that no test would have caught.
+`colorState.js`, `robotScoring.js`, region types, the ★ region, colour-word
+labels and their leader lines, tap-to-fill hit testing, the four activation
+outcomes, the 40% free-region rule, and the Done button. Deleted, not switched
+off — see DESIGN_DECISIONS for why two models of "coloured correctly" is worse
+than either.
+
+### What exists now
+
+- **`robotDefinition.js`** — one connected robot: 11 silhouette shapes over 5
+  pieces, plus `DETAILS` (face, bolts, cuffs, knees) drawn as line art *over*
+  the paint so nothing subdivides into a thing that must be coloured. v1's
+  proportions with the gaps closed; limbs overlap the torso on purpose.
+- **`coverage.js`** (pure) — the power model. Unique area only, silhouette only,
+  first-colour-wins credit, 1.5x favourite bonus, 68% threshold, 3 milestones,
+  stroke-level undo, and `scoreRound`.
+- **`palette.js` / `brushes.js`** — seven colours; Small 18px, Medium 38px
+  (default), Large 70px.
+- **`picture.js`** — the brush. Two canvases: **paint** (the child's strokes
+  only, and the source for the puppet's textures) and display, redrawn as paper,
+  blank body, paint, line art. Undo replays a stroke list rather than
+  snapshotting images.
+- **`robotRenderer.js`** — `drawPage` and `drawPiece`; a piece is the paint
+  canvas clipped to that piece's own shapes.
+- **`robotPuppet.js` / `paperPuppet.js`** — the hop, unchanged, adapted to five
+  pieces with the arm lag moved to the whole arm.
 
 ### Verified
 
-`npm test` **570/570**. `npm run build` OK. `npm run playthrough:coloring`
-passes **59/59** at both 1024x600 and 1366x768 (the viewport is now argv[4]/[5]),
-covering all four activation outcomes, undo/eraser/reset, keyboard filling, the
-hop and the anti-shortcut route. **The harness is TRUSTED** — proved both ways:
-59/59 known-good, and 58/59 with `HOP_HEIGHT` forced to 0, failing on exactly
-the hop check. Layout checked at 760x420, 1024x600 and 1366x768 with no overflow
-and 44px+ swatches.
+`npm test` **556/556**. `npm run build` OK. `npm run playthrough:coloring`
+**54/54** at 1366x768, including measured-in-browser proof that repainting and
+background paint charge nothing, that the favourite colour charges **exactly
+1.500x**, that full power lands at **69.5% coverage after 21 large-brush
+sweeps**, and that ignoring the favourite entirely still activates the robot.
+**The harness is TRUSTED** — 54/54 known-good, and 53/54 with the silhouette
+mask disabled, failing on exactly the background check.
 
-**The "puppet is the child's drawing" claim is measured, not asserted.**
-`src/dev/robot-preview/index.html` compares the finished page against all nine
-piece renders pixel by pixel and prints five verdicts on the page (and to
-`window.__checks`): **16,180 interior samples, 0 differ**; all 92 differences
-sit in 622 seam samples where the page carries a neighbour's outline over the
-join and the lone piece correctly does not; all seven colours survive; region
-ownership is exclusive. Keep this check.
+Layout measured at 760x420, 1024x600 and 1366x768: no overflow, swatches 44px+,
+canvas 229 / 444 / 575px.
 
-### Three things that were not obvious
-
-1. **A flat cut-out must not face its travel direction.** Rotating it to its
-   heading showed the camera its edge and the robot was an invisible sliver. It
-   flips (mirror on X) and leans at most 0.17rad instead.
-2. **An untextured quad is a rectangle.** The antenna's additive "glow"
-   rendered as a white box above the robot's head and the shadow as a grey
-   card; both needed radial-gradient textures. The glow then still washed the
-   antenna light — a *graded* region — to white, so it is now a halo peaking
-   outside the light rather than a bright core.
-3. **A bounding-box centre is not inside its region.** The middle of the torso
-   belongs to the chest panel. See `tappablePoint`.
-
-### NEXT STEPS for a fresh session
-
-1. **Owner acceptance.** `npm run dev`, enter the Atelier, play a round, and
-   judge the hop and the activation by watching them.
-2. **The pass is complete and green but NOT committed** — the follow-up plan
-   said not to commit or push. The earlier half of this work *is* pushed:
-   `main` is at `9bbac23` and branch `coloring-robot-alive` at `1bd0f13` is on
-   `origin`. Everything since `1bd0f13` is uncommitted in the tree.
-3. **Owner acceptance of the scene editor** is still outstanding from the
-   previous pass: open the Zoo with `npm run dev` and press `P`.
-4. **Migrate scenery placements to layout JSON** — still not started.
+`src/dev/robot-preview/` is the visual tool: `index.html` renders the blank page,
+a simulated freehand painting, the brush sizes, the five cut pieces and five
+self-checking assertions; `puppet.html` renders the seam test at rest plus a hop
+frame by frame. **Judge anything visual here** — the seam question and the
+130px-canvas bug were both found this way and no test would have caught either.
 
 ### Known visual limits
 
-- A small region's on-screen size is ~26px at 1024x600 and ~36px at 1366x768.
-  Comfortable for a cursor or touchpad, which is the target; tight for a finger.
-- The puppet stays nearly parallel to the camera plane by design, so it never
-  turns to show its side. Viewed exactly edge-on it is a sliver, which is what
-  paper does; the lean cap keeps it out of that range in play.
+- When an arm swings wide during a hop, its inner edge carries a sliver of the
+  torso's paint, because the overlap zone genuinely has torso paint on it. The
+  alternative is a notch in the silhouette, which is worse. A few pixels at
+  playing size.
+- At 760x420 the canvas is 229px. Usable, but a 1366x768 Chromebook is the
+  real target and gets 575px.
+- The robot reads slightly squat: the visible leg is 0.167 of the picture
+  against a 0.395 torso. This matches v1, whose legs were only lines.
+
+### NEXT STEPS for a fresh session
+
+1. **Owner acceptance.** `npm run dev`, enter the Atelier, paint a robot and
+   watch it wake up. This is live and has never been played by a human.
+2. **Owner acceptance of the scene editor** is still outstanding from an
+   earlier pass: open the Zoo with `npm run dev` and press `P`.
+3. **Migrate scenery placements to layout JSON** — still not started.
 
 ## Previous pass (2026-09-22) — a reusable scene placement editor
 

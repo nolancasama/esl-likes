@@ -1,74 +1,38 @@
 /**
  * Drawing the robot.
  *
- * One renderer serves both halves of the minigame: the colouring page draws the
- * whole robot, and each paper-puppet piece draws only the regions it owns, with
- * the same code and the same colours. That is what guarantees the puppet looks
- * like the child's drawing rather than a reconstruction of it — there is no
- * second renderer to drift.
+ * Three layers, always in this order:
  *
- * Takes a 2D context rather than making one, so it can be driven by a canvas,
- * by an offscreen canvas for a puppet texture, or by a recording stub in tests.
+ *   1. the paper
+ *   2. the child's paint, clipped to nothing — it may spill past the lines
+ *   3. the black line art, redrawn over everything, plus the face
  *
- * Order is load-bearing: fill regions by `order`, redraw the black line art over
- * every fill, then draw the eyes above everything. A child who paints the face
- * dark must still be able to see the robot's expression.
+ * Layer 3 is what keeps a messy page readable, and it is the one idea worth
+ * carrying over from the original v1 robot: paint first, outline after, so no
+ * amount of scribbling can lose the robot.
+ *
+ * Takes a 2D context rather than making one, so the same code serves the live
+ * canvas, an offscreen canvas for a puppet texture, and a recording stub in
+ * tests.
  */
 
 import {
+  DETAILS,
   PICTURE_SIZE,
-  REGIONS,
-  REGION_BY_ID,
-  REGIONS_BY_PIECE,
-  labelPlacement,
+  SHAPES,
+  SHAPES_BY_PIECE,
+  drawOrder,
   pieceBounds,
-  regionBounds,
 } from './robotDefinition.js';
-import { PALETTE_HEX } from './colorState.js';
 
-const INK = '#23282f';
-const BLANK = '#f7f4ee';
-const HIGHLIGHT = '#ffd400';
+export const INK = '#17233a';
+export const PAPER = '#f7f4ee';
+/** Unpainted robot, a shade off the paper so the silhouette reads when blank. */
+const BLANK = '#fffdf8';
 
-/** Line weights, as a fraction of the picture, so they scale with it. */
-const OUTLINE = 0.006;
-const DETAIL = 0.004;
-
-/** The white halo behind a label word, as a share of its font size, per side. */
-const HALO = 0.14;
-
-/** Regions drawn back to front. Panels sit on the body, eyes sit on the face. */
-export function drawOrder(only = null) {
-  const wanted = only ? new Set(only) : null;
-  return REGIONS
-    .filter((region) => !wanted || wanted.has(region.id))
-    .slice()
-    .sort((a, b) => a.order - b.order);
-}
-
-/** The colour a region should be filled with, or the blank paper colour. */
-export function fillFor(regionId, colors = {}) {
-  const chosen = colors[regionId];
-  return PALETTE_HEX[chosen] ?? BLANK;
-}
-
-/**
- * The label a region shows this round, or null.
- *
- * The starred region shows a star and never a colour name — remembering the
- * friend's favourite is the whole listening task. A labelled region's word
- * disappears once it holds the right colour, so a finished robot is not
- * covered in instructions.
- */
-export function labelFor(regionId, round, colors = {}) {
-  if (!round) return null;
-  if (regionId === round.starred) {
-    return colors[regionId] === round.favourite ? null : '★';
-  }
-  const labelled = round.labelled?.find((entry) => entry.regionId === regionId);
-  if (!labelled) return null;
-  return colors[regionId] === labelled.color ? null : labelled.color.toUpperCase();
-}
+/** Line weights as a fraction of the picture, so they scale with it. */
+const OUTLINE = 0.017;
+const DETAIL = 0.008;
 
 function pathShape(ctx, shape, size) {
   ctx.beginPath();
@@ -82,190 +46,196 @@ function pathShape(ctx, shape, size) {
   const h = shape.height * size;
   const r = Math.min((shape.radius ?? 0) * size, w / 2, h / 2);
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
-  else {
-    // Older canvas implementations have no roundRect; square corners are an
-    // acceptable fallback and never change which pixels belong to a region.
-    ctx.rect(x, y, w, h);
-  }
+  else ctx.rect(x, y, w, h);
 }
-
-function fillRegion(ctx, region, colors, size) {
-  ctx.fillStyle = fillFor(region.id, colors);
-  for (const shape of region.shapes) {
-    pathShape(ctx, shape, size);
-    ctx.fill();
-  }
-}
-
-function strokeRegion(ctx, region, size, width = OUTLINE) {
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = width * size;
-  ctx.lineJoin = 'round';
-  for (const shape of region.shapes) {
-    pathShape(ctx, shape, size);
-    ctx.stroke();
-  }
-}
-
-/** The eyes, drawn last so a dark face can never swallow them. */
-function drawEyes(ctx, colors, size) {
-  const box = regionBounds('eyes');
-  const midY = (box.minY + box.maxY) / 2;
-  const radius = (box.maxY - box.minY) * 0.3;
-  for (const cx of [box.minX + (box.maxX - box.minX) * 0.28, box.minX + (box.maxX - box.minX) * 0.72]) {
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(cx * size, midY * size, radius * size, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = DETAIL * size;
-    ctx.stroke();
-    ctx.fillStyle = INK;
-    ctx.beginPath();
-    ctx.arc(cx * size, midY * size, radius * 0.48 * size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-/** Below this the line would be a smudge rather than a leader. */
-const LEADER_MIN = 0.02;
-
-const setLabelFont = (ctx, fontSize) => {
-  ctx.font = `700 ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
-};
 
 /**
- * The font size a word may use in a box: capped by the box height and by a
- * share of the picture, then **measured and shrunk until it also fits the box
- * width**. Sizing from height alone let `RED` spill outside the antenna light
- * and `YELLOW` past both ends of the eye band. The halo counts as width,
- * because it is what actually crosses the outline.
+ * The robot's blank body, back to front.
+ *
+ * Also the mask: calling this and then `ctx.clip()` is how a puppet piece keeps
+ * only the paint that belongs to it.
  */
-export function fitLabelFont(ctx, text, width, height, size) {
-  let fontSize = Math.min(height * 0.62, size * 0.038);
-  const usable = width * 0.9;
-  setLabelFont(ctx, fontSize);
-  const measured = ctx.measureText?.(text)?.width ?? 0;
-  // measureText is unavailable in the recording stub; the height cap still holds.
-  if (measured > 0) {
-    const needed = measured + fontSize * HALO * 2;
-    if (needed > usable) fontSize *= usable / needed;
+export function pathSilhouette(ctx, { size = PICTURE_SIZE, only = null } = {}) {
+  const entries = only
+    ? SHAPES.filter((entry) => only.includes(entry.id))
+    : drawOrder();
+  ctx.beginPath();
+  for (const entry of entries) {
+    const shape = entry.shape;
+    if (shape.kind === 'circle') {
+      ctx.moveTo((shape.cx + shape.r) * size, shape.cy * size);
+      ctx.arc(shape.cx * size, shape.cy * size, shape.r * size, 0, Math.PI * 2);
+      continue;
+    }
+    const x = shape.x * size;
+    const y = shape.y * size;
+    const w = shape.width * size;
+    const h = shape.height * size;
+    const r = Math.min((shape.radius ?? 0) * size, w / 2, h / 2);
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+    else ctx.rect(x, y, w, h);
   }
-  return Math.max(size * 0.014, fontSize);
 }
 
-function drawLabel(ctx, region, text, size) {
-  const place = labelPlacement(region.id);
-  const cx = (place.minX + place.maxX) / 2 * size;
-  const cy = (place.minY + place.maxY) / 2 * size;
-  const fontSize = fitLabelFont(
-    ctx, text, (place.maxX - place.minX) * size, (place.maxY - place.minY) * size, size,
-  );
+/** The unpainted robot: a pale body, so the shape reads before any paint. */
+export function drawBlankBody(ctx, { size = PICTURE_SIZE, only = null } = {}) {
+  const entries = only ? SHAPES.filter((e) => only.includes(e.id)) : drawOrder();
+  ctx.fillStyle = BLANK;
+  for (const entry of entries) {
+    pathShape(ctx, entry.shape, size);
+    ctx.fill();
+  }
+}
 
-  if (place.leader && place.anchor) {
-    const own = regionBounds(region.id);
-    const gap = Math.max(place.minX - own.maxX, own.minX - place.maxX,
-      place.minY - own.maxY, own.minY - place.maxY);
-    if (gap >= LEADER_MIN) {
-      ctx.save();
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = DETAIL * 0.7 * size;
+/**
+ * The line art: every silhouette outline, then the face and the small details.
+ *
+ * Drawn last, so it survives any paint. The eyes are filled white first so a
+ * child who scribbles the head dark can still see the robot looking back.
+ */
+export function drawLineArt(ctx, { size = PICTURE_SIZE, only = null, blink = 0 } = {}) {
+  const entries = only ? SHAPES.filter((e) => only.includes(e.id)) : drawOrder();
+  const showsFace = entries.some((entry) => entry.id === 'head');
+
+  ctx.save();
+  ctx.strokeStyle = INK;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = OUTLINE * size;
+  for (const entry of entries) {
+    pathShape(ctx, entry.shape, size);
+    ctx.stroke();
+  }
+
+  if (showsFace) {
+    ctx.lineWidth = DETAIL * size;
+    for (const eye of DETAILS.eyes) {
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.moveTo(place.anchor.x * size, place.anchor.y * size);
-      ctx.lineTo(cx, cy);
+      ctx.arc(eye.cx * size, eye.cy * size, eye.r * size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = INK;
       ctx.stroke();
-      ctx.restore();
+      // A blink closes the eye to a line rather than hiding it.
+      const open = 1 - Math.min(1, Math.max(0, blink));
+      ctx.fillStyle = INK;
+      ctx.beginPath();
+      if (open > 0.15) {
+        ctx.ellipse(eye.cx * size, eye.cy * size, eye.r * DETAILS.pupilRatio * size,
+          eye.r * DETAILS.pupilRatio * open * size, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.lineWidth = DETAIL * 1.6 * size;
+        ctx.moveTo((eye.cx - eye.r * 0.7) * size, eye.cy * size);
+        ctx.lineTo((eye.cx + eye.r * 0.7) * size, eye.cy * size);
+        ctx.stroke();
+        ctx.lineWidth = DETAIL * size;
+      }
+    }
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = DETAIL * 1.3 * size;
+    ctx.beginPath();
+    ctx.moveTo(DETAILS.mouth.x1 * size, DETAILS.mouth.y * size);
+    ctx.lineTo(DETAILS.mouth.x2 * size, DETAILS.mouth.y * size);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = DETAIL * size;
+  if (entries.some((entry) => entry.id === 'torso')) {
+    for (const bolt of DETAILS.bolts) {
+      ctx.beginPath();
+      ctx.arc(bolt.cx * size, bolt.cy * size, bolt.r * size, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
+  // Cuffs and knees, kept with whichever piece their line sits on.
+  const box = only ? null : undefined;
+  for (const line of DETAILS.lines) {
+    if (only && !lineBelongsTo(line, only)) continue;
+    ctx.beginPath();
+    ctx.moveTo(line.x1 * size, line.y * size);
+    ctx.lineTo(line.x2 * size, line.y * size);
+    ctx.stroke();
+  }
+  void box;
+  ctx.restore();
+}
 
-  setLabelFont(ctx, fontSize);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // A pale halo keeps the word legible over any of the seven fills, and over
-  // the leader line, without shouting over the artwork.
-  ctx.lineWidth = fontSize * HALO * 2;
-  ctx.strokeStyle = 'rgba(255,255,255,0.88)';
-  ctx.strokeText(text, cx, cy);
-  ctx.fillStyle = INK;
-  ctx.fillText(text, cx, cy);
+/** A cuff or knee line belongs to whichever shape it is drawn across. */
+function lineBelongsTo(line, only) {
+  const midX = (line.x1 + line.x2) / 2;
+  return SHAPES.some((entry) => {
+    if (!only.includes(entry.id)) return false;
+    const bounds = entry.shape.kind === 'circle'
+      ? null
+      : { minX: entry.shape.x, maxX: entry.shape.x + entry.shape.width, minY: entry.shape.y, maxY: entry.shape.y + entry.shape.height };
+    if (!bounds) return false;
+    return midX >= bounds.minX && midX <= bounds.maxX && line.y >= bounds.minY && line.y <= bounds.maxY;
+  });
 }
 
 /**
- * Draws the robot.
+ * The whole colouring page: paper, the blank body, the child's paint clipped to
+ * nothing, then the line art.
  *
  * @param {CanvasRenderingContext2D} ctx
  * @param {object} options
- * @param {number} [options.size]      picture size in pixels
- * @param {object} [options.colors]    region id -> palette colour
- * @param {object} [options.round]     for the ★ and the colour labels
- * @param {string[]} [options.only]    draw only these regions (a puppet piece)
- * @param {boolean} [options.labels]   false for puppet pieces — no instructions
- * @param {string} [options.highlight] region id to outline under the pointer
+ * @param {HTMLCanvasElement} [options.paint] the child's strokes, same size
  */
-export function drawRobot(ctx, {
-  size = PICTURE_SIZE,
-  colors = {},
-  round = null,
-  only = null,
-  labels = true,
-  highlight = null,
-} = {}) {
-  const regions = drawOrder(only);
-
-  for (const region of regions) fillRegion(ctx, region, colors, size);
-  for (const region of regions) strokeRegion(ctx, region, size);
-
-  if (highlight && REGION_BY_ID[highlight] && (!only || only.includes(highlight))) {
-    ctx.save();
-    ctx.strokeStyle = HIGHLIGHT;
-    ctx.lineWidth = OUTLINE * 1.8 * size;
-    for (const shape of REGION_BY_ID[highlight].shapes) {
-      pathShape(ctx, shape, size);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  if (regions.some((region) => region.id === 'eyes')) drawEyes(ctx, colors, size);
-
-  if (labels && round) {
-    for (const region of regions) {
-      const text = labelFor(region.id, round, colors);
-      if (text) drawLabel(ctx, region, text, size);
-    }
-  }
+export function drawPage(ctx, { size = PICTURE_SIZE, paint = null, blink = 0 } = {}) {
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, size, size);
+  drawBlankBody(ctx, { size });
+  if (paint) ctx.drawImage(paint, 0, 0, size, size);
+  drawLineArt(ctx, { size, blink });
 }
 
 /**
- * The pixel box a puppet piece's texture should cover: the piece's own bounds
- * plus a margin for the outline, which straddles the edge of a shape.
+ * The pixel box a puppet piece's texture covers: the piece's bounds plus a
+ * margin for the outline, which straddles the edge of a shape.
  */
 export function pieceTextureBounds(piece, { size = PICTURE_SIZE, margin = OUTLINE } = {}) {
   const box = pieceBounds(piece);
   if (!box) return null;
   const pad = margin * size;
-  const x = box.minX * size - pad;
-  const y = box.minY * size - pad;
   return {
-    x,
-    y,
+    x: box.minX * size - pad,
+    y: box.minY * size - pad,
     width: (box.maxX - box.minX) * size + pad * 2,
     height: (box.maxY - box.minY) * size + pad * 2,
   };
 }
 
 /**
- * Draws one puppet piece into its own context, translated so the piece sits at
- * the origin. The caller supplies a correctly sized transparent canvas from
- * `pieceTextureBounds`. Labels are off: instructions belong to the colouring
- * page, not to the robot that walks away from it.
+ * Cuts one puppet piece out of the finished page.
+ *
+ * This is the whole reason the puppet looks like the child's work: the paint
+ * canvas is the source, clipped to this piece's own silhouette shapes, so every
+ * brush stroke, every gap and every spill inside the lines comes with it.
+ * A spill *outside* the lines does not, which is why painting over the edge is
+ * allowed on the page and invisible on the robot.
+ *
+ * The caller supplies a correctly sized transparent canvas from
+ * `pieceTextureBounds`.
  */
-export function drawPiece(ctx, piece, { size = PICTURE_SIZE, colors = {} } = {}) {
+export function drawPiece(ctx, piece, { size = PICTURE_SIZE, paint = null } = {}) {
   const box = pieceTextureBounds(piece, { size });
   if (!box) return null;
+  const ids = SHAPES_BY_PIECE[piece].map((entry) => entry.id);
+
   ctx.save();
   ctx.translate(-box.x, -box.y);
-  drawRobot(ctx, { size, colors, only: REGIONS_BY_PIECE[piece], labels: false });
+
+  ctx.save();
+  pathSilhouette(ctx, { size, only: ids });
+  ctx.clip();
+  drawBlankBody(ctx, { size, only: ids });
+  if (paint) ctx.drawImage(paint, 0, 0, size, size);
+  ctx.restore();
+
+  // Outside the clip, so the outline reads at full weight on the cut edge.
+  drawLineArt(ctx, { size, only: ids });
   ctx.restore();
   return box;
 }

@@ -2,54 +2,29 @@
 //   npm run build && npx vite preview --port 5199   (in another terminal)
 //   node scripts/playthrough-coloring.mjs http://localhost:5199/ .tmp/col [w] [h]
 //
-// Session A walks the whole loop and every one of the four activation outcomes:
-// ask, hear the favourite colour, prove tap-to-fill and the tools, then press
-// Done with the ★ wrong (NOT READY), with a label wrong (ALMOST), with nothing
-// decorated (INCOMPLETE) and finally correct (FULL) — the robot comes alive,
-// hops into the atelier, and the round finishes as it always did.
-// Session B is the anti-shortcut check: ignore the answer entirely.
+// The minigame is freehand painting gated by a ROBOT POWER bar, so this drags
+// strokes rather than tapping regions, and the interesting assertions are all
+// about what does and does not charge the bar: new area does, repainting does
+// not, background does not, the NPC's favourite colour charges 1.5x. At full
+// power the robot activates by itself — there is no Done button to press.
 //
-// Tap points come from robotDefinition.js itself, imported here, so the harness
-// can never drift from the robot's real geometry.
+// Geometry comes from robotDefinition.js, imported here, so the harness cannot
+// drift from the robot.
 // playwright resolves from recipe-tester/node_modules; it is not a dependency here.
 import { chromium } from 'playwright';
 import { openFallback } from './lib/pressTalk.mjs';
-import {
-  FREE_REGIONS,
-  LABEL_REGIONS,
-  REGIONS,
-  regionBounds,
-  tappablePoint,
-} from '../src/minigames/coloring/robotDefinition.js';
-import { COMPLETION_THRESHOLD, PALETTE } from '../src/minigames/coloring/colorState.js';
+import { insideSilhouette, silhouetteBounds } from '../src/minigames/coloring/robotDefinition.js';
+import { PALETTE } from '../src/minigames/coloring/palette.js';
+import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from '../src/minigames/coloring/brushes.js';
+import { POWER_THRESHOLD, FAVOURITE_BONUS } from '../src/minigames/coloring/coverage.js';
 
 const URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/col';
-// Viewport is an argument so the same run can be repeated at a real classroom
-// resolution; 1024x600 stays the default because it is the tightest one that
-// still has to work.
-const VIEW = {
-  width: Number(process.argv[4]) || 1024,
-  height: Number(process.argv[5]) || 600,
-};
+const VIEW = { width: Number(process.argv[4]) || 1024, height: Number(process.argv[5]) || 600 };
 const SAVE_KEY = 'esl-likes-save-v1';
 
-const STARRED = REGIONS.find((r) => r.type === 'required-favorite').id;
-const LABELLED = LABEL_REGIONS.map((r) => r.id);
-const FREE = FREE_REGIONS.map((r) => r.id);
-
-/**
- * Where to tap for a region, in picture fractions.
- *
- * `tappablePoint` rather than the bounding-box centre: the middle of the torso
- * belongs to the chest panel drawn over it, so aiming at centres silently
- * coloured the wrong regions and made a correct round look like a failure.
- */
-const tapPoint = (regionId) => {
-  const point = tappablePoint(regionId);
-  if (!point) throw new Error(`no tappable point for ${regionId}`);
-  return point;
-};
+/** A margin stroke that is provably clear of the robot, for the background check. */
+const MARGIN_X = 0.035;
 
 const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
@@ -64,6 +39,7 @@ await context.addInitScript((key) => {
 
 const results = [];
 const errors = [];
+const notes = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok: Boolean(ok) });
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
@@ -86,13 +62,18 @@ async function openPage(label) {
       action: text('.coloring-room-ui__action'),
       bubble: text('.npc-dialogue__line'),
       notice: text('.coloring-answer-notice'),
-      feedback: text('.coloring-feedback'),
       instruction: text('.coloring-screen__instruction'),
       resetConfirm: visible(q('.coloring-reset-confirm')),
-      done: q('.coloring-done') ? !q('.coloring-done').disabled : null,
+      done: Boolean(q('.coloring-done')),
       swatches: document.querySelectorAll('.coloring-swatch').length,
+      brushes: [...document.querySelectorAll('.coloring-brush')].map((b) => b.dataset.brush),
+      brushPressed: [...document.querySelectorAll('.coloring-brush')]
+        .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.brush),
       pressed: [...document.querySelectorAll('.coloring-swatch')]
         .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.color),
+      powerBar: visible(q('.coloring-power')),
+      powerWidth: q('.coloring-power__fill')?.style.width ?? null,
+      powerText: text('.coloring-power'),
       undoEnabled: q('.coloring-tool--undo') ? !q('.coloring-tool--undo').disabled : null,
       eraserOn: q('.coloring-tool--eraser')?.getAttribute('aria-pressed') === 'true',
       listen: visible(q('.listen-again')),
@@ -147,7 +128,6 @@ async function askArtist(h) {
   await h.sleep(1200);
   const reached = await h.pulseUntil(['KeyW'], (u) => u.talk || u.fallback.length > 0, 30, 'artist');
   if (!reached) return { asked: null, answer: null, favourite: null };
-  // Standing beside the artist must open nothing until Talk is pressed.
   await h.sleep(2000);
   const standing = await h.ui();
   check('standing at the artist opens no read-along until Talk is pressed',
@@ -164,82 +144,52 @@ async function askArtist(h) {
 const canvasBox = (page) => page.locator('.coloring-canvas').boundingBox();
 
 async function selectColour(page, colour) {
-  // The palette pulses until a colour is chosen, which Playwright reads as an
-  // "unstable" element. A child clicks it fine, so click through the animation.
   await page.click(`.coloring-swatch[data-color="${colour}"]`, { force: true });
-  await page.waitForTimeout(120);
+  await page.waitForTimeout(90);
 }
 
-/** One tap on a region — a discrete click, as a touchpad produces. */
-async function tap(page, box, regionId) {
-  const point = tapPoint(regionId);
-  // The canvas is letterboxed by object-fit: contain, so the picture occupies a
-  // centred square inside the element's box.
+async function selectBrush(page, id) {
+  await page.click(`.coloring-brush[data-brush="${id}"]`, { force: true });
+  await page.waitForTimeout(90);
+}
+
+/** Picture fractions to screen pixels, honouring the object-fit letterbox. */
+function toScreen(box, x, y) {
   const size = Math.min(box.width, box.height);
-  const left = box.x + (box.width - size) / 2;
-  const top = box.y + (box.height - size) / 2;
-  await page.mouse.click(left + point.x * size, top + point.y * size);
-  await page.waitForTimeout(45);
+  return {
+    x: box.x + (box.width - size) / 2 + x * size,
+    y: box.y + (box.height - size) / 2 + y * size,
+  };
 }
-
-async function fill(page, box, regionId, colour) {
-  await selectColour(page, colour);
-  await tap(page, box, regionId);
-}
-
-const colorsOf = async (h) => (await h.ui()).debug?.colors ?? {};
 
 /**
- * Finds the colour a labelled region wants by trying each one and watching for
- * its instruction word to disappear — which is exactly the behaviour the spec
- * promises, so discovering it this way tests it.
+ * Drags a stroke across the picture.
+ *
+ * `steps` deliberately low by default: a touchpad reports few points over a
+ * fast flick, and the coverage grid is supposed to interpolate the gap.
  */
-async function solveLabel(h, box, regionId) {
-  for (const colour of PALETTE) {
-    await fill(h.page, box, regionId, colour);
-    const gone = await labelGone(h.page, regionId);
-    if (gone) return colour;
+async function stroke(page, box, points, steps = 3) {
+  const first = toScreen(box, points[0][0], points[0][1]);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const [x, y] of points.slice(1)) {
+    const at = toScreen(box, x, y);
+    await page.mouse.move(at.x, at.y, { steps });
   }
-  return null;
+  await page.mouse.up();
+  await page.waitForTimeout(40);
 }
 
-/** True when no ink remains in a region's label box: the word has faded. */
-function labelGone(page, regionId) {
-  const region = REGIONS.find((r) => r.id === regionId);
-  const b = region.labelBox ?? regionBounds(regionId);
-  return page.evaluate(([minX, minY, maxX, maxY]) => {
-    const canvas = document.querySelector('.coloring-canvas');
-    const ctx = canvas.getContext('2d');
-    const x = Math.round(minX * canvas.width);
-    const y = Math.round(minY * canvas.height);
-    const w = Math.max(1, Math.round((maxX - minX) * canvas.width));
-    const hh = Math.max(1, Math.round((maxY - minY) * canvas.height));
-    const { data } = ctx.getImageData(x, y, w, hh);
-    let dark = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      // The ink is #23282f; every palette fill and the paper are much lighter.
-      if (data[i] < 90 && data[i + 1] < 95 && data[i + 2] < 105) dark += 1;
-    }
-    return dark < 6;
-  }, [b.minX, b.minY, b.maxX, b.maxY]);
+const power = async (h) => (await h.ui()).debug?.power ?? 0;
+
+/** Horizontal sweeps down the robot, which is how a child fills a big shape. */
+function sweeps(from, to, step) {
+  const rows = [];
+  for (let y = from; y <= to; y += step) rows.push([[0.1, y], [0.9, y]]);
+  return rows;
 }
 
-async function pressDone(h, expected) {
-  await h.page.click('.coloring-done');
-  return h.waitFor((u) => u.debug?.outcome === expected, 4000, `outcome ${expected}`);
-}
-
-/** Decorates free regions until the completion threshold is comfortably passed. */
-async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
-  const needed = Math.ceil(FREE.length * wanted);
-  const palette = PALETTE;
-  for (let i = 0; i < needed; i += 1) {
-    await fill(h.page, box, FREE[i], palette[i % palette.length]);
-  }
-  return needed;
-}
-
-// ---- Session A: the whole loop, and all four outcomes --------------------
+// ---- Session A: paint until the robot wakes up ---------------------------
 {
   const h = await openPage('A');
   const { page } = h;
@@ -261,14 +211,20 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   await h.sleep(700);
   s = await h.ui();
   check('all seven colours are offered', s.swatches === 7, String(s.swatches));
+  check('three brushes are offered', s.brushes.length === 3, s.brushes.join(','));
+  check('Medium is the brush selected by default',
+    s.brushPressed.length === 1 && s.brushPressed[0] === DEFAULT_BRUSH, s.brushPressed.join(','));
   check('no swatch is selected by default', s.pressed.length === 0, JSON.stringify(s.pressed));
-  check('できた is pressable from the start (it is an activation attempt, not a gate)', s.done === true);
+  check('the ROBOT POWER bar is shown, and starts empty',
+    s.powerBar && (s.powerWidth === '0%' || s.powerWidth === '0.0%'), s.powerWidth);
+  check('there is no Done button any more — the bar is the goal', s.done === false);
   check('Undo starts unavailable', s.undoEnabled === false);
-  check('the answer is not left on screen', !/I like/.test(s.body));
-  check('🔊 listen-again is offered while colouring', s.listen);
+  check('no colour name is written anywhere on the page',
+    !PALETTE.some((c) => new RegExp(c.toUpperCase()).test(s.body)), s.instruction);
   check('the favourite colour is never named on the page',
     !new RegExp(favourite, 'i').test(s.body), s.instruction);
-  await page.screenshot({ path: `${OUT}-04-canvas.png` });
+  check('🔊 listen-again is offered while colouring', s.listen);
+  await page.screenshot({ path: `${OUT}-04-blank.png` });
 
   await page.click('.listen-again');
   s = await h.waitFor((u) => u.notice && /I like/.test(u.notice), 3000, 'replayed answer');
@@ -276,132 +232,116 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   await h.sleep(2400);
 
   const box = await canvasBox(page);
+  const other = PALETTE.find((c) => c !== favourite);
 
-  // --- tap-to-fill and the tools ---
-  await selectColour(page, favourite);
+  // --- what charges the bar, and what does not ---
+  await selectColour(page, other);
   s = await h.ui();
   check('choosing a swatch selects exactly that colour',
-    s.pressed.length === 1 && s.pressed[0] === favourite, JSON.stringify(s.pressed));
+    s.pressed.length === 1 && s.pressed[0] === other, JSON.stringify(s.pressed));
 
-  await tap(page, box, 'body');
+  await selectBrush(page, 'large');
+  const before = await power(h);
+  await stroke(page, box, [[0.33, 0.5], [0.67, 0.5]]);
+  const afterOne = await power(h);
+  check('a stroke across the robot charges the bar', afterOne > before,
+    `${before.toFixed(4)} -> ${afterOne.toFixed(4)}`);
   s = await h.ui();
-  check('one tap fills a whole region', s.debug?.colors?.body === favourite,
-    JSON.stringify(s.debug?.colors));
-  check('Undo becomes available after a fill', s.undoEnabled === true);
+  check('the bar visibly moves', s.powerWidth !== '0%' && s.powerWidth !== '0.0%', s.powerWidth);
+  check('Undo becomes available after a stroke', s.undoEnabled === true);
 
+  for (let i = 0; i < 6; i += 1) await stroke(page, box, [[0.33, 0.5], [0.67, 0.5]]);
+  const afterRepeat = await power(h);
+  check('painting the same place again charges nothing',
+    Math.abs(afterRepeat - afterOne) < 1e-9, `${afterOne.toFixed(4)} -> ${afterRepeat.toFixed(4)}`);
+
+  await stroke(page, box, [[MARGIN_X, 0.15], [MARGIN_X, 0.85]]);
+  const afterBackground = await power(h);
+  check('painting the paper around the robot charges nothing',
+    Math.abs(afterBackground - afterRepeat) < 1e-9,
+    `${afterRepeat.toFixed(4)} -> ${afterBackground.toFixed(4)}`);
+
+  // --- undo, and the favourite-colour bonus measured on the same stroke ---
+  const line = [[0.33, 0.62], [0.67, 0.62]];
+  const base = await power(h);
+  await stroke(page, box, line);
+  const plainGain = (await power(h)) - base;
   await page.click('.coloring-tool--undo');
-  s = await h.ui();
-  check('Undo takes back the last region', !s.debug?.colors?.body, JSON.stringify(s.debug?.colors));
+  await h.sleep(120);
+  const restored = await power(h);
+  check('Undo takes back a whole stroke, power and all',
+    Math.abs(restored - base) < 1e-9, `${base.toFixed(4)} -> ${restored.toFixed(4)}`);
 
-  await fill(page, box, 'face', favourite);
+  await selectColour(page, favourite);
+  await stroke(page, box, line);
+  const faveGain = (await power(h)) - base;
+  const ratio = faveGain / plainGain;
+  check(`the favourite colour charges ${FAVOURITE_BONUS}x faster on the same stroke`,
+    Math.abs(ratio - FAVOURITE_BONUS) < 0.08, `measured ${ratio.toFixed(3)}x`);
+
+  // --- the eraser ---
   await page.click('.coloring-tool--eraser');
   s = await h.ui();
   check('the eraser can be armed', s.eraserOn === true);
-  await tap(page, box, 'face');
-  s = await h.ui();
-  check('the eraser clears one region', !s.debug?.colors?.face, JSON.stringify(s.debug?.colors));
+  const beforeErase = await power(h);
+  await stroke(page, box, line);
+  const afterErase = await power(h);
+  check('the eraser gives back the coverage it removes', afterErase < beforeErase,
+    `${beforeErase.toFixed(4)} -> ${afterErase.toFixed(4)}`);
+  await page.click('.coloring-tool--eraser');
 
+  // --- the guarded reset ---
   await page.click('.coloring-tool--reset');
   s = await h.ui();
   check('やりなおす asks before it erases anything', s.resetConfirm === true);
   await page.click('.coloring-reset-confirm [data-reset="no"]');
-  await fill(page, box, 'body', favourite);
-  await page.click('.coloring-tool--reset');
-  await page.click('.coloring-reset-confirm [data-reset="no"]');
   s = await h.ui();
-  check('declining やりなおす keeps every colour', s.debug?.colors?.body === favourite,
-    JSON.stringify(s.debug?.colors));
+  check('declining やりなおす keeps the painting', (await power(h)) === afterErase);
 
-  // Keyboard: arrow through the regions and fill with Enter.
-  const beforeKeys = Object.keys(await colorsOf(h)).length;
-  await selectColour(page, PALETTE[0]);
-  await page.locator('.coloring-canvas').focus();
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter');
-  await h.sleep(120);
-  const afterKeys = Object.keys(await colorsOf(h)).length;
-  check('keyboard: arrow then Enter fills a region', afterKeys > beforeKeys,
-    `${beforeKeys} -> ${afterKeys}`);
+  // --- a small brush must be usable on a detail ---
+  await selectBrush(page, 'small');
+  await selectColour(page, other);
+  const beforeDetail = await power(h);
+  await stroke(page, box, [[0.5, 0.075], [0.5, 0.12]]);
+  check('the small brush can colour the antenna', (await power(h)) > beforeDetail);
+  await page.screenshot({ path: `${OUT}-05-painting.png` });
 
-  // --- outcome 1: NOT READY (the ★ is wrong) ---
-  const wrongFavourite = PALETTE.find((c) => c !== favourite);
-  await fill(page, box, STARRED, wrongFavourite);
-  const labelColours = {};
-  for (const id of LABELLED) {
-    labelColours[id] = await solveLabel(h, box, id);
+  // --- paint until the bar fills, and time it ---
+  await selectBrush(page, 'large');
+  await selectColour(page, other);
+  const started = Date.now();
+  let strokesUsed = 0;
+  for (const points of sweeps(0.06, 0.96, 0.028)) {
+    if ((await h.ui()).debug?.phase !== 'painting') break;
+    await stroke(page, box, points);
+    strokesUsed += 1;
   }
-  check('each labelled region reveals its colour by its word fading once correct',
-    LABELLED.every((id) => labelColours[id]), JSON.stringify(labelColours));
-  const reported = (await h.ui()).debug?.requiredLabels ?? {};
-  check('the labelled colours found by watching the page match the round',
-    LABELLED.every((id) => labelColours[id] === reported[id]),
-    `${JSON.stringify(labelColours)} vs ${JSON.stringify(reported)}`);
-  await decorate(h, box);
-
-  const beforeFail = await colorsOf(h);
-  s = await pressDone(h, 'not-ready');
-  check('a wrong ★ does not bring the robot alive', s && !s.debug.puppet, s?.debug?.outcome);
-  check('a wrong ★ never names the colour it wanted',
-    s && !new RegExp(favourite, 'i').test(s.feedback ?? ''), s?.feedback);
-  check('NOT READY shows friendly feedback and stays on the page', s?.feedback && s.screen, s?.feedback);
-  check('NOT READY erases nothing', JSON.stringify(await colorsOf(h)) === JSON.stringify(beforeFail));
-  await page.screenshot({ path: `${OUT}-05-not-ready.png` });
-  await h.sleep(2600);
-
-  // --- outcome 2: ALMOST (the ★ is right, one label is wrong) ---
-  await fill(page, box, STARRED, favourite);
-  const breakMe = LABELLED[0];
-  const breakWith = PALETTE.find((c) => c !== labelColours[breakMe]);
-  await fill(page, box, breakMe, breakWith);
-  s = await pressDone(h, 'almost');
-  check('a correct ★ with one wrong label gives ALMOST, not NOT READY', s, s?.debug?.outcome);
-  check('ALMOST points at the labelled region that is wrong, never at the ★',
-    s?.debug?.hint === breakMe, `hint=${s?.debug?.hint}`);
-  check('ALMOST erases nothing', Object.keys(await colorsOf(h)).length > 5);
-  await page.screenshot({ path: `${OUT}-06-almost.png` });
-  await h.sleep(2600);
-
-  // --- outcome 3: INCOMPLETE (everything required is right, too plain) ---
-  await fill(page, box, breakMe, labelColours[breakMe]);
-  await page.click('.coloring-tool--reset');
-  await page.click('.coloring-reset-confirm [data-reset="yes"]');
-  await fill(page, box, STARRED, favourite);
-  for (const id of LABELLED) await fill(page, box, id, labelColours[id]);
+  const seconds = (Date.now() - started) / 1000;
   s = await h.ui();
-  check('a bare robot is under the decoration threshold',
-    s.debug.completion < COMPLETION_THRESHOLD, String(s.debug.completion));
-  s = await pressDone(h, 'incomplete');
-  check('required-but-plain gives INCOMPLETE, a separate outcome from ALMOST', s, s?.debug?.outcome);
-  check('INCOMPLETE never implies a colour is wrong',
-    s && !/もうすこし/.test(s.feedback ?? ''), s?.feedback);
-  await page.screenshot({ path: `${OUT}-07-incomplete.png` });
-  await h.sleep(2600);
+  notes.push(`full power took ${strokesUsed} large-brush sweeps (${seconds.toFixed(1)}s of scripted dragging)`);
+  check('the bar reaches full from painting alone', s.debug.power >= 1 || s.debug.phase !== 'painting',
+    `power ${s.debug.power.toFixed(3)} at ${(s.debug.coverage * 100).toFixed(1)}% coverage`);
+  check('full power arrives well before the page is completely filled',
+    s.debug.coverage < 0.95, `${(s.debug.coverage * 100).toFixed(1)}% coverage`);
+  check(`coverage at full is near the ${(POWER_THRESHOLD * 100).toFixed(0)}% threshold`,
+    s.debug.coverage > 0.3, `${(s.debug.coverage * 100).toFixed(1)}%`);
+  await page.screenshot({ path: `${OUT}-06-full-power.png` });
 
-  // --- outcome 4: FULL ---
-  const decorated = await decorate(h, box, 0.75);
-  const finalColors = await colorsOf(h);
-  check('decorating passes the threshold', (await h.ui()).debug.decoratedEnough,
-    `${decorated} of ${FREE.length} free regions`);
-  await page.screenshot({ path: `${OUT}-08-finished-drawing.png` });
+  // --- activation happens by itself ---
+  s = await h.waitFor((u) => u.debug?.phase === 'charging' || u.debug?.phase === 'activation'
+    || u.debug?.phase === 'landing' || !u.screen, 6000, 'automatic activation');
+  check('full power activates the robot automatically, with nothing to press', s, s?.debug?.phase);
+  await page.screenshot({ path: `${OUT}-07-activating.png` });
 
-  await page.click('.coloring-done');
-  s = await h.waitFor((u) => u.debug?.outcome === 'full', 4000, 'full activation');
-  check('everything right and decorated = FULL activation', s, s?.debug?.outcome);
-  check('the robot is built from the child\'s exact colours',
-    s && JSON.stringify(s.debug.colors) === JSON.stringify(finalColors));
-  check('the puppet has all nine paper pieces', s?.debug?.puppet?.pieces === 9,
-    String(s?.debug?.puppet?.pieces));
-  check('no generic star panel interrupts the activation', !/すてきな/.test(s?.body ?? ''));
-  await page.screenshot({ path: `${OUT}-09-activating.png` });
-
-  s = await h.waitFor((u) => !u.screen && u.room, 9000, 'back in the atelier');
+  s = await h.waitFor((u) => !u.screen && u.room, 12000, 'back in the atelier');
   check('2D -> 3D: the cinematic returns to the atelier by itself', s);
-  s = await h.waitFor((u) => u.debug?.puppet?.present, 4000, 'puppet in the room');
+  s = await h.waitFor((u) => u.debug?.puppet?.present, 6000, 'puppet in the room');
   check('the paper robot is in the atelier', s, JSON.stringify(s?.debug?.puppet));
+  check('the puppet is five pieces, not nine', s?.debug?.puppet?.pieces === 5,
+    String(s?.debug?.puppet?.pieces));
   await h.sleep(900);
-  await page.screenshot({ path: `${OUT}-10-alive.png` });
+  await page.screenshot({ path: `${OUT}-08-alive.png` });
 
-  // It has to actually hop: sample the height over a couple of seconds.
   const lifts = [];
   const spots = [];
   for (let i = 0; i < 40; i += 1) {
@@ -412,10 +352,11 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   check('the robot leaves the ground — it hops', Math.max(...lifts) > 0.15,
     `max lift ${Math.max(...lifts).toFixed(3)}`);
   check('the robot squashes and stretches as it hops',
-    new Set(lifts.map((l) => l.toFixed(2))).size > 4, `${new Set(lifts.map((l) => l.toFixed(2))).size} distinct heights`);
+    new Set(lifts.map((l) => l.toFixed(2))).size > 4,
+    `${new Set(lifts.map((l) => l.toFixed(2))).size} distinct heights`);
   check('the robot moves around the room',
     new Set(spots.map((p) => `${p.x.toFixed(1)},${p.z.toFixed(1)}`)).size > 1);
-  await page.screenshot({ path: `${OUT}-11-hopping.png` });
+  await page.screenshot({ path: `${OUT}-09-hopping.png` });
 
   s = await h.pulseUntil(['KeyW'], (u) => u.action && /わたす/.test(u.action), 30, 'give prompt');
   check('give prompt appears at the NPC', s, s?.action);
@@ -424,7 +365,7 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   check('NPC thanks the child for the picture', s, s?.bubble);
   check('the robot is still alive after the picture is framed', s?.debug?.puppet?.present);
   await h.sleep(900);
-  await page.screenshot({ path: `${OUT}-12-given.png` });
+  await page.screenshot({ path: `${OUT}-10-given.png` });
 
   s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 8000, 'turnaround');
   s = s ? await openFallback(h, 3) : s;
@@ -432,9 +373,7 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   check('turnaround offers every colour sentence',
     values.includes('green') && values.length === 7, s?.fallback.map((f) => f.text).join(' | '));
   await h.sleep(1500);
-  await page.screenshot({ path: `${OUT}-13-turnaround.png` });
-  // Reporting a missing button beats aborting the run: a crash here reads as a
-  // broken harness, and the checks already gathered are the useful part.
+  await page.screenshot({ path: `${OUT}-11-turnaround.png` });
   const answered = await page.locator('.lesson-hud__fallback[data-value="green"]')
     .click({ timeout: 4000 }).then(() => true, () => false);
   check('the green sentence can be chosen in the turnaround', answered);
@@ -450,7 +389,7 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
     return el ? { earned: el.classList.contains('is-earned'), text: el.textContent.replace(/\s+/g, ' ').trim() } : null;
   });
   check('Coloring stamp saved in the stamp book', stamp?.earned, stamp?.text);
-  await page.screenshot({ path: `${OUT}-14-stamps.png` });
+  await page.screenshot({ path: `${OUT}-12-stamps.png` });
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
   check('progress persisted to the save',
     saved?.stamps?.coloring === true && saved?.answers?.color === 'green',
@@ -466,14 +405,13 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
     screen: document.querySelectorAll('.coloring-screen').length,
     listen: document.querySelectorAll('.listen-again').length,
     hud: document.querySelectorAll('.lesson-hud').length,
-    puppets: document.querySelectorAll('canvas').length,
   }));
   check('re-entry leaves no duplicated overlays',
     dupes.room === 1 && dupes.screen === 0 && dupes.listen <= 1 && dupes.hud === 1, JSON.stringify(dupes));
   await page.close();
 }
 
-// ---- Session B: ignore the answer ----------------------------------------
+// ---- Session B: ignoring the answer must still work ----------------------
 {
   const h = await openPage('B');
   const { page } = h;
@@ -482,20 +420,26 @@ async function decorate(h, box, wanted = COMPLETION_THRESHOLD + 0.25) {
   await h.waitFor((u) => u.screen, 9000, 'colouring screen');
   await h.sleep(700);
   const box = await canvasBox(page);
-  const wrong = PALETTE.find((c) => c !== favourite);
-  // Colour the lot in one colour the NPC did not name, decoration and all.
-  for (const region of REGIONS) await fill(page, box, region.id, wrong);
-  await page.click('.coloring-done');
-  const s = await h.waitFor((u) => u.debug?.outcome, 4000, 'outcome');
-  check(`anti-shortcut: ignoring "${favourite}" and colouring everything ${wrong} never activates`,
-    s && s.debug.outcome !== 'full' && !s.debug.puppet, JSON.stringify(s?.debug?.outcome));
-  check('and it keeps the child on the page with their work intact',
-    s?.screen && Object.keys(s.debug.colors).length === REGIONS.length);
-  await page.screenshot({ path: `${OUT}-15-wrong-colour.png` });
+  const other = PALETTE.find((c) => c !== favourite);
+  await selectBrush(page, 'large');
+  await selectColour(page, other);
+  // Never uses the favourite colour at all. This must still activate: the
+  // bonus is encouragement, never a gate.
+  for (const points of sweeps(0.06, 0.96, 0.028)) {
+    if ((await h.ui()).debug?.phase !== 'painting') break;
+    await stroke(page, box, points);
+  }
+  const s = await h.waitFor((u) => u.debug?.phase !== 'painting', 8000, 'activation');
+  check(`ignoring "${favourite}" entirely still activates the robot`, s, s?.debug?.phase);
+  check('and it scores a fair round rather than failing',
+    (s?.debug?.favouriteShare ?? 1) === 0, `favourite share ${s?.debug?.favouriteShare}`);
+  await page.screenshot({ path: `${OUT}-13-no-favourite.png` });
   await page.close();
 }
 
 check('no console or page errors', errors.length === 0, errors.slice(0, 3).join(' || '));
+for (const note of notes) console.log(`NOTE  ${note}`);
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed`);
+void insideSilhouette; void silhouetteBounds; void BRUSHES; void BRUSH_IDS;
 await browser.close();

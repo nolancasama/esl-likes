@@ -2215,3 +2215,70 @@ player it is physically right and completely invisible: the camera is a fixed
 rear three-quarter follow and the child walks away from it to deliver. It now
 sits on the player's back facing the viewer, unmirrored. This is the artwork the
 whole minigame is about; the delivery walk is pointless if nobody can see it.
+
+## 2026-09-22 — Coloring goes back to freehand, and the bar replaces the answer key
+
+**The instructional robot is deleted.** Eighteen tappable regions, a starred
+chest panel, two labelled required colours and four activation outcomes all
+graded beautifully and produced a worksheet — the owner's words were "too
+segmented and instructional" and "disconnected construction pieces". It is
+replaced by one connected robot, painted freehand, with nothing written on it.
+No colour names, no star, no required region. A child looks at the page and
+sees a colouring book.
+
+Gone with it: `colorState.js`, `robotScoring.js`, region types, label placement
+and leader lines, tap-to-fill hit testing, the four outcomes, and the 40%
+free-region rule. They are deleted rather than left switched off, because two
+competing models of what "coloured correctly" means is how a codebase rots.
+
+**Proportions come from the original v1 robot, but v1 was not connected.** Its
+head and torso had a 0.03 gap, and so did its torso and arms; its legs were
+open decorative *lines*, not shapes at all. What made it read simple was four
+big shapes with no internal subdivisions, not literal connectivity. So this
+robot takes v1's proportions — big head panel, big torso, chunky arms, feet
+below, antenna — and closes the gaps with a neck and with limbs that overlap
+the torso. The overlap is load-bearing twice: it makes the drawing read as one
+robot, and it hides the puppet's seams.
+
+**ROBOT POWER, and the three rules that make it unfarmable.** Unique area only,
+so scribbling the same patch charges nothing; inside the silhouette only, so
+colouring the background charges nothing; and a cell's credit is fixed by the
+colour that *first* painted it, so repainting in the favourite cannot upgrade
+old area. Stroke count, elapsed time and brush travel are worth nothing by
+design — each is what a child would otherwise game. Full at 68% of the robot,
+measured at 69.5% coverage in a real browser, after 21 large-brush sweeps.
+
+**The favourite colour is a bonus, not a gate.** New area in the NPC's colour
+charges 1.5x, measured at exactly 1.500x in the browser. A child who never
+remembers it still activates the robot by colouring enough. The listening task
+keeps its teeth at the *turnaround*, where the child still has to say
+`I like ___` themselves — so making the colouring page forgiving costs the
+lesson nothing while removing the answer-sheet feel. Nothing here can fail.
+
+**No Done button.** Activation starts by itself when the bar fills, which is
+the only thing that makes the bar mean anything. A button next to a full bar
+asks a child to confirm what they can already see.
+
+**Five puppet pieces, and every limb behind the body.** Nine was too segmented
+for a flat paper toy: every joint is a seam that can show. `body` is head, neck,
+torso and antenna as one continuous cutout. Putting the limbs *behind* the body
+is what hides the joints — with an arm in front the join becomes a visible step
+and the torso's paint shows on the arm. The forearm-lags-the-upper-arm trick
+that sold the hop is gone with its pieces, so the lag moved to the whole arm:
+each arm is posed from slightly earlier in the hop cycle than the body.
+
+**Puppet textures now come from the paint canvas, and this time there is no
+choice.** The previous pass re-rendered each piece from region colours and
+measured that it was pixel-identical to cropping the canvas. With freehand
+painting that equivalence is gone: the canvas holds brush strokes, gaps and
+half-covered areas that no region data can reproduce. So `drawPiece` clips to a
+piece's own silhouette shapes and stamps the real canvas through that clip.
+Paint that spilled *outside* the lines is left behind, which is exactly why
+spilling is allowed on the page and invisible on the robot.
+
+**A short 420px-tall window is a real layout case, not a curiosity.** At
+760x420 the header stacked, and the palette, the power bar and the tools each
+took a row of their own, leaving the canvas 130px — too small to paint a robot
+on. Header stacking is now keyed to width alone, and on a short screen the
+power label sits beside its track with the tools on the same line. The canvas
+went to 229px. The picture gets the space because the picture is the game.

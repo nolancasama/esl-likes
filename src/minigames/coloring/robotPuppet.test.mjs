@@ -176,29 +176,34 @@ test('idle stays on the ground and barely moves', () => {
 
 test('the arms flare outward in opposite directions during a hop', () => {
   const apex = poseFor(STATES.HOP, DURATIONS[STATES.HOP] * 0.5);
-  assert.ok(apex.rotations.leftUpperArm < 0 && apex.rotations.rightUpperArm > 0,
+  assert.ok(apex.rotations.leftArm < 0 && apex.rotations.rightArm > 0,
     'the arms must swing out, not both the same way');
-  assert.ok(Math.abs(apex.rotations.leftUpperArm) > 0.5, 'the flare is too small to see');
+  assert.ok(Math.abs(apex.rotations.leftArm) > 0.5, 'the flare is too small to see');
   assert.ok(Math.abs(apex.rotations.leftLeg) > 0, 'the legs do not open at all');
+  assert.ok(apex.rotations.leftLeg < 0 && apex.rotations.rightLeg > 0, 'the legs must spread');
+  assert.equal(apex.rotations.body, 0, 'the body is the root and does not rotate');
 });
 
-test('the forearms and the antenna lag behind the arm they hang from', () => {
-  // Sampled just after takeoff, where the arm is rising fastest: a trailing
-  // piece must not have caught up yet. This lag is what reads as a puppet.
-  const t = DURATIONS[STATES.HOP] * (HOP_STAGES.launch + 0.06);
-  const pose = poseFor(STATES.HOP, t);
-  assert.ok(Math.abs(pose.rotations.leftForearm) < Math.abs(pose.rotations.leftUpperArm),
-    'the forearm is not trailing the upper arm');
-  const later = poseFor(STATES.HOP, DURATIONS[STATES.HOP] * 0.5);
-  assert.ok(Math.abs(later.rotations.antenna) > Math.abs(pose.rotations.antenna),
-    'the antenna is not trailing the head');
+test('the arms trail the body rather than moving with it', () => {
+  // With one-piece limbs the old forearm-lags-the-upper-arm trick is gone, so
+  // the lag moved to the whole arm: it is sampled from earlier in the cycle
+  // than the body's own height. Just after takeoff the body is already rising
+  // and the arm has not caught up, which is what reads as a puppet.
+  const duration = DURATIONS[STATES.HOP];
+  const justAfterTakeoff = poseFor(STATES.HOP, duration * (HOP_STAGES.launch + 0.06));
+  const atApex = poseFor(STATES.HOP, duration * 0.5);
+  assert.ok(Math.abs(justAfterTakeoff.rotations.leftArm) < Math.abs(atApex.rotations.leftArm),
+    'the arm is not trailing the body');
+  // And the legs, which are NOT lagged, lead the arms off the ground.
+  const atLaunch = poseFor(STATES.HOP, duration * (HOP_STAGES.launch + 0.12));
+  assert.ok(Math.abs(atLaunch.rotations.leftLeg) > 0, 'the legs should open as it leaves');
 });
 
 test('celebrating flaps harder than hopping and does not travel as far up', () => {
   const at = DURATIONS[STATES.CELEBRATE] * 0.5;
   const celebrate = poseFor(STATES.CELEBRATE, at);
   const hop = poseFor(STATES.HOP, DURATIONS[STATES.HOP] * 0.5);
-  assert.ok(Math.abs(celebrate.rotations.leftUpperArm) > Math.abs(hop.rotations.leftUpperArm));
+  assert.ok(Math.abs(celebrate.rotations.leftArm) > Math.abs(hop.rotations.leftArm));
   assert.ok(celebrate.root.tilt < hop.root.tilt, 'celebrating should stay more upright');
 });
 
@@ -208,10 +213,10 @@ test('startup glows before it moves, and settles by the end', () => {
   const late = poseFor(STATES.STARTUP, DURATIONS[STATES.STARTUP]);
   assert.ok(late.glow > early.glow, 'the glow must build');
   assert.ok(Math.abs(late.root.x) < Math.abs(early.root.x) + 1e-9, 'the shake must settle');
-  assert.ok(Math.abs(peak.rotations.leftUpperArm) > Math.abs(early.rotations.leftUpperArm),
+  assert.ok(Math.abs(peak.rotations.leftArm) > Math.abs(early.rotations.leftArm),
     'the arms must twitch outward');
   // A twitch comes back. Left flung out, they snapped when idle took over.
-  assert.ok(Math.abs(late.rotations.leftUpperArm) < Math.abs(peak.rotations.leftUpperArm) * 0.4,
+  assert.ok(Math.abs(late.rotations.leftArm) < Math.abs(peak.rotations.leftArm) * 0.4,
     'the twitch must return, or it snaps into the idle pose');
 });
 
@@ -257,7 +262,7 @@ test('a piece pivot sits inside or on the edge of the piece it turns', () => {
 test('the parenting tree covers every piece, has one root and no cycles', () => {
   assert.deepEqual(Object.keys(PIECE_PARENTS).sort(), [...PIECES].sort());
   const roots = PIECES.filter((piece) => PIECE_PARENTS[piece] === null);
-  assert.deepEqual(roots, ['torso'], 'the torso is the only root');
+  assert.deepEqual(roots, ['body'], 'the body is the only root');
   for (const piece of PIECES) {
     const seen = new Set([piece]);
     let at = PIECE_PARENTS[piece];
@@ -267,16 +272,26 @@ test('the parenting tree covers every piece, has one root and no cycles', () => 
       seen.add(at);
       at = PIECE_PARENTS[at];
     }
-    assert.ok(seen.has('torso'), `${piece} does not hang off the torso`);
+    assert.ok(seen.has('body'), `${piece} does not hang off the body`);
   }
   assert.deepEqual(Object.keys(PIECE_DEPTH).sort(), [...PIECES].sort());
 });
 
-test('the arms are in front of the torso and the antenna behind the head', () => {
-  assert.ok(PIECE_DEPTH.leftForearm > PIECE_DEPTH.leftUpperArm);
-  assert.ok(PIECE_DEPTH.leftUpperArm > PIECE_DEPTH.torso);
-  assert.ok(PIECE_DEPTH.antenna < PIECE_DEPTH.head);
-  assert.ok(PIECE_DEPTH.leftLeg < PIECE_DEPTH.torso);
+test('every limb sits behind the body, which is what hides the seams', () => {
+  // The limb shapes overlap the torso on purpose. With the body in front that
+  // overlap is covered at rest; put a limb in front and the join becomes a
+  // visible step with the torso's paint showing on the limb.
+  for (const limb of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
+    assert.ok(PIECE_DEPTH[limb] < PIECE_DEPTH.body, `${limb} is in front of the body`);
+  }
+  assert.ok(PIECE_DEPTH.leftLeg < PIECE_DEPTH.leftArm, 'the legs belong behind the arms');
+  assert.deepEqual(PIECE_DEPTH.leftArm, PIECE_DEPTH.rightArm);
+  assert.deepEqual(PIECE_DEPTH.leftLeg, PIECE_DEPTH.rightLeg);
+});
+
+test('the puppet is five pieces and the body is one of them', () => {
+  assert.equal(PIECES.length, 5);
+  assert.ok(PIECES.includes('body'));
 });
 
 // --- where it roams --------------------------------------------------------

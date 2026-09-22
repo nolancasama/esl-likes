@@ -2,185 +2,208 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  drawOrder,
+  INK,
+  PAPER,
+  drawBlankBody,
+  drawLineArt,
+  drawPage,
   drawPiece,
-  drawRobot,
-  fillFor,
-  labelFor,
+  pathSilhouette,
   pieceTextureBounds,
 } from './robotRenderer.js';
-import { PALETTE_HEX } from './colorState.js';
-import { PICTURE_SIZE, PIECES, REGIONS, REGIONS_BY_PIECE, pieceBounds } from './robotDefinition.js';
+import {
+  DETAILS, PICTURE_SIZE, PIECES, SHAPES, SHAPES_BY_PIECE, pieceBounds,
+} from './robotDefinition.js';
 
 /**
- * A recording stand-in for a 2D context. The renderer only ever calls a handful
- * of methods, so the whole draw can be inspected without a canvas — which is
- * what lets "a piece contains exactly its own regions" be a real test rather
- * than something only a screenshot could check.
+ * A recording stand-in for a 2D context.
+ *
+ * The renderer only ever calls a handful of methods, so the whole draw can be
+ * inspected without a canvas — which is what lets "a piece is clipped to its
+ * own shapes" and "the line art is drawn last" be real tests rather than
+ * something only a screenshot could check.
  */
 function fakeContext() {
-  const calls = [];
-  const fills = [];
-  let current = null;
   const ctx = {
     canvas: { width: PICTURE_SIZE, height: PICTURE_SIZE },
     fillStyle: null,
     strokeStyle: null,
     lineWidth: 0,
     lineJoin: '',
-    font: '',
-    textAlign: '',
-    textBaseline: '',
-    calls,
-    fills,
-    texts: [],
-    translations: [],
-    beginPath() { current = { ops: [] }; },
-    roundRect(...args) { current?.ops.push(['roundRect', ...args]); },
-    rect(...args) { current?.ops.push(['rect', ...args]); },
-    arc(...args) { current?.ops.push(['arc', ...args]); },
-    moveTo(...args) { current?.ops.push(['moveTo', ...args]); },
-    lineTo(...args) { current?.ops.push(['lineTo', ...args]); },
-    fill() { fills.push({ style: ctx.fillStyle, shape: current }); calls.push('fill'); },
-    stroke() { calls.push('stroke'); },
-    strokeText(text) { ctx.texts.push(text); },
-    fillText(text) { ctx.texts.push(text); },
-    save() { calls.push('save'); },
-    restore() { calls.push('restore'); },
-    translate(x, y) { ctx.translations.push([x, y]); },
+    lineCap: '',
+    globalCompositeOperation: 'source-over',
+    log: [],
+    fills: [],
+    strokes: [],
+    ops: [],
+    beginPath() { ctx.log.push('beginPath'); ctx.ops = []; },
+    roundRect(...args) { ctx.ops.push(['roundRect', ...args]); },
+    rect(...args) { ctx.ops.push(['rect', ...args]); },
+    arc(...args) { ctx.ops.push(['arc', ...args]); },
+    ellipse(...args) { ctx.ops.push(['ellipse', ...args]); },
+    moveTo(...args) { ctx.ops.push(['moveTo', ...args]); },
+    lineTo(...args) { ctx.ops.push(['lineTo', ...args]); },
+    fill() { ctx.log.push('fill'); ctx.fills.push({ style: ctx.fillStyle, ops: ctx.ops.slice() }); },
+    stroke() { ctx.log.push('stroke'); ctx.strokes.push({ style: ctx.strokeStyle, width: ctx.lineWidth, ops: ctx.ops.slice() }); },
+    fillRect(...args) { ctx.log.push('fillRect'); ctx.fills.push({ style: ctx.fillStyle, rect: args }); },
+    clip() { ctx.log.push('clip'); ctx.clipped = ctx.ops.slice(); },
+    drawImage(image) { ctx.log.push('drawImage'); ctx.painted = image; },
+    save() { ctx.log.push('save'); },
+    restore() { ctx.log.push('restore'); },
+    translate(x, y) { ctx.log.push('translate'); ctx.translations ||= []; ctx.translations.push([x, y]); },
   };
   return ctx;
 }
 
-const round = {
-  favourite: 'purple',
-  starred: 'chestPanel',
-  labelled: [
-    { regionId: 'antennaLight', color: 'red' },
-    { regionId: 'eyes', color: 'yellow' },
-  ],
-};
+const fakePaint = { width: PICTURE_SIZE, height: PICTURE_SIZE, __isPaint: true };
 
-test('regions are drawn back to front, so panels land on the body', () => {
-  const order = drawOrder().map((region) => region.id);
-  assert.ok(order.indexOf('body') < order.indexOf('chestPanel'));
-  assert.ok(order.indexOf('face') < order.indexOf('eyes'));
-  assert.equal(order.length, REGIONS.length);
-});
-
-test('a blank region falls back to the paper colour, not to black', () => {
-  assert.equal(fillFor('face', {}), '#f7f4ee');
-  assert.equal(fillFor('face', { face: 'green' }), PALETTE_HEX.green);
-  assert.equal(fillFor('face', { face: 'chartreuse' }), '#f7f4ee');
-});
-
-test('the starred region shows a star and never the colour name', () => {
-  assert.equal(labelFor('chestPanel', round, {}), '★');
-  assert.equal(labelFor('chestPanel', round, { chestPanel: 'blue' }), '★',
-    'a wrong guess must not turn into a hint');
-  for (const colors of [{}, { chestPanel: 'blue' }, { chestPanel: 'purple' }]) {
-    const label = labelFor('chestPanel', round, colors);
-    assert.ok(label === null || label === '★', `leaked "${label}"`);
-  }
-});
-
-test('the star disappears once the favourite is remembered correctly', () => {
-  assert.equal(labelFor('chestPanel', round, { chestPanel: 'purple' }), null);
-});
-
-test('a labelled region shows its colour word until it is right', () => {
-  assert.equal(labelFor('eyes', round, {}), 'YELLOW');
-  assert.equal(labelFor('eyes', round, { eyes: 'green' }), 'YELLOW');
-  assert.equal(labelFor('eyes', round, { eyes: 'yellow' }), null);
-  assert.equal(labelFor('antennaLight', round, {}), 'RED');
-});
-
-test('free regions are never labelled', () => {
-  for (const region of REGIONS.filter((r) => r.type === 'free')) {
-    assert.equal(labelFor(region.id, round, {}), null, region.id);
-  }
-});
-
-test('every region gets a fill and the line art is drawn over the top', () => {
+test('the page is drawn paper, blank body, paint, then line art', () => {
   const ctx = fakeContext();
-  drawRobot(ctx, { colors: {}, round: null });
-  const firstStroke = ctx.calls.indexOf('stroke');
-  const lastFill = ctx.calls.lastIndexOf('fill');
-  assert.ok(firstStroke > 0, 'something must be stroked');
-  // Every region's fill happens before any outline, so paint cannot cover ink.
-  const regionFills = ctx.fills.length;
-  assert.ok(regionFills >= REGIONS.length, `expected at least one fill per region, got ${regionFills}`);
-  assert.ok(lastFill > firstStroke, 'the eyes are filled last, above the line art');
+  drawPage(ctx, { paint: fakePaint });
+  const order = ctx.log;
+  const paperAt = order.indexOf('fillRect');
+  const paintAt = order.indexOf('drawImage');
+  const lastStroke = order.lastIndexOf('stroke');
+  assert.ok(paperAt >= 0, 'the paper was never laid down');
+  assert.ok(paintAt > paperAt, 'the paint must go on after the paper');
+  assert.ok(lastStroke > paintAt,
+    'the line art must be redrawn over the paint — that is what keeps a messy page readable');
+  assert.equal(ctx.painted, fakePaint, 'the page must draw the real paint canvas');
 });
 
-test('the child’s chosen colours are the ones actually painted', () => {
-  const colors = { face: 'purple', leftFoot: 'green', chestPanel: 'orange' };
+test('the page still draws without any paint at all', () => {
   const ctx = fakeContext();
-  drawRobot(ctx, { colors });
-  const used = ctx.fills.map((entry) => entry.style);
-  assert.ok(used.includes(PALETTE_HEX.purple));
-  assert.ok(used.includes(PALETTE_HEX.green));
-  assert.ok(used.includes(PALETTE_HEX.orange));
+  drawPage(ctx, {});
+  assert.ok(!ctx.log.includes('drawImage'));
+  assert.ok(ctx.log.filter((entry) => entry === 'stroke').length > SHAPES.length);
 });
 
-test('a puppet piece contains exactly its own regions, in the child’s colours', () => {
-  const colors = Object.fromEntries(REGIONS.map((region, index) => [
-    region.id, ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'][index % 7],
-  ]));
+test('the paper and the ink are different, and the ink is dark', () => {
+  assert.notEqual(PAPER, INK);
+  const ink = Number.parseInt(INK.slice(1), 16);
+  assert.ok((ink >> 16) < 80 && ((ink >> 8) & 255) < 80, `${INK} is not dark`);
+});
+
+test('every silhouette shape is outlined', () => {
+  const ctx = fakeContext();
+  drawLineArt(ctx, {});
+  const inked = ctx.strokes.filter((entry) => entry.style === INK);
+  assert.ok(inked.length >= SHAPES.length, `${inked.length} strokes for ${SHAPES.length} shapes`);
+});
+
+test('the outline is much heavier than the details', () => {
+  const ctx = fakeContext();
+  drawLineArt(ctx, {});
+  const widths = [...new Set(ctx.strokes.map((entry) => entry.width))].sort((a, b) => a - b);
+  assert.ok(widths.length > 1, 'everything is drawn at one weight');
+  assert.ok(widths[widths.length - 1] / widths[0] > 1.5,
+    'the silhouette outline should be bold against the face and bolts');
+});
+
+test('the eyes are filled white before their pupil, so a dark head cannot swallow them', () => {
+  const ctx = fakeContext();
+  drawLineArt(ctx, {});
+  const white = ctx.fills.filter((entry) => entry.style === '#ffffff');
+  assert.equal(white.length, DETAILS.eyes.length, 'an eye is missing its white');
+  const firstWhite = ctx.fills.indexOf(white[0]);
+  const firstInk = ctx.fills.findIndex((entry) => entry.style === INK);
+  assert.ok(firstInk > firstWhite, 'the pupil must be drawn on top of the white');
+});
+
+test('a blink closes the eyes to a line rather than removing them', () => {
+  const open = fakeContext();
+  drawLineArt(open, { blink: 0 });
+  const shut = fakeContext();
+  drawLineArt(shut, { blink: 1 });
+  const ellipses = (ctx) => ctx.fills.filter((entry) => entry.ops?.some((op) => op[0] === 'ellipse')).length;
+  assert.ok(ellipses(open) > 0, 'an open eye should have a round pupil');
+  assert.equal(ellipses(shut), 0, 'a closed eye should not draw a pupil');
+  // Still something there: a shut eye is a line, not a hole in the face.
+  assert.ok(shut.strokes.length >= open.strokes.length);
+});
+
+// --- cutting the puppet out of the paint ------------------------------------
+
+test('a piece texture box matches its bounds, plus room for the outline', () => {
+  for (const piece of PIECES) {
+    const box = pieceTextureBounds(piece, { size: PICTURE_SIZE });
+    const bounds = pieceBounds(piece);
+    const width = (bounds.maxX - bounds.minX) * PICTURE_SIZE;
+    assert.ok(box.width > width, `${piece} has no margin for its outline`);
+    assert.ok(box.width < width * 1.5, `${piece} margin is wildly too big`);
+    assert.ok(box.x < bounds.minX * PICTURE_SIZE, `${piece} box starts inside its bounds`);
+  }
+  assert.equal(pieceTextureBounds('nonsense'), null);
+});
+
+test('a piece is clipped to its own shapes and stamped with the real paint', () => {
   for (const piece of PIECES) {
     const ctx = fakeContext();
-    drawRobot(ctx, { colors, only: REGIONS_BY_PIECE[piece], labels: false });
-    const expected = REGIONS_BY_PIECE[piece]
-      .map((id) => PALETTE_HEX[colors[id]]);
-    const painted = ctx.fills.map((entry) => entry.style);
-    for (const style of expected) {
-      assert.ok(painted.includes(style), `${piece} is missing one of its own regions`);
-    }
-    // Nothing from another piece may appear in this piece's texture.
-    const foreign = REGIONS
-      .filter((region) => region.piece !== piece)
-      .filter((region) => !REGIONS_BY_PIECE[piece].includes(region.id));
-    assert.equal(
-      ctx.fills.length >= expected.length, true,
-      `${piece} drew fewer fills than it owns regions`,
-    );
-    assert.ok(foreign.length > 0 || PIECES.length === 1);
+    const box = drawPiece(ctx, piece, { paint: fakePaint });
+    assert.ok(box, piece);
+    assert.ok(ctx.log.includes('clip'), `${piece} was not clipped — it would be a rectangle`);
+    assert.equal(ctx.painted, fakePaint, `${piece} did not use the paint canvas`);
+    const clipAt = ctx.log.indexOf('clip');
+    const paintAt = ctx.log.indexOf('drawImage');
+    assert.ok(paintAt > clipAt, `${piece} painted before clipping, so paint would escape`);
+    // The outline is drawn after the clip is released, so the cut edge reads
+    // at full weight rather than being shaved in half by its own mask.
+    assert.ok(ctx.log.lastIndexOf('stroke') > ctx.log.lastIndexOf('clip'), piece);
   }
 });
 
-test('a puppet piece carries no instruction text', () => {
-  const ctx = fakeContext();
-  drawRobot(ctx, { colors: {}, round, only: REGIONS_BY_PIECE.torso, labels: false });
-  assert.deepEqual(ctx.texts, [], 'the robot that walks away must not wear its instructions');
-});
-
-test('the colouring page does carry its instructions', () => {
-  const ctx = fakeContext();
-  drawRobot(ctx, { colors: {}, round });
-  assert.ok(ctx.texts.includes('★'));
-  assert.ok(ctx.texts.includes('YELLOW'));
-});
-
-test('piece texture bounds cover the piece plus room for the outline', () => {
+test('a piece is translated so it sits at the origin of its own texture', () => {
   for (const piece of PIECES) {
-    const box = pieceTextureBounds(piece);
-    const inner = pieceBounds(piece);
-    assert.ok(box.width > 0 && box.height > 0, piece);
-    assert.ok(box.x < inner.minX * PICTURE_SIZE, `${piece} left margin`);
-    assert.ok(box.y < inner.minY * PICTURE_SIZE, `${piece} top margin`);
-    assert.ok(box.x + box.width > inner.maxX * PICTURE_SIZE, `${piece} right margin`);
-    assert.ok(box.y + box.height > inner.maxY * PICTURE_SIZE, `${piece} bottom margin`);
+    const ctx = fakeContext();
+    const box = drawPiece(ctx, piece, { paint: fakePaint });
+    assert.deepEqual(ctx.translations[0], [-box.x, -box.y], piece);
   }
 });
 
-test('drawing a piece translates it to its own origin', () => {
-  const ctx = fakeContext();
-  const box = drawPiece(ctx, 'head', { colors: { face: 'pink' } });
-  assert.deepEqual(ctx.translations, [[-box.x, -box.y]]);
-  assert.ok(ctx.fills.some((entry) => entry.style === PALETTE_HEX.pink));
+test('a piece never draws another piece shape', () => {
+  for (const piece of PIECES) {
+    const mine = new Set(SHAPES_BY_PIECE[piece].map((entry) => entry.id));
+    for (const other of PIECES) {
+      if (other === piece) continue;
+      for (const entry of SHAPES_BY_PIECE[other]) {
+        assert.ok(!mine.has(entry.id), `${piece} claims ${entry.id} from ${other}`);
+      }
+    }
+  }
 });
 
-test('an unknown piece is null rather than a crash', () => {
-  assert.equal(pieceTextureBounds('tail'), null);
-  assert.equal(drawPiece(fakeContext(), 'tail'), null);
+test('the five pieces between them draw every shape exactly once', () => {
+  const drawn = PIECES.flatMap((piece) => SHAPES_BY_PIECE[piece].map((entry) => entry.id));
+  assert.equal(drawn.length, SHAPES.length);
+  assert.equal(new Set(drawn).size, SHAPES.length);
+  assert.deepEqual([...drawn].sort(), SHAPES.map((entry) => entry.id).sort());
+});
+
+test('only the head piece draws a face, and only the torso draws bolts', () => {
+  const faceOf = (only) => {
+    const ctx = fakeContext();
+    drawLineArt(ctx, { only });
+    return ctx.fills.some((entry) => entry.style === '#ffffff');
+  };
+  assert.ok(faceOf(SHAPES_BY_PIECE.body.map((entry) => entry.id)), 'the body must carry the face');
+  assert.ok(!faceOf(SHAPES_BY_PIECE.leftArm.map((entry) => entry.id)), 'an arm drew the face');
+  assert.ok(!faceOf(SHAPES_BY_PIECE.leftLeg.map((entry) => entry.id)), 'a leg drew the face');
+});
+
+test('pathSilhouette traces something for every shape, and for a subset', () => {
+  const all = fakeContext();
+  pathSilhouette(all, {});
+  assert.ok(all.ops.length >= SHAPES.length, 'not every shape was traced');
+  const one = fakeContext();
+  pathSilhouette(one, { only: ['head'] });
+  assert.equal(one.ops.length, 1);
+});
+
+test('the blank body is drawn in something lighter than the paint but not the paper', () => {
+  const ctx = fakeContext();
+  drawBlankBody(ctx, {});
+  const styles = new Set(ctx.fills.map((entry) => entry.style));
+  assert.equal(styles.size, 1, 'the blank body should be one flat colour');
+  const [blank] = [...styles];
+  assert.notEqual(blank, PAPER, 'an unpainted robot must still read against the page');
 });
