@@ -8,9 +8,10 @@ import {
   POWER_THRESHOLD,
   createCoverage,
   robotCellCount,
-  scoreRound,
+  sessionStars,
   silhouetteMask,
 } from './coverage.js';
+import * as coverageModule from './coverage.js';
 import { PALETTE, PALETTE_HEX, isColor } from './palette.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH, brushFor } from './brushes.js';
 import { insideSilhouette } from './robotDefinition.js';
@@ -295,23 +296,27 @@ test('a milestone never fires before its power', () => {
 
 // --- scoring ----------------------------------------------------------------
 
-test('scoring never fails and never grades the colours chosen', () => {
-  const bare = scoreRound({ coverage: 0, favouriteShare: 0, usedListenAgain: true });
-  assert.equal(bare.stars, 1, 'the floor must be one star, not zero');
-  const best = scoreRound({ coverage: POWER_THRESHOLD, favouriteShare: 1, usedListenAgain: false });
-  assert.equal(best.stars, 3);
-  // Two children who coloured the same amount in different colours must score
-  // the same, unless one of them used the favourite.
-  const a = scoreRound({ coverage: 0.5, favouriteShare: 0 });
-  const b = scoreRound({ coverage: 0.5, favouriteShare: 0 });
-  assert.equal(a.ratio, b.ratio);
+test('stars count the robots the child brought to life, and never fail', () => {
+  assert.equal(sessionStars(1), 1, 'one robot is one star');
+  assert.equal(sessionStars(2), 2);
+  assert.equal(sessionStars(3), 3);
+  assert.equal(sessionStars(17), 3, 'three is the ceiling');
 });
 
-test('listening is rewarded but never required for stars', () => {
-  const listened = scoreRound({ coverage: POWER_THRESHOLD, favouriteShare: 0.4, usedListenAgain: false });
-  const replayed = scoreRound({ coverage: POWER_THRESHOLD, favouriteShare: 0.4, usedListenAgain: true });
-  assert.ok(listened.ratio > replayed.ratio, 'no memory bonus at all');
-  assert.ok(replayed.stars >= 2, 'using Listen Again must not gut the score');
-  const ignored = scoreRound({ coverage: POWER_THRESHOLD, favouriteShare: 0, usedListenAgain: false });
-  assert.ok(ignored.stars >= 2, 'ignoring the colour must still be a decent round');
+test('the star floor is one, even for nonsense input', () => {
+  // The room is only ever reached by finishing a robot, so zero should not
+  // happen — but a stamp of zero stars is a punishment the child cannot have
+  // earned, so the floor is defensive on purpose.
+  assert.equal(sessionStars(0), 1);
+  assert.equal(sessionStars(-4), 1);
+  assert.equal(sessionStars(), 1);
+});
+
+test('there is no longer any way to grade a round', () => {
+  // Creativity is not graded and the favourite colour must stay a bonus, so
+  // the per-round scorer is gone rather than merely unused. A module that
+  // still exported it would invite a caller.
+  assert.equal(coverageModule.scoreRound, undefined);
+  assert.ok(!Object.keys(coverageModule).some((name) => /score/i.test(name)),
+    `something still scores: ${Object.keys(coverageModule)}`);
 });

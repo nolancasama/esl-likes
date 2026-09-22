@@ -254,21 +254,19 @@ export function createCoverage({ favourite = null } = {}) {
 }
 
 /**
- * Stars for a finished robot.
+ * Stars for a whole session: one per robot, up to three.
  *
- * Creativity is not graded. Coverage carries most of it, the favourite colour
- * is a reward for having listened, and remembering it without a replay is a
- * small extra. Nothing here can fail.
+ * There is no per-round score any more, because there is no longer a round in
+ * any meaningful sense — the child paints for as long as they like and the
+ * session ends when they walk out of the door. So the stamp counts the thing
+ * the loop is actually built to reward: how many robots they brought to life.
+ *
+ * Coverage and the favourite colour are deliberately not in here. A robot that
+ * exists has already passed the 68% threshold, so coverage is not information;
+ * and grading a child on how much of the favourite colour they used would turn
+ * a bonus back into a requirement. Nothing here can fail: one robot is one
+ * star, and the room is only ever reached by finishing one.
  */
-export function scoreRound({ coverage = 0, favouriteShare = 0, usedListenAgain = false } = {}) {
-  const ratio = Math.min(1, coverage / POWER_THRESHOLD) * 0.6
-    + Math.min(1, favouriteShare / 0.3) * 0.3
-    + (usedListenAgain ? 0 : 1) * 0.1;
-  return {
-    ratio,
-    stars: ratio >= 0.85 ? 3 : ratio >= 0.6 ? 2 : 1,
-    coverage,
-    favouriteShare,
-    usedListenAgain,
-  };
+export function sessionStars(robots = 0) {
+  return Math.min(3, Math.max(1, Math.floor(robots)));
 }

@@ -268,25 +268,36 @@ export const poseRotationKeys = () => Object.keys(NO_ROTATION);
 // --- where it hops ---------------------------------------------------------
 
 /**
- * The floor the puppet is allowed onto: the open part of the atelier, well
- * clear of the walls. The obstacle discs match `canOccupy` in `index.js`, with
- * the artist added — a paper robot hopping through the NPC looks like a bug.
+ * The floor the puppet is allowed onto: the open part of the drawing room, well
+ * clear of the walls. The obstacle discs match `canOccupy` in `index.js`.
+ *
+ * There is only one obstacle now. The art table, the paint pots and the artist
+ * are gone — the room is one easel and the child's creations, and the easel
+ * stands in the middle of it.
  */
 export const SAFE_AREA = Object.freeze({ minX: -4.6, maxX: 4.6, minZ: -3.6, maxZ: 3.6 });
 export const OBSTACLES = Object.freeze([
-  Object.freeze({ x: 3.6, z: 1.5, radius: 1.9 }),   // the art table
-  Object.freeze({ x: -3.05, z: -2.65, radius: 1.5 }), // the easel
-  Object.freeze({ x: 0, z: -2.25, radius: 1.3 }),   // the artist
+  Object.freeze({ x: 0, z: -1.6, radius: 1.35 }), // the easel
 ]);
 
-/** A handful of authored points. No pathfinding, and no AI — the spec says so. */
+/**
+ * Authored points. No pathfinding, and no AI — the spec says so.
+ *
+ * Nine of them rather than six, and pushed out towards the edges, because the
+ * room now accumulates every robot the child makes. Each robot roams its own
+ * slightly displaced copy of this list (`robotCrowd.js`), so the list only has
+ * to be a good spread, not a seating plan.
+ */
 export const ROAM_POINTS = Object.freeze([
-  Object.freeze({ x: -1.9, z: 0.6 }),
-  Object.freeze({ x: -3.4, z: 1.9 }),
-  Object.freeze({ x: -1.2, z: 2.6 }),
-  Object.freeze({ x: 1.3, z: 1.6 }),
-  Object.freeze({ x: 2.0, z: -0.4 }),
-  Object.freeze({ x: 0.6, z: 0.2 }),
+  Object.freeze({ x: -3.4, z: -2.2 }),
+  Object.freeze({ x: -2.4, z: 0.4 }),
+  Object.freeze({ x: -3.6, z: 2.4 }),
+  Object.freeze({ x: -1.0, z: 2.9 }),
+  Object.freeze({ x: 1.2, z: 2.4 }),
+  Object.freeze({ x: 3.5, z: 2.6 }),
+  Object.freeze({ x: 3.8, z: 0.2 }),
+  Object.freeze({ x: 2.6, z: -2.4 }),
+  Object.freeze({ x: 0.2, z: 1.0 }),
 ]);
 
 export function insideSafeArea(point) {
@@ -300,6 +311,9 @@ export function insideSafeArea(point) {
 /** How far one hop carries the puppet, in world units. */
 export const HOP_DISTANCE = 0.62;
 
+/** How long to pause between legs by default, in seconds. */
+export const IDLE_PAUSE = 1.5;
+
 /**
  * The roam loop: hop towards the next point, idle a moment, turn, hop again.
  *
@@ -307,15 +321,18 @@ export const HOP_DISTANCE = 0.62;
  * rounded so a leg always ends on its point rather than part-way through a
  * tenth hop with the puppet hanging in the air.
  */
-export function createRoamPlan(points = ROAM_POINTS, start = 0) {
+export function createRoamPlan(points = ROAM_POINTS, start = 0, { idlePause = IDLE_PAUSE, stateTime = 0 } = {}) {
   const usable = points.filter(insideSafeArea);
   if (usable.length < 2) throw new Error('a roam plan needs at least two safe points');
   const from = usable[start % usable.length];
   return {
     points: usable,
     index: start % usable.length,
+    // Per plan, not per module: a roomful of robots idling for the same 1.5 s
+    // hops in unison, which reads as one robot copied rather than a crowd.
+    idlePause: Math.max(0.1, idlePause),
     state: STATES.IDLE,
-    stateTime: 0,
+    stateTime,
     position: { x: from.x, z: from.z },
     origin: { x: from.x, z: from.z },
     facing: 0,
@@ -326,9 +343,6 @@ export function createRoamPlan(points = ROAM_POINTS, start = 0) {
 
 const legTarget = (plan) => plan.points[(plan.index + 1) % plan.points.length];
 
-/** How long to pause between legs, in seconds. */
-const IDLE_PAUSE = 1.5;
-
 /**
  * Advances a roam plan. Returns the same object, mutated — this is called every
  * frame, and allocating a plan per frame for purity's sake would be silly.
@@ -338,7 +352,7 @@ export function stepRoam(plan, dt) {
   plan.stateTime += safeDt;
 
   if (plan.state === STATES.IDLE) {
-    if (plan.stateTime < IDLE_PAUSE) return plan;
+    if (plan.stateTime < (plan.idlePause ?? IDLE_PAUSE)) return plan;
     const target = legTarget(plan);
     const dx = target.x - plan.position.x;
     const dz = target.z - plan.position.z;

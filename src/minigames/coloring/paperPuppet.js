@@ -50,6 +50,17 @@ const EDGE_COLOR_CSS = '#f2ece0';
  */
 const LEAN = 0.17;
 
+/**
+ * The picture size a puppet's pieces are cut at.
+ *
+ * 900 was sized for a close-up that no longer happens: the puppet is 1.75 world
+ * units tall in a room seen from 8.5 up and 10.5 back, which is a couple of
+ * hundred screen pixels. Five cropped pieces plus five cream silhouettes at 900
+ * is roughly 4 MB of canvas per robot, and the room now keeps every robot the
+ * child makes. At 640 the artwork is still finer than the screen can show.
+ */
+export const PUPPET_TEXTURE_SIZE = 640;
+
 /** Picture units to world units. The picture is a unit square. */
 const toWorldX = (pictureX) => (pictureX - 0.5) * PUPPET_HEIGHT;
 const toWorldY = (pictureY) => (FEET - pictureY) * PUPPET_HEIGHT;
@@ -140,6 +151,48 @@ const glowTexture = () => radialTexture([
   [1, 'rgba(255,214,90,0)'],
 ]);
 
+// --- what every puppet can share -------------------------------------------
+
+/**
+ * The room keeps every robot the child makes, so the per-robot cost is what
+ * matters now. Three things are byte-identical for every puppet ever built:
+ * the unit quad every piece is scaled from, and the two radial gradients.
+ * Built once, lazily, and shared.
+ *
+ * They are deliberately NOT in any puppet's disposal bag. A puppet disposing a
+ * texture that twenty other puppets are still drawing with is the exact bug
+ * that turns "keep every robot" into a room of white rectangles. Only
+ * `disposeSharedPaperAssets`, called when the minigame exits, may free them.
+ */
+let sharedQuad = null;
+let sharedGlow = null;
+let sharedShadow = null;
+
+const quadGeometry = () => (sharedQuad ||= new THREE.PlaneGeometry(1, 1));
+const sharedGlowArt = () => (sharedGlow ||= glowTexture());
+const sharedShadowArt = () => (sharedShadow ||= shadowTexture());
+
+/** Frees the shared quad and gradients. Call once, after the last puppet is gone. */
+export function disposeSharedPaperAssets() {
+  sharedQuad?.dispose();
+  sharedQuad = null;
+  for (const art of [sharedGlow, sharedShadow]) {
+    if (!art) continue;
+    art.texture.dispose();
+    art.canvas.width = 0;
+    art.canvas.height = 0;
+  }
+  sharedGlow = null;
+  sharedShadow = null;
+}
+
+/** Test seam: which shared assets currently exist. */
+export const sharedPaperAssets = () => ({
+  quad: sharedQuad,
+  glow: sharedGlow?.texture ?? null,
+  shadow: sharedShadow?.texture ?? null,
+});
+
 /**
  * Builds the puppet and returns a controller for it.
  *
@@ -147,7 +200,7 @@ const glowTexture = () => radialTexture([
  * @param {object} options.colors  the child's finished region colours
  * @param {number} [options.textureSize] picture size the textures are drawn at
  */
-export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = {}) {
+export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_SIZE, onLand } = {}) {
   const disposables = { geometries: new Set(), materials: new Set(), textures: new Set(), canvases: [] };
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
 
@@ -158,7 +211,8 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
   const body = new THREE.Group();
   root.add(body);
 
-  const quad = own('geometries', new THREE.PlaneGeometry(1, 1));
+  // Shared across every puppet, and so never in this puppet's disposal bag.
+  const quad = quadGeometry();
 
   /** @type {Record<string, {group: THREE.Group, layout: object}>} */
   const pieces = {};
@@ -229,7 +283,9 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
     edge.position.set(mesh.position.x, mesh.position.y, mesh.position.z - PAPER_DEPTH * 0.5);
     group.add(edge);
 
-    pieces[piece] = { group, layout, mesh, edge };
+    // `artwork` is this piece's own cut-out canvas, kept so the puppet can be
+    // fingerprinted without re-deriving anything.
+    pieces[piece] = { group, layout, mesh, edge, artwork: canvas };
   }
 
   // Blinking. The eyes are baked into the body texture, so a blink is two
@@ -252,9 +308,7 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
 
   // The antenna light glowing when the robot powers up. A gradient, not a flat
   // quad: additive blending over a plain square gave it a white box for a halo.
-  const glowArt = glowTexture();
-  own('textures', glowArt.texture);
-  disposables.canvases.push(glowArt.canvas);
+  const glowArt = sharedGlowArt();
   const glowMaterial = own('materials', new THREE.MeshBasicMaterial({
     map: glowArt.texture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide,
@@ -276,9 +330,7 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
 
   // A soft shadow on the floor. It shrinks as the puppet leaves the ground,
   // which is most of what sells a hop as a hop.
-  const shadowArt = shadowTexture();
-  own('textures', shadowArt.texture);
-  disposables.canvases.push(shadowArt.canvas);
+  const shadowArt = sharedShadowArt();
   const shadowMaterial = own('materials', new THREE.MeshBasicMaterial({
     map: shadowArt.texture, transparent: true, opacity: 0.85, depthWrite: false,
   }));
@@ -333,6 +385,28 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
     get pose() { return lastPose; },
     get roamPlan() { return roam; },
 
+    /**
+     * A few numbers that depend only on this puppet's own artwork.
+     *
+     * The room keeps every robot, and the failure that would matter most is
+     * silent: robot 1 quietly drawing robot 2's paint. That is invisible in any
+     * unit test and easy to miss by eye when both are colourful, so a harness
+     * needs something cheap it can compare. Sampled once, not per frame.
+     */
+    fingerprint(samples = 6) {
+      const canvas = pieces.body?.artwork;
+      if (!canvas?.width) return [];
+      const out = [];
+      const ctx = canvas.getContext('2d');
+      for (let i = 0; i < samples; i += 1) {
+        const x = Math.floor(((i + 0.5) / samples) * canvas.width);
+        const y = Math.floor(canvas.height * (0.3 + 0.4 * ((i % 3) / 2)));
+        const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data;
+        out.push(((a & 255) << 24 | r << 16 | g << 8 | b) >>> 0);
+      }
+      return out;
+    },
+
     setState(next, { resetTime = true } = {}) {
       state = next;
       if (resetTime) stateTime = 0;
@@ -383,11 +457,17 @@ export function createPaperPuppet({ paint = null, textureSize = 900, onLand } = 
     /** Lifts the whole puppet, for the peel-off-the-page moment. */
     setLift(y) { root.position.y = y; return api; },
 
-    startRoaming(points = ROAM_POINTS) {
-      roam = createRoamPlan(points);
+    /**
+     * `options` is exactly what `robotCrowd.join()` hands back: where in the
+     * loop this robot starts, how long it idles, and how far into its cycle it
+     * begins. Left out, every puppet roams identically — which is correct for
+     * one robot and wrong for twenty.
+     */
+    startRoaming(points = ROAM_POINTS, { start = 0, idlePause, stateTime: phase = 0 } = {}) {
+      roam = createRoamPlan(points, start, { idlePause, stateTime: phase });
       api.placeAt(roam.position.x, roam.position.z, roam.facing);
       state = roam.state;
-      stateTime = 0;
+      stateTime = phase;
       return api;
     },
 

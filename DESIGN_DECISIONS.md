@@ -2282,3 +2282,51 @@ took a row of their own, leaving the canvas 130px — too small to paint a robot
 on. Header stacking is now keyed to width alone, and on a short screen the
 power label sits beside its track with the tools on the same line. The canvas
 went to 229px. The picture gets the space because the picture is the game.
+
+## 2026-09-22 — Coloring becomes a loop, and the way out is a door
+
+**The minigame is now indefinite, so it needed an exit it never had.** The
+owner's plan deletes the artist, the gift, the wall frame and the turnaround —
+and `finish()` was called from the turnaround. Implemented literally, the plan
+traps the child in Coloring forever, awards no stamp, and drops a *frozen*
+`SPEC.md` requirement: the student SAYS `I like ___` once per minigame, and the
+hub reads that answer back. So the room gets a plain labelled doorway
+(「おわる」), and the turnaround hangs on it. **The robot the child made most
+recently is the one that turns around and asks.** That is better than the artist
+NPC it replaces, not a fallback for it: your own creation asking you the
+question is the fiction the whole loop is building. Rejected: ending on a timer,
+ending after N robots, and an exit button in the HUD — all three end the session
+*at* the child rather than *by* the child.
+
+**Stars come from the session, not from a round.** There is no result modal any
+more, and coverage cannot be graded — a robot that exists has already passed the
+68% threshold by definition. So `scoreRound()` was deleted and replaced by
+`sessionStars(robots) = min(3, robotsCompleted)`, never less than 1.
+Accumulation is the reward the plan asks for, so accumulation is what the stamp
+counts.
+
+**Three camera stages, and a cross-fade instead of the wipe.** `transitions.run()`
+is a scale-X wipe — a hard cut, which would break the illusion exactly where the
+illusion matters. So stage 1→2 draws the finished page onto the easel's canvas
+texture, frames the camera tight on it, and fades the DOM screen's opacity to 0:
+the child sees the same picture they were painting, now on an easel, with their
+own avatar in front of it. The wipe is still right for `to-canvas`, which is a
+deliberate change of view and not an illusion. `cameraRig` already damps toward
+whatever preset it is given, so the staged pullback is three `setPreset` calls
+and no tween code.
+
+**Crowd spacing is decided once, at join — never per frame.** Robots accumulate
+without a cap, so they need to not stack, but a steering or avoidance loop is
+what makes toys jitter. Instead each robot gets its own displaced copy of the
+authored roam points (ring offset by golden angle from its index), its own start
+index, its own idle pause and its own phase offset. Nothing recomputes, nothing
+can oscillate, and two robots cannot converge on one authored point because they
+do not share one. Occasional overlap is accepted; a persistent stack cannot
+happen.
+
+**Retaining every robot is paid for per robot, never by eviction.** The two
+radial textures (shadow, glow) are module singletons that a puppet's `dispose()`
+must never touch, piece geometry is shared, and room puppets drop from a 900px
+texture sized for a close-up that no longer happens. Measured at 15 robots:
+no canvas is created after construction, and none is redrawn per frame.
+
