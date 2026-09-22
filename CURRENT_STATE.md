@@ -11,8 +11,10 @@ these numbers go stale within hours. Note `supervise.js` does **not** exist in
 
 ## Latest pass (2026-09-22) — the Coloring playthrough, and the harness for it
 
-**Not committed, not pushed.** `main` is still at `bfbc64c`. The whole
-magical-easel refactor plus this harness sit in the working tree together.
+**Committed and pushed** as `7639e35` (the refactor) and `153673d` (the
+harness), and `main` is deployed live to GitHub Pages. Pushed at the owner's
+explicit request **before any human had played it** — see the four visual
+findings below, which are live.
 
 The easel-loop refactor itself was built in the previous (unrecorded) pass and
 was complete but **entirely unverified in a browser** — its playthrough harness
@@ -78,11 +80,11 @@ found. All four are **game-side**; the harness passes with them present.
 
 ### NEXT STEPS for a fresh session
 
-1. **Owner acceptance of Coloring.** `npm run dev`, enter Coloring, paint a
-   robot, watch it leave the page, make a second one. Never played by a human.
-   Screenshots are in `.tmp/playthrough/coloring/`.
-2. Decide on the four visual findings above. 1 and 2 are the ones a classroom
-   would notice; 3 and 4 are polish.
+1. **Owner acceptance of Coloring — and it is already live.** `npm run dev`,
+   enter Coloring, paint a robot, watch it leave the page, make a second one.
+   Still never played by a human. Screenshots in `.tmp/playthrough/coloring/`.
+2. Decide on the four visual findings above; they are shipped. 1 and 2 are the
+   ones a classroom would notice; 3 and 4 are polish.
 3. **Owner acceptance of the scene editor** — still outstanding from an earlier
    pass: open the Zoo with `npm run dev` and press `P`.
 4. **Migrate scenery placements to layout JSON** — still not started.
