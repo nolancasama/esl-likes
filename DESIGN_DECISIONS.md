@@ -2116,3 +2116,57 @@ puppet: it belongs to the torso piece and overlaps the arm, so it hides the
 joint when the arm swings. The arms were also narrowed from 0.105 wide to 0.072
 and lengthened — at the old proportions they were two blobs beside the torso
 with no shoulder and no elbow.
+
+## 2026-09-22 — Coloring becomes tap-to-fill, and the drawing walks off the page
+
+**Freehand painting and pixel-grid correctness are deleted, not extended.** The
+old minigame gave three colours and three regions, painted with a brush and
+graded on a 72×72 grid with a two-cell neatness margin. With eighteen regions,
+a dozen of them small accents, a neatness margin stops being forgiving and
+becomes impossible: tune it loose and colouring outside the lines is free, tune
+it tight and a Chromebook touchpad cannot pass. Tap-to-fill removes the question
+— there is nothing to be neat about, so correctness is a map lookup and the
+child's attention goes to *which* colour rather than to staying inside a line.
+Rejected: keeping the brush for large regions and filling only small ones, which
+would have meant two correctness models and two ways to be wrong.
+
+**The puppet is rendered from the shared shape definitions, not cropped out of
+the finished canvas.** The plan asked for each puppet piece to be
+extracted/masked from the final artwork bitmap. Re-rendering each piece with the
+*same* draw code, from the same region definitions and the same colour map,
+gives an identical guarantee — every accent survives, because the colours *are*
+the artwork — with no crop arithmetic, no texture atlas and no second robot to
+drift. `robotRenderer.drawPiece` and the colouring page are literally the same
+function with a different region list. Rejected: canvas cropping, whose only
+advantage would have been surviving a freehand mode that no longer exists.
+
+**The paper robot turns by flipping, not by rotating.** Facing it along its
+travel direction is what a 3D character does, and for a flat cut-out it means
+presenting the camera its edge — in the first room test the robot was an
+invisible sliver. So the sheet stays nearly parallel to the picture plane: a
+heading becomes a mirror on X plus a lean of at most 0.17rad, which is how a
+paper puppet turns round in a paper theatre. This is also why the puppet is
+unlit `MeshBasicMaterial`: room lighting shading a cut-out makes it a prop, and
+flat colour keeps it a drawing.
+
+**Every button lives in one bottom bar.** The tools started as a column beside
+the picture, which became a third row on a short screen, which slid the lower
+palette rows underneath the できた button — a tap meant for a colour pressed
+Done. Consolidating undo/eraser/reset/done into one bar fixed the collision and
+gave the picture back the space it most needs, since the picture is the game.
+The work area is a grid rather than a flex row for the same reason: a flex line
+shorter than its content overflows in both directions, which is how the tool
+buttons ended up drawn over the title.
+
+**できた is never disabled.** It used to gate on a minimum painted share. Now it
+is an activation attempt that always does something, and "not decorated enough"
+is one of the four outcomes with its own friendly message. A greyed-out button
+cannot explain itself; a robot that shrugs and asks for more decoration can.
+
+**The `__eslDebug.coloring` hook does not expose the favourite colour.** The
+Restaurant, Drink Stand and Zoo already publish debug snapshots for their
+playthroughs, so Coloring follows suit — but the two labelled colours are
+printed on the page anyway, and the favourite is the one thing a child is meant
+to have remembered. A playthrough hears it in the dialogue, like they do, and
+discovers the labelled colours by watching their words fade, which tests that
+behaviour rather than trusting it.

@@ -20,6 +20,7 @@ import {
   regionAt,
   regionBounds,
   shapeBounds,
+  tappablePoint,
 } from './robotDefinition.js';
 
 test('every region id is unique and stable', () => {
@@ -221,4 +222,17 @@ test('the starred region needs no label box: its own shape holds a star easily',
     const own = regionBounds(region.id);
     assert.ok((own.maxY - own.minY) * PICTURE_SIZE >= 44, region.id);
   }
+});
+
+test('every region can actually be tapped — none is buried under another', () => {
+  for (const region of REGIONS) {
+    assert.ok(tappablePoint(region.id), `${region.id} has no point that colours it`);
+  }
+});
+
+test('a tap in the middle of the torso colours the chest panel, not the body', () => {
+  // The inverse of the test above, spelled out: overlap is intended, and a
+  // harness or a child aiming at a bounding-box centre gets the top region.
+  const body = regionBounds('body');
+  assert.equal(regionAt((body.minX + body.maxX) / 2, (body.minY + body.maxY) / 2), 'chestPanel');
 });

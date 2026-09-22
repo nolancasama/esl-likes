@@ -2,23 +2,25 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
-import {
-  GRID_HEIGHT,
-  GRID_WIDTH,
-  buildRegionMap,
-  createLineArtCanvas,
-  createPaintingSurface,
-} from './picture.js';
-import { COLORS, pickRound, scorePainting } from './scoring.js';
+import { createColoringSurface } from './picture.js';
+import { PALETTE, PALETTE_HEX, createColorState } from './colorState.js';
+import { PICTURE_SIZE } from './robotDefinition.js';
+import { drawRobot } from './robotRenderer.js';
+import { OUTCOMES, pickRound, scoreRound } from './robotScoring.js';
+import { createPaperPuppet } from './paperPuppet.js';
+import { STATES } from './robotPuppet.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
 const MOVE_SPEED = 5;
 const NPC_RADIUS_SQ = 3 * 3;
-const MIN_PAINTED_SHARE = 0.2;
-const PALETTE_CSS = Object.freeze({ red: '#ef4f4f', blue: '#3a78e8', yellow: '#ffd43b' });
 
-/** Coloring v1 controller for the frozen shell interface. */
+/** The on-page half of the activation: glow, wiggle, a hop, then peel away. */
+const PEEL_SECONDS = 1.65;
+/** The puppet falls to the floor, then plays its startup, then roams. */
+const DROP_SECONDS = 0.55;
+
+/** Coloring v2 controller: tap-to-fill colouring, then the drawing comes alive. */
 export function createColoring(ctx) {
   const {
     scene,
@@ -46,13 +48,16 @@ export function createColoring(ctx) {
   let actionButton = null;
   let paintingOverlay = null;
   let paintingCanvas = null;
-  let paintingSurface = null;
+  let canvasWrap = null;
+  let surface = null;
   let palette = null;
   let paintInstruction = null;
   let doneButton = null;
-  let resultPanel = null;
-  let resultStars = null;
-  let returnButton = null;
+  let undoButton = null;
+  let eraserButton = null;
+  let resetButton = null;
+  let resetConfirm = null;
+  let feedback = null;
   let answerNotice = null;
   let listenAgain = null;
   let style = null;
@@ -61,21 +66,30 @@ export function createColoring(ctx) {
   let lineArtTexture = null;
   let finishedTexture = null;
   let unsubscribeSettings = null;
+  let puppet = null;
   let phase = 'inactive';
   let active = false;
   let questionTargeted = false;
   let replayed = false;
   let answerSentence = '';
   let selectedColor = null;
+  let erasing = false;
   let answerRemaining = 0;
   let reactionRemaining = 0;
   let finishRemaining = 0;
   let answerNoticeRemaining = 0;
+  let feedbackRemaining = 0;
+  let hintRemaining = 0;
+  let peelRemaining = 0;
+  let dropRemaining = 0;
   let scoreResult = null;
   let acceptedAnswer = null;
   let finishCalled = false;
   let elapsed = 0;
   let round = null;
+  let colors = null;
+  let lastOutcome = null;
+  let debugRootCreated = false;
 
   const geometries = new Set();
   const materials = new Set();
@@ -125,61 +139,117 @@ export function createColoring(ctx) {
         box-shadow: 0 .38rem 0 rgb(32 49 75 / .3);
         font: 900 calc(1.15rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
       .coloring-screen { position: absolute; inset: 0; z-index: 20; display: grid;
-        grid-template-rows: auto 1fr auto; gap: .65rem; box-sizing: border-box;
-        padding: clamp(.7rem, 2vh, 1.25rem); overflow: auto; pointer-events: auto;
+        grid-template-rows: auto 1fr auto; gap: .5rem; box-sizing: border-box;
+        padding: clamp(.6rem, 1.8vh, 1.1rem); overflow: auto; pointer-events: auto;
         background: #f7f0e8; color: #1b2940; font-family: system-ui, sans-serif; }
       .coloring-screen__top { display: flex; align-items: center; justify-content: center;
         gap: 1rem; flex-wrap: wrap; text-align: center; }
-      .coloring-screen__top h1 { margin: 0; font-size: calc(clamp(1.45rem, 4vh, 2.4rem) * var(--ui-scale, 1)); }
+      .coloring-screen__top h1 { margin: 0; font-size: calc(clamp(1.2rem, 3.2vh, 1.9rem) * var(--ui-scale, 1)); }
       .coloring-screen__instruction { min-width: min(90vw, 24rem); margin: 0;
         font-size: calc(1.05rem * var(--ui-scale, 1)); font-weight: 800; }
-      .coloring-screen__work { min-height: 0; display: flex; align-items: center;
-        justify-content: center; gap: clamp(.8rem, 2vw, 1.5rem); }
-      .coloring-palette { display: flex; flex-direction: column; gap: .8rem; padding: .65rem;
-        border: .2rem solid #d9cfbf; border-radius: 1.5rem; background: rgb(255 255 255 / .78); }
+      /* A grid, not a flex row. A flex line shorter than its content overflows
+         both ways, which put the tool buttons on top of the title at 760x420
+         and, worse, slid the lower palette rows under the できた button so a tap
+         meant for a colour pressed Done. */
+      .coloring-screen__work { min-height: 0; min-width: 0; overflow: hidden;
+        display: grid; grid-template-columns: auto minmax(0, 1fr);
+        align-items: center; justify-items: center; gap: clamp(.6rem, 1.6vw, 1.2rem); }
+      /* Seven swatches no longer fit in one column, so the palette wraps in a
+         two-wide grid beside the picture and reflows to a row when it is short. */
+      .coloring-palette { display: grid; grid-template-columns: repeat(2, auto); gap: .5rem;
+        padding: .55rem; border: .2rem solid #d9cfbf; border-radius: 1.3rem;
+        background: rgb(255 255 255 / .78); }
       .coloring-palette--invite .coloring-swatch { animation: coloring-invite 1.55s ease-in-out infinite; }
-      .coloring-palette--invite .coloring-swatch:nth-child(2) { animation-delay: .18s; }
-      .coloring-palette--invite .coloring-swatch:nth-child(3) { animation-delay: .36s; }
+      .coloring-palette--invite .coloring-swatch:nth-child(2n) { animation-delay: .18s; }
+      .coloring-palette--invite .coloring-swatch:nth-child(3n) { animation-delay: .36s; }
       @keyframes coloring-invite { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
-      .coloring-swatch { width: clamp(4.1rem, 10vw, 5.6rem); height: clamp(4.1rem, 10vw, 5.6rem);
-        border: .32rem solid #fff; border-radius: 50%; box-shadow: 0 0 0 .2rem #273858,
-        0 .35rem 0 rgb(39 56 88 / .22); cursor: pointer; }
-      .coloring-swatch[aria-pressed="true"] { outline: .38rem solid #273858; outline-offset: .28rem; }
-      .coloring-swatch:focus-visible, .coloring-screen button:focus-visible {
+      .coloring-swatch { width: clamp(2.9rem, 6.4vh, 4rem); height: clamp(2.9rem, 6.4vh, 4rem);
+        border: .3rem solid #fff; border-radius: 50%; box-shadow: 0 0 0 .18rem #273858,
+        0 .3rem 0 rgb(39 56 88 / .22); cursor: pointer; }
+      .coloring-swatch[aria-pressed="true"] { outline: .34rem solid #273858; outline-offset: .24rem; }
+      .coloring-swatch:focus-visible, .coloring-screen button:focus-visible,
+      .coloring-canvas:focus-visible {
         outline: .35rem solid #ff9f1c; outline-offset: .25rem; }
-      .coloring-canvas-wrap { min-width: 0; height: 100%; max-height: min(68vh, 45rem);
-        aspect-ratio: 1; display: grid; place-items: center; padding: .55rem; box-sizing: border-box;
+      /* Every button lives in one bottom bar. Giving the tools their own column
+         beside the picture, then their own row on a short screen, cost the
+         picture the space it most needs — and the picture is the game. */
+      .coloring-tools { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+      .coloring-tool { min-width: 5.4rem; min-height: 3rem; padding: .4rem .7rem;
+        border: .2rem solid #fff; border-radius: 1rem; background: #6f7d96; color: #fff;
+        box-shadow: 0 .28rem 0 rgb(32 49 75 / .28);
+        font: 800 calc(.95rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
+      .coloring-tool:disabled { background: #bdc0c4; box-shadow: none; cursor: default; }
+      .coloring-tool[aria-pressed="true"] { background: #273858; outline: .28rem solid #ff9f1c;
+        outline-offset: .18rem; }
+      .coloring-tool--reset { background: #b4785f; }
+      .coloring-canvas-wrap { min-width: 0; min-height: 0; height: 100%; width: auto;
+        max-height: min(78vh, 46rem); max-width: 100%;
+        aspect-ratio: 1; display: grid; place-items: center; padding: .5rem; box-sizing: border-box;
         border: .3rem solid #273858; border-radius: 1.2rem; background: #fff;
         box-shadow: 0 .55rem 0 rgb(39 56 88 / .18); }
       .coloring-canvas { display: block; width: 100%; height: 100%; object-fit: contain;
-        touch-action: none; cursor: crosshair; border-radius: .65rem; }
-      .coloring-screen__bottom { display: flex; justify-content: center; }
-      .coloring-done, .coloring-return { min-width: min(82vw, 18rem); min-height: 4rem;
-        padding: .7rem 1.2rem; border: .25rem solid #fff; border-radius: 1.35rem;
+        touch-action: none; cursor: pointer; border-radius: .65rem; }
+      .coloring-screen__bottom { display: flex; justify-content: center; align-items: center;
+        flex-wrap: wrap; gap: .5rem clamp(.5rem, 2vw, 1.4rem); }
+      .coloring-done { min-width: min(82vw, 18rem); min-height: 3.6rem;
+        padding: .6rem 1.2rem; border: .25rem solid #fff; border-radius: 1.35rem;
         background: #4f9b68; color: #fff; box-shadow: 0 .35rem 0 rgb(32 49 75 / .28);
         font: 900 calc(1.2rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
-      .coloring-done:disabled { background: #a9aea8; cursor: default; box-shadow: none; }
-      .coloring-answer-notice { position: absolute; top: 5.2rem; left: 50%; z-index: 24;
-        transform: translateX(-50%); width: max-content; max-width: 82vw; padding: .7rem 1.2rem;
+      .coloring-answer-notice { position: absolute; top: 4.6rem; left: 50%; z-index: 24;
+        transform: translateX(-50%); width: max-content; max-width: 82vw; padding: .6rem 1.1rem;
         border: .22rem solid #273858; border-radius: 999px; background: #fff;
-        box-shadow: 0 .3rem 0 rgb(39 56 88 / .2); font-size: calc(1.35rem * var(--ui-scale, 1));
+        box-shadow: 0 .3rem 0 rgb(39 56 88 / .2); font-size: calc(1.3rem * var(--ui-scale, 1));
         font-weight: 900; text-align: center; }
-      .coloring-result { position: absolute; inset: 0; z-index: 26; display: grid;
-        place-items: center; padding: 1rem; background: rgb(31 42 65 / .58); }
-      .coloring-result__card { width: min(88vw, 27rem); padding: 2rem 1.5rem; box-sizing: border-box;
-        border: .35rem solid #fff; border-radius: 2rem; background: #fff8df;
-        box-shadow: 0 .65rem 0 rgb(30 43 68 / .35); text-align: center; }
-      .coloring-result__card h2 { margin: 0 0 .6rem; font-size: calc(1.8rem * var(--ui-scale, 1));
-        text-wrap: balance; word-break: keep-all; }
-      .coloring-result__stars { margin: .35rem 0 1.3rem; color: #f1ae18;
-        -webkit-text-stroke: .12rem #7c5410; font-size: clamp(4rem, 14vw, 7rem); letter-spacing: .1em; }
-      @media (max-width: 42rem) {
-        .coloring-screen__work { flex-direction: column-reverse; }
-        .coloring-palette { flex-direction: row; }
-        .coloring-canvas-wrap { width: min(88vw, 58vh); height: auto; }
-        .coloring-swatch { width: 3.9rem; height: 3.9rem; }
+      .coloring-feedback { position: absolute; top: 50%; left: 50%; z-index: 25;
+        transform: translate(-50%, -50%); width: max-content; max-width: 86vw;
+        padding: .9rem 1.5rem; border: .28rem solid #273858; border-radius: 1.4rem;
+        background: #fff6d8; box-shadow: 0 .45rem 0 rgb(39 56 88 / .28); text-align: center;
+        font-size: calc(1.5rem * var(--ui-scale, 1)); font-weight: 900; }
+      .coloring-feedback small { display: block; margin-top: .35rem;
+        font-size: calc(1rem * var(--ui-scale, 1)); font-weight: 700; }
+      .coloring-reset-confirm { position: absolute; inset: 0; z-index: 26; display: grid;
+        place-items: center; padding: 1rem; background: rgb(31 42 65 / .6); }
+      .coloring-reset-confirm__card { width: min(88vw, 24rem); padding: 1.6rem 1.3rem;
+        box-sizing: border-box; border: .32rem solid #fff; border-radius: 1.8rem;
+        background: #fff8df; box-shadow: 0 .6rem 0 rgb(30 43 68 / .35); text-align: center; }
+      .coloring-reset-confirm__card p { margin: 0 0 1.1rem;
+        font-size: calc(1.3rem * var(--ui-scale, 1)); font-weight: 900; }
+      .coloring-reset-confirm__row { display: flex; gap: .8rem; justify-content: center; }
+      /* Activation on the page: it glows, it wiggles, it hops, it lifts away. The
+         cut to the room happens while it is off the paper. */
+      .coloring-canvas-wrap--alive { animation: coloring-wake ${PEEL_SECONDS}s ease-in-out forwards; }
+      @keyframes coloring-wake {
+        0% { transform: none; box-shadow: 0 .55rem 0 rgb(39 56 88 / .18); }
+        18% { transform: rotate(-2.5deg) translateY(.1rem) scale(.985);
+              box-shadow: 0 0 2.5rem .6rem rgb(255 231 140 / .95); }
+        30% { transform: rotate(2.5deg) translateY(.1rem) scale(.985); }
+        42% { transform: rotate(-1.6deg) scale(1.01); }
+        58% { transform: translateY(-2.2rem) rotate(1.2deg) scale(1.03);
+              box-shadow: 0 2.4rem 1.6rem rgb(39 56 88 / .22), 0 0 2.5rem .6rem rgb(255 231 140 / .9); }
+        70% { transform: translateY(.2rem) rotate(-.8deg) scale(.99); }
+        100% { transform: translateY(-11rem) rotate(7deg) scale(1.16); opacity: 0;
+               box-shadow: 0 0 3rem .8rem rgb(255 231 140 / .6); }
       }
-      @media (prefers-reduced-motion: reduce) { .coloring-palette--invite .coloring-swatch { animation: none; } }
+      /* Short or narrow: one column — palette, picture, tools — in DOM order, so
+         nothing can end up behind anything else. All seven swatches go in one
+         row; they stay above the 44px touch floor. */
+      @media (max-width: 46rem), (max-height: 34rem) {
+        .coloring-screen__work { grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: auto minmax(0, 1fr); gap: .45rem; }
+        .coloring-palette { grid-template-columns: repeat(7, auto); gap: .35rem; padding: .35rem; }
+        .coloring-swatch { width: 2.8rem; height: 2.8rem; border-width: .22rem; }
+        .coloring-tool { min-width: 4.4rem; min-height: 2.6rem; }
+        /* Stacked, and out from under the settings button: on one line the
+           title and the hint ran off the right edge at 760px. */
+        .coloring-screen__top { flex-direction: column; gap: .1rem; padding-right: 6.5rem; }
+        .coloring-screen__top h1 { font-size: calc(1rem * var(--ui-scale, 1)); }
+        .coloring-screen__instruction { font-size: calc(.9rem * var(--ui-scale, 1)); }
+        .coloring-done { min-height: 3rem; min-width: min(50vw, 11rem); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .coloring-palette--invite .coloring-swatch { animation: none; }
+        .coloring-canvas-wrap--alive { animation-duration: .4s; }
+      }
     `;
     document.head.append(style);
   }
@@ -198,6 +268,18 @@ export function createColoring(ctx) {
     actionButton.textContent = STRINGS.givePicture;
     actionButton.addEventListener('click', givePicture);
     document.querySelector('#ui-layer').append(roomOverlay);
+  }
+
+  /** The blank picture the artist is holding: line art, the ★ and the two words. */
+  function createLineArtCanvas(size = 512) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#f7f4ee';
+    context.fillRect(0, 0, size, size);
+    drawRobot(context, { size, colors: {}, round });
+    return canvas;
   }
 
   function buildWorld() {
@@ -257,7 +339,7 @@ export function createColoring(ctx) {
     npc.scale.setScalar(0.82);
     world.add(npc);
 
-    lineArtCanvas = createLineArtCanvas(round.starred, 512);
+    lineArtCanvas = createLineArtCanvas(512);
     lineArtTexture = ownCanvasTexture(lineArtCanvas);
     const pictureMaterial = makeMaterial(0xffffff, { map: lineArtTexture });
     npcPicture = addPart(npc, plane, pictureMaterial, 0, 1.42, 0.58, 0.9, 0.9, 1);
@@ -351,37 +433,90 @@ export function createColoring(ctx) {
     answerRemaining = 2.25;
   }
 
-  function paintedRegionShare(paintGrid, regionMap) {
-    let regionCells = 0;
-    let paintedCells = 0;
-    for (let index = 0; index < regionMap.length; index += 1) {
-      if (regionMap[index] === 0) continue;
-      regionCells += 1;
-      if (paintGrid[index] !== 0) paintedCells += 1;
-    }
-    return paintedCells / Math.max(1, regionCells);
-  }
+  // --- the colouring screen ------------------------------------------------
 
   function selectColor(color) {
     if (phase !== 'painting') return;
     selectedColor = color;
-    paintingSurface.setColor(color);
+    erasing = false;
     palette.classList.remove('coloring-palette--invite');
-    for (const button of palette.querySelectorAll('button')) {
-      button.setAttribute('aria-pressed', String(button.dataset.color === color));
-    }
-    paintInstruction.textContent = STRINGS.paintHint;
+    refreshTools();
+    paintInstruction.textContent = STRINGS.tapHint;
     audio.playSfx('interact');
   }
 
-  function onPaintingChanged(paintGrid) {
-    if (!paintingSurface || phase !== 'painting') return;
-    const share = paintedRegionShare(paintGrid, regionMap);
-    doneButton.disabled = share < MIN_PAINTED_SHARE;
-    if (!doneButton.disabled) paintInstruction.textContent = STRINGS.ready;
+  function refreshTools() {
+    for (const button of palette.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(!erasing && button.dataset.color === selectedColor));
+    }
+    eraserButton.setAttribute('aria-pressed', String(erasing));
+    undoButton.disabled = !colors.canUndo;
   }
 
-  const regionMap = buildRegionMap();
+  function toggleEraser() {
+    if (phase !== 'painting') return;
+    erasing = !erasing;
+    palette.classList.remove('coloring-palette--invite');
+    refreshTools();
+    audio.playSfx('interact');
+  }
+
+  function undo() {
+    if (phase !== 'painting' || !colors.canUndo) return;
+    colors.undo();
+    surface.render();
+    refreshTools();
+    audio.playSfx('interact');
+  }
+
+  function askReset() {
+    if (phase !== 'painting') return;
+    resetConfirm.hidden = false;
+    resetConfirm.querySelector('[data-reset="no"]').focus();
+  }
+
+  function closeReset() {
+    resetConfirm.hidden = true;
+    resetButton.focus();
+  }
+
+  function confirmReset() {
+    colors.reset();
+    surface.render();
+    refreshTools();
+    closeReset();
+    audio.playSfx('interact');
+  }
+
+  function showFeedback(text, hint = '') {
+    feedback.innerHTML = '';
+    feedback.append(document.createTextNode(text));
+    if (hint) {
+      const small = document.createElement('small');
+      small.textContent = hint;
+      feedback.append(small);
+    }
+    feedback.hidden = false;
+    feedbackRemaining = 2.4;
+  }
+
+  /**
+   * Answers a tap. Nothing here can be wrong — correctness is only ever
+   * evaluated when Done is pressed, and only for the required regions.
+   */
+  function onRegionChanged(regionId, action) {
+    if (phase !== 'painting') return;
+    if (action === 'no-color') {
+      paintInstruction.textContent = STRINGS.chooseColor;
+      return;
+    }
+    if (action === 'fill' || action === 'erase') {
+      if (hintRemaining > 0) { hintRemaining = 0; surface.setHint(null); }
+      audio.playSfx('interact');
+      refreshTools();
+      paintInstruction.textContent = colors.isDecoratedEnough() ? STRINGS.ready : STRINGS.tapHint;
+    }
+  }
 
   function createPaintingOverlay() {
     paintingOverlay = document.createElement('section');
@@ -392,46 +527,83 @@ export function createColoring(ctx) {
         <div class="coloring-palette coloring-palette--invite" role="group"></div>
         <div class="coloring-canvas-wrap"><canvas class="coloring-canvas"></canvas></div>
       </div>
-      <div class="coloring-screen__bottom"><button class="coloring-done" type="button" disabled></button></div>
+      <div class="coloring-screen__bottom">
+        <div class="coloring-tools">
+          <button class="coloring-tool coloring-tool--undo" type="button" disabled></button>
+          <button class="coloring-tool coloring-tool--eraser" type="button" aria-pressed="false"></button>
+          <button class="coloring-tool coloring-tool--reset" type="button"></button>
+        </div>
+        <button class="coloring-done" type="button"></button>
+      </div>
       <div class="coloring-answer-notice" role="status" aria-live="polite" hidden></div>
-      <div class="coloring-result" hidden>
-        <section class="coloring-result__card"><h2></h2><div class="coloring-result__stars"></div>
-        <button class="coloring-return" type="button"></button></section>
+      <div class="coloring-feedback" role="status" aria-live="polite" hidden></div>
+      <div class="coloring-reset-confirm" hidden>
+        <section class="coloring-reset-confirm__card">
+          <p></p>
+          <div class="coloring-reset-confirm__row">
+            <button class="coloring-tool" type="button" data-reset="no"></button>
+            <button class="coloring-tool coloring-tool--reset" type="button" data-reset="yes"></button>
+          </div>
+        </section>
       </div>
     `;
     paintingOverlay.querySelector('h1').textContent = STRINGS.paintTitle;
     paintInstruction = paintingOverlay.querySelector('.coloring-screen__instruction');
     paintInstruction.textContent = STRINGS.chooseColor;
+
     palette = paintingOverlay.querySelector('.coloring-palette');
     palette.setAttribute('aria-label', STRINGS.paletteLabel);
-    for (const color of COLORS) {
+    for (const color of PALETTE) {
       const swatch = document.createElement('button');
       swatch.type = 'button';
       swatch.className = 'coloring-swatch';
       swatch.dataset.color = color;
-      swatch.style.background = PALETTE_CSS[color];
+      swatch.style.background = PALETTE_HEX[color];
       swatch.setAttribute('aria-pressed', 'false');
       swatch.setAttribute('aria-label', STRINGS.colors[color]);
       swatch.title = STRINGS.colors[color];
       swatch.addEventListener('click', onSwatchClick);
       palette.append(swatch);
     }
+
+    canvasWrap = paintingOverlay.querySelector('.coloring-canvas-wrap');
     paintingCanvas = paintingOverlay.querySelector('.coloring-canvas');
+    paintingCanvas.setAttribute('aria-label', STRINGS.paintTitle);
+
+    undoButton = paintingOverlay.querySelector('.coloring-tool--undo');
+    undoButton.textContent = STRINGS.tools.undo;
+    undoButton.addEventListener('click', undo);
+    eraserButton = paintingOverlay.querySelector('.coloring-tool--eraser');
+    eraserButton.textContent = STRINGS.tools.eraser;
+    eraserButton.setAttribute('aria-label', STRINGS.tools.eraserLabel);
+    eraserButton.addEventListener('click', toggleEraser);
+    resetButton = paintingOverlay.querySelector('.coloring-tools .coloring-tool--reset');
+    resetButton.textContent = STRINGS.tools.reset;
+    resetButton.addEventListener('click', askReset);
+
+    resetConfirm = paintingOverlay.querySelector('.coloring-reset-confirm');
+    resetConfirm.querySelector('p').textContent = STRINGS.tools.resetConfirm;
+    const resetNo = resetConfirm.querySelector('[data-reset="no"]');
+    resetNo.textContent = STRINGS.tools.resetNo;
+    resetNo.addEventListener('click', closeReset);
+    const resetYes = resetConfirm.querySelector('[data-reset="yes"]');
+    resetYes.textContent = STRINGS.tools.resetYes;
+    resetYes.addEventListener('click', confirmReset);
+
     doneButton = paintingOverlay.querySelector('.coloring-done');
     doneButton.textContent = STRINGS.done;
-    doneButton.addEventListener('click', completePainting);
+    doneButton.addEventListener('click', attemptActivation);
     answerNotice = paintingOverlay.querySelector('.coloring-answer-notice');
-    resultPanel = paintingOverlay.querySelector('.coloring-result');
-    resultPanel.querySelector('h2').textContent = STRINGS.resultTitle;
-    resultStars = paintingOverlay.querySelector('.coloring-result__stars');
-    returnButton = paintingOverlay.querySelector('.coloring-return');
-    returnButton.textContent = STRINGS.takePicture;
-    returnButton.addEventListener('click', returnToRoom);
+    feedback = paintingOverlay.querySelector('.coloring-feedback');
+
     document.querySelector('#ui-layer').append(paintingOverlay);
-    paintingSurface = createPaintingSurface({
+    surface = createColoringSurface({
       canvas: paintingCanvas,
-      starred: round.starred,
-      onPaint: onPaintingChanged,
+      state: colors,
+      round,
+      onChange: onRegionChanged,
+      selectedColor: () => selectedColor,
+      erasing: () => erasing,
     });
     listenAgain = createListenAgain({ root: paintingOverlay, label: UI.listenAgain, onPress: replayAnswer });
     listenAgain.show();
@@ -459,36 +631,98 @@ export function createColoring(ctx) {
     if (!changed && active && phase === 'transition-to-painting') phase = 'answer';
   }
 
-  function completePainting() {
-    if (!active || phase !== 'painting' || doneButton.disabled) return;
-    scoreResult = scorePainting({
-      regionMap,
-      paintGrid: paintingSurface.paintGrid,
-      width: GRID_WIDTH,
-      height: GRID_HEIGHT,
-      starred: round.starred,
-      favourite: round.favourite,
-      replayed,
+  /**
+   * Done is an activation attempt, not a submission.
+   *
+   * Three of the four outcomes return the child to the page with every colour
+   * they chose still there. NOT_READY deliberately says nothing about the
+   * starred region — naming it would hand over the listening task.
+   */
+  function attemptActivation() {
+    if (!active || phase !== 'painting') return;
+    const snapshot = colors.snapshot();
+    const result = scoreRound(round, snapshot, {
+      completion: colors.completion(),
+      usedListenAgain: replayed,
     });
-    finishedCanvas = paintingSurface.snapshot();
-    phase = 'result';
+    scoreResult = result;
+    lastOutcome = result.outcome;
+
+    if (result.outcome === OUTCOMES.FULL) {
+      activate(snapshot);
+      return;
+    }
+
+    if (result.outcome === OUTCOMES.ALMOST) {
+      audio.playSfx('interact');
+      showFeedback(STRINGS.almost, STRINGS.almostHint);
+      // Only labelled regions may be pointed at. The child can read the word.
+      flashWrongLabels(result.wrongLabelIds);
+    } else if (result.outcome === OUTCOMES.NOT_READY) {
+      audio.playSfx('interact');
+      showFeedback(STRINGS.notReady);
+      sputter();
+    } else {
+      audio.playSfx('interact');
+      showFeedback(STRINGS.incomplete);
+    }
+  }
+
+  /** A weak failed start-up: a small shake of the page, nothing destructive. */
+  function sputter() {
+    if (!canvasWrap) return;
+    canvasWrap.animate?.(
+      [
+        { transform: 'translateX(0)' },
+        { transform: 'translateX(-.35rem) rotate(-1deg)' },
+        { transform: 'translateX(.35rem) rotate(1deg)' },
+        { transform: 'translateX(-.2rem)' },
+        { transform: 'translateX(0)' },
+      ],
+      { duration: 340, easing: 'ease-out' },
+    );
+  }
+
+  /**
+   * Rings a labelled region that is still the wrong colour. Its English colour
+   * word is already on the page, so pointing at it tells the child nothing they
+   * were supposed to remember. `wrongLabelIds` from `robotScoring` never
+   * contains the starred region, which is the whole reason it exists.
+   */
+  function flashWrongLabels(regionIds) {
+    if (!regionIds?.length || !surface) return;
+    surface.setHint(regionIds[0]);
+    hintRemaining = 2.4;
+  }
+
+  /** FULL: the page half of the cinematic, then the cut into the room. */
+  function activate(snapshot) {
+    phase = 'activation';
     listenAgain.hide();
-    resultStars.textContent = '★'.repeat(scoreResult.stars);
-    resultPanel.hidden = false;
-    returnButton.focus();
+    feedback.hidden = true;
+    doneButton.disabled = true;
+    finishedCanvas = surface.snapshot(PICTURE_SIZE);
+    paintInstruction.textContent = STRINGS.alive;
+    canvasWrap.classList.add('coloring-canvas-wrap--alive');
     audio.playSfx('stamp');
+    puppet = createPaperPuppet({ colors: snapshot });
+    peelRemaining = PEEL_SECONDS;
   }
 
   function disposePaintingOverlay() {
     listenAgain?.dispose();
     listenAgain = null;
-    paintingSurface?.dispose();
-    paintingSurface = null;
+    surface?.dispose();
+    surface = null;
     for (const swatch of palette?.querySelectorAll('button') ?? []) {
       swatch.removeEventListener('click', onSwatchClick);
     }
-    doneButton?.removeEventListener('click', completePainting);
-    returnButton?.removeEventListener('click', returnToRoom);
+    undoButton?.removeEventListener('click', undo);
+    eraserButton?.removeEventListener('click', toggleEraser);
+    resetButton?.removeEventListener('click', askReset);
+    resetConfirm?.querySelector('[data-reset="no"]')?.removeEventListener('click', closeReset);
+    resetConfirm?.querySelector('[data-reset="yes"]')?.removeEventListener('click', confirmReset);
+    doneButton?.removeEventListener('click', attemptActivation);
     paintingOverlay?.remove();
     if (paintingCanvas) {
       paintingCanvas.width = 0;
@@ -496,12 +730,15 @@ export function createColoring(ctx) {
     }
     paintingOverlay = null;
     paintingCanvas = null;
+    canvasWrap = null;
     palette = null;
     paintInstruction = null;
     doneButton = null;
-    resultPanel = null;
-    resultStars = null;
-    returnButton = null;
+    undoButton = null;
+    eraserButton = null;
+    resetButton = null;
+    resetConfirm = null;
+    feedback = null;
     answerNotice = null;
   }
 
@@ -514,8 +751,15 @@ export function createColoring(ctx) {
     player.add(carriedPicture);
   }
 
+  /**
+   * The cut: the puppet drops onto the atelier floor and wakes up there.
+   *
+   * The child keeps the finished artwork as well (the spec's option A), so the
+   * wall frame will show the picture while the paper robot hops about — the
+   * robot reads as a magical copy rather than as the drawing having vanished.
+   */
   async function returnToRoom() {
-    if (!active || phase !== 'result') return;
+    if (!active || phase !== 'activation') return;
     phase = 'transition-to-room';
     const changed = await transitions.run(() => {
       if (!active) return;
@@ -527,13 +771,19 @@ export function createColoring(ctx) {
       world.visible = true;
       roomOverlay.hidden = false;
       roomInstruction.textContent = STRINGS.walkToGive;
+      world.add(puppet.group);
+      puppet.placeAt(-1.9, 1.35, 0);
+      puppet.setState(STATES.STARTUP);
+      puppet.setGlowFloor(0.35);
+      puppet.setLift(1.3);
       cameraRig
         .setTarget(player)
         .setPreset('follow', { offset: [0, 8.5, 10.5], lookOffset: [0, 1.05, -2.2], damping: 5 });
       input.clear();
-      phase = 'gift';
+      dropRemaining = DROP_SECONDS;
+      phase = 'landing';
     });
-    if (!changed && active && phase === 'transition-to-room') phase = 'result';
+    if (!changed && active && phase === 'transition-to-room') phase = 'activation';
   }
 
   function showGiftAction(show) {
@@ -556,6 +806,8 @@ export function createColoring(ctx) {
     framePicture.visible = true;
     npc.playAnimation?.('emote-yes');
     audio.playSfx('accept');
+    // The robot is pleased with itself too.
+    puppet?.stopRoaming().setState(STATES.CELEBRATE);
     dialogue.show({ text: STRINGS.thankYou, anchor: npc, offsetY: 1.75, speak: false });
     roomInstruction.textContent = STRINGS.given;
     reactionRemaining = 1.55;
@@ -564,6 +816,7 @@ export function createColoring(ctx) {
   function beginTurnaround() {
     if (!active || phase !== 'reaction') return;
     phase = 'turnaround';
+    puppet?.startRoaming();
     dialogue.show({ text: LESSON.question, anchor: npc, offsetY: 1.75 });
     roomInstruction.textContent = STRINGS.turnaround;
     // Two-shot: the child steps beside the NPC, and the close-up looks at the NPC
@@ -585,8 +838,60 @@ export function createColoring(ctx) {
     hud.setTalkState('accepted');
     roomInstruction.textContent = STRINGS.complete;
     npc.playAnimation?.('emote-yes');
+    puppet?.stopRoaming().setState(STATES.CELEBRATE);
     audio.playSfx('stamp');
     finishRemaining = 0.75;
+  }
+
+  /**
+   * The harness window, following the same `__eslDebug` convention the
+   * Restaurant, Drink Stand and Zoo already use.
+   *
+   * It deliberately does NOT expose the favourite colour. The two labelled
+   * colours are printed on the page anyway, so a harness reading them back is
+   * only reading the screen; the favourite is the one thing a child is meant to
+   * have remembered, and a playthrough can hear it in the dialogue like they do.
+   */
+  function debugSnapshot() {
+    return {
+      phase,
+      outcome: lastOutcome,
+      stars: scoreResult?.stars ?? null,
+      usedListenAgain: replayed,
+      starredRegion: round?.starred ?? null,
+      requiredLabels: Object.fromEntries((round?.labelled ?? []).map((e) => [e.regionId, e.color])),
+      colors: colors?.snapshot() ?? {},
+      completion: colors?.completion() ?? 0,
+      decoratedEnough: colors?.isDecoratedEnough() ?? false,
+      canUndo: Boolean(colors?.canUndo),
+      erasing,
+      selectedColor,
+      hint: surface?.highlight ?? null,
+      puppet: puppet
+        ? {
+          present: Boolean(puppet.group.parent),
+          state: puppet.state,
+          pieces: Object.keys(puppet.pieces).length,
+          position: { x: puppet.group.position.x, y: puppet.group.position.y, z: puppet.group.position.z },
+          lift: puppet.pose.root.y,
+          scale: { ...puppet.pose.root.scale },
+        }
+        : null,
+    };
+  }
+
+  function installDebugHook() {
+    if (!window.__eslDebug) {
+      Object.defineProperty(window, '__eslDebug', { value: {}, configurable: true, writable: false });
+      debugRootCreated = true;
+    }
+    Object.defineProperty(window.__eslDebug, 'coloring', { configurable: true, enumerable: true, get: debugSnapshot });
+  }
+
+  function removeDebugHook() {
+    if (window.__eslDebug) delete window.__eslDebug.coloring;
+    if (debugRootCreated && window.__eslDebug && Object.keys(window.__eslDebug).length === 0) delete window.__eslDebug;
+    debugRootCreated = false;
   }
 
   function enter() {
@@ -596,18 +901,26 @@ export function createColoring(ctx) {
     replayed = false;
     answerSentence = '';
     selectedColor = null;
+    erasing = false;
     answerRemaining = 0;
     reactionRemaining = 0;
     finishRemaining = 0;
     answerNoticeRemaining = 0;
+    feedbackRemaining = 0;
+    hintRemaining = 0;
+    peelRemaining = 0;
+    dropRemaining = 0;
     scoreResult = null;
     acceptedAnswer = null;
     finishCalled = false;
     elapsed = 0;
     round = pickRound();
+    colors = createColorState();
+    lastOutcome = null;
     installStyle();
     createRoomOverlay();
     buildWorld();
+    installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       hud.setMicFree(next.micFree);
@@ -623,6 +936,14 @@ export function createColoring(ctx) {
     if (answerNoticeRemaining > 0) {
       answerNoticeRemaining -= safeDt;
       if (answerNoticeRemaining <= 0 && answerNotice) answerNotice.hidden = true;
+    }
+    if (feedbackRemaining > 0) {
+      feedbackRemaining -= safeDt;
+      if (feedbackRemaining <= 0 && feedback) feedback.hidden = true;
+    }
+    if (hintRemaining > 0) {
+      hintRemaining -= safeDt;
+      if (hintRemaining <= 0) surface?.setHint(null);
     }
 
     if (phase === 'approach') {
@@ -641,6 +962,23 @@ export function createColoring(ctx) {
         hud.hide();
         phase = 'transition-to-painting';
         void openPainting();
+      }
+    } else if (phase === 'activation') {
+      peelRemaining -= safeDt;
+      if (peelRemaining <= 0) void returnToRoom();
+    } else if (phase === 'landing') {
+      dropRemaining -= safeDt;
+      // It falls the last of the way onto the floor, then the startup plays out.
+      const fall = Math.max(0, dropRemaining / DROP_SECONDS);
+      puppet.setLift(1.3 * fall * fall);
+      if (dropRemaining <= 0) {
+        puppet.setLift(0);
+        if (puppet.state !== STATES.STARTUP) puppet.setState(STATES.STARTUP);
+        if (puppet.isFinished()) {
+          puppet.setGlowFloor(0.12);
+          puppet.startRoaming();
+          phase = 'gift';
+        }
       }
     } else if (phase === 'gift') {
       updateMovement(safeDt);
@@ -666,6 +1004,9 @@ export function createColoring(ctx) {
       }
     }
 
+    // The paper robot keeps moving through every room phase once it is alive.
+    if (puppet && world?.visible) puppet.update(safeDt);
+
     if (world?.visible) {
       player?.updateAnimation?.(safeDt);
       npc?.updateAnimation?.(safeDt);
@@ -679,6 +1020,7 @@ export function createColoring(ctx) {
   function exit() {
     active = false;
     phase = 'inactive';
+    removeDebugHook();
     unsubscribeSettings?.();
     unsubscribeSettings = null;
     speech.clearTarget();
@@ -691,6 +1033,8 @@ export function createColoring(ctx) {
     disposePaintingOverlay();
     roomOverlay?.remove();
     style?.remove();
+    puppet?.dispose();
+    puppet = null;
     player?.disposeCharacter?.();
     npc?.disposeCharacter?.();
     if (world) scene.remove(world);
@@ -725,7 +1069,9 @@ export function createColoring(ctx) {
     lineArtTexture = null;
     finishedTexture = null;
     round = null;
+    colors = null;
     scoreResult = null;
+    lastOutcome = null;
   }
 
   return { id: 'coloring', enter, update, exit };

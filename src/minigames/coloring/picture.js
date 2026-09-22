@@ -1,296 +1,233 @@
-import { COLOR_VALUES, REGION_VALUES } from './scoring.js';
+/**
+ * The live colouring page.
+ *
+ * Tap to fill: a pointer lands on a region, the region takes the selected
+ * colour, done. There is no brush and nothing to be neat about — see
+ * `.ai/coloring-robot-spec.md` for why a neatness margin cannot survive a dozen
+ * small accent regions on a Chromebook touchpad.
+ *
+ * This module owns only the canvas and the input. What the robot looks like
+ * lives in `robotDefinition.js`, how it is drawn lives in `robotRenderer.js`,
+ * and what the child has chosen lives in `colorState.js`. Nothing here decides
+ * whether an answer is right.
+ */
 
-export const PICTURE_SIZE = 720;
-export const GRID_WIDTH = 72;
-export const GRID_HEIGHT = 72;
+import { PICTURE_SIZE, REGIONS, regionAt, regionBounds } from './robotDefinition.js';
+import { drawRobot } from './robotRenderer.js';
 
-const BRUSH_RADIUS = 34;
+export { PICTURE_SIZE };
 
-const SHAPES = Object.freeze({
-  body: Object.freeze([{ x: 0.29, y: 0.37, width: 0.42, height: 0.43, radius: 0.055 }]),
-  arms: Object.freeze([
-    { x: 0.08, y: 0.43, width: 0.19, height: 0.27, radius: 0.045 },
-    { x: 0.73, y: 0.43, width: 0.19, height: 0.27, radius: 0.045 },
-  ]),
-  eyes: Object.freeze([{ x: 0.29, y: 0.17, width: 0.42, height: 0.17, radius: 0.07 }]),
-});
+const PAPER = '#f7f4ee';
 
-const STAR_POSITIONS = Object.freeze({
-  body: Object.freeze([{ x: 0.5, y: 0.58 }]),
-  arms: Object.freeze([{ x: 0.175, y: 0.565 }, { x: 0.825, y: 0.565 }]),
-  eyes: Object.freeze([{ x: 0.5, y: 0.255 }]),
-});
-
-function insideRoundedRect(px, py, shape) {
-  const { x, y, width, height, radius } = shape;
-  if (px < x || px > x + width || py < y || py > y + height) return false;
-  const innerLeft = x + radius;
-  const innerRight = x + width - radius;
-  const innerTop = y + radius;
-  const innerBottom = y + height - radius;
-  if (px >= innerLeft && px <= innerRight) return true;
-  if (py >= innerTop && py <= innerBottom) return true;
-  const cx = px < innerLeft ? innerLeft : innerRight;
-  const cy = py < innerTop ? innerTop : innerBottom;
-  const dx = px - cx;
-  const dy = py - cy;
-  return dx * dx + dy * dy <= radius * radius;
-}
-
-function regionAt(x, y) {
-  for (const shape of SHAPES.eyes) if (insideRoundedRect(x, y, shape)) return REGION_VALUES.eyes;
-  for (const shape of SHAPES.body) if (insideRoundedRect(x, y, shape)) return REGION_VALUES.body;
-  for (const shape of SHAPES.arms) if (insideRoundedRect(x, y, shape)) return REGION_VALUES.arms;
-  return 0;
-}
-
-export function buildRegionMap(width = GRID_WIDTH, height = GRID_HEIGHT) {
-  const map = new Uint8Array(width * height);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      map[y * width + x] = regionAt((x + 0.5) / width, (y + 0.5) / height);
-    }
-  }
-  return map;
-}
-
-function roundedRectPath(context, shape, size) {
-  const x = shape.x * size;
-  const y = shape.y * size;
-  const width = shape.width * size;
-  const height = shape.height * size;
-  const radius = shape.radius * size;
-  context.beginPath();
-  context.roundRect(x, y, width, height, radius);
-}
-
-function drawStar(context, x, y, radius) {
-  context.save();
-  context.beginPath();
-  for (let point = 0; point < 10; point += 1) {
-    const angle = -Math.PI / 2 + point * Math.PI / 5;
-    const distance = point % 2 === 0 ? radius : radius * 0.46;
-    const px = x + Math.cos(angle) * distance;
-    const py = y + Math.sin(angle) * distance;
-    if (point === 0) context.moveTo(px, py);
-    else context.lineTo(px, py);
-  }
-  context.closePath();
-  context.fillStyle = '#ffffff';
-  context.strokeStyle = '#17233a';
-  context.lineWidth = Math.max(7, radius * 0.22);
-  context.lineJoin = 'round';
-  context.fill();
-  context.stroke();
-  context.restore();
-}
-
-/** Draw the robot's bold line art after paint so every boundary stays crisp. */
-export function drawLineArt(context, { size = PICTURE_SIZE, starred = null } = {}) {
-  context.save();
-  context.strokeStyle = '#17233a';
-  context.lineWidth = size * 0.018;
-  context.lineJoin = 'round';
-  context.lineCap = 'round';
-
-  for (const region of ['body', 'arms', 'eyes']) {
-    for (const shape of SHAPES[region]) {
-      roundedRectPath(context, shape, size);
-      context.stroke();
-    }
-  }
-
-  // Open decorative lines add robot character without creating extra paint regions.
-  context.beginPath();
-  context.moveTo(size * 0.5, size * 0.17);
-  context.lineTo(size * 0.5, size * 0.09);
-  context.lineTo(size * 0.46, size * 0.055);
-  context.moveTo(size * 0.4, size * 0.8);
-  context.lineTo(size * 0.38, size * 0.91);
-  context.moveTo(size * 0.6, size * 0.8);
-  context.lineTo(size * 0.62, size * 0.91);
-  context.moveTo(size * 0.12, size * 0.7);
-  context.lineTo(size * 0.1, size * 0.77);
-  context.moveTo(size * 0.88, size * 0.7);
-  context.lineTo(size * 0.9, size * 0.77);
-  context.stroke();
-
-  context.fillStyle = '#17233a';
-  context.beginPath();
-  context.arc(size * 0.41, size * 0.255, size * 0.022, 0, Math.PI * 2);
-  context.arc(size * 0.59, size * 0.255, size * 0.022, 0, Math.PI * 2);
-  context.fill();
-
-  if (STAR_POSITIONS[starred]) {
-    for (const position of STAR_POSITIONS[starred]) {
-      drawStar(context, position.x * size, position.y * size, size * 0.047);
-    }
-  }
-  context.restore();
-}
-
-export function createLineArtCanvas(starred = null, size = PICTURE_SIZE) {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, size, size);
-  drawLineArt(context, { size, starred });
-  return canvas;
-}
-
-function paintGridDisk(grid, width, height, cx, cy, radius, colorValue) {
-  const minX = Math.max(0, Math.floor(cx - radius));
-  const maxX = Math.min(width - 1, Math.ceil(cx + radius));
-  const minY = Math.max(0, Math.floor(cy - radius));
-  const maxY = Math.min(height - 1, Math.ceil(cy + radius));
-  const radiusSq = radius * radius;
-  for (let y = minY; y <= maxY; y += 1) {
-    for (let x = minX; x <= maxX; x += 1) {
-      const dx = x + 0.5 - cx;
-      const dy = y + 0.5 - cy;
-      if (dx * dx + dy * dy <= radiusSq) grid[y * width + x] = colorValue;
-    }
-  }
-}
-
-function paintGridSegment(grid, width, height, from, to, radius, colorValue) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const distance = Math.hypot(dx, dy);
-  const steps = Math.max(1, Math.ceil(distance / Math.max(0.5, radius * 0.35)));
-  for (let step = 0; step <= steps; step += 1) {
-    const amount = step / steps;
-    paintGridDisk(
-      grid,
-      width,
-      height,
-      from.x + dx * amount,
-      from.y + dy * amount,
-      radius,
-      colorValue,
-    );
-  }
+/**
+ * Regions in reading order — top to bottom, then left to right.
+ *
+ * This is the keyboard's traversal order, so it has to be the order a child
+ * would point at things in, not the order they happen to be declared in or the
+ * draw order (which puts the antenna light first because it is drawn last).
+ */
+export function readingOrder() {
+  return REGIONS
+    .map((region) => {
+      const box = regionBounds(region.id);
+      return { id: region.id, y: (box.minY + box.maxY) / 2, x: (box.minX + box.maxX) / 2 };
+    })
+    // A band, so two things at roughly the same height sort left to right rather
+    // than by a pixel of difference.
+    .sort((a, b) => Math.round(a.y * 12) - Math.round(b.y * 12) || a.x - b.x)
+    .map((entry) => entry.id);
 }
 
 /**
- * Pointer-driven brush surface. The visible stroke and coarse score grid use
- * the same round, interpolated segment geometry.
+ * Maps a pointer event to normalised picture coordinates.
+ *
+ * Exported because the canvas is letterboxed by `object-fit: contain`, and
+ * getting this wrong is invisible until every click lands slightly high.
  */
-export function createPaintingSurface({ canvas, starred, onPaint }) {
-  const paintCanvas = document.createElement('canvas');
-  paintCanvas.width = PICTURE_SIZE;
-  paintCanvas.height = PICTURE_SIZE;
-  const paintContext = paintCanvas.getContext('2d');
-  const displayContext = canvas.getContext('2d');
-  const paintGrid = new Uint8Array(GRID_WIDTH * GRID_HEIGHT);
-  let selected = null;
-  let pointerId = null;
-  let previous = null;
+export function pointToPicture(rect, clientX, clientY) {
+  const size = Math.min(rect.width, rect.height);
+  if (size <= 0) return { x: -1, y: -1 };
+  const left = rect.left + (rect.width - size) / 2;
+  const top = rect.top + (rect.height - size) / 2;
+  return { x: (clientX - left) / size, y: (clientY - top) / size };
+}
 
-  canvas.width = PICTURE_SIZE;
-  canvas.height = PICTURE_SIZE;
+/**
+ * The colouring surface.
+ *
+ * @param {object} options
+ * @param {HTMLCanvasElement} options.canvas
+ * @param {object} options.state   a `createColorState()`
+ * @param {object} options.round   for the ★ and the colour words
+ * @param {(regionId: string, action: string) => void} [options.onChange]
+ * @param {() => string|null} options.selectedColor  null while nothing is chosen
+ * @param {() => boolean} [options.erasing]
+ */
+export function createColoringSurface({
+  canvas,
+  state,
+  round,
+  onChange,
+  selectedColor,
+  erasing = () => false,
+}) {
+  const order = readingOrder();
+  const ctx = canvas.getContext('2d');
+  let highlight = null;
+  let hint = null;
+  let focusIndex = -1;
+  let keyboardDriven = false;
+  let disposed = false;
+
+  // The picture is authored at PICTURE_SIZE; drawing at the same size on a
+  // device-pixel-scaled backing store keeps the line art crisp on a Chromebook
+  // without threading a second coordinate system through the renderer.
+  function resize() {
+    const ratio = Math.min(3, Math.max(1, globalThis.devicePixelRatio || 1));
+    const pixels = Math.round(PICTURE_SIZE * ratio);
+    if (canvas.width !== pixels) {
+      canvas.width = pixels;
+      canvas.height = pixels;
+    }
+    return ratio;
+  }
 
   function render() {
-    displayContext.fillStyle = '#ffffff';
-    displayContext.fillRect(0, 0, PICTURE_SIZE, PICTURE_SIZE);
-    displayContext.drawImage(paintCanvas, 0, 0);
-    drawLineArt(displayContext, { starred });
+    if (disposed) return;
+    const ratio = resize();
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(0, 0, PICTURE_SIZE, PICTURE_SIZE);
+    drawRobot(ctx, { size: PICTURE_SIZE, colors: state.snapshot(), round, highlight: highlight ?? hint });
   }
 
-  function pointFor(event) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * PICTURE_SIZE / Math.max(1, rect.width),
-      y: (event.clientY - rect.top) * PICTURE_SIZE / Math.max(1, rect.height),
-    };
-  }
-
-  function paint(from, to) {
-    if (!selected) return;
-    paintContext.strokeStyle = selected.css;
-    paintContext.fillStyle = selected.css;
-    paintContext.lineWidth = BRUSH_RADIUS * 2;
-    paintContext.lineCap = 'round';
-    paintContext.lineJoin = 'round';
-    paintContext.beginPath();
-    paintContext.moveTo(from.x, from.y);
-    paintContext.lineTo(to.x, to.y);
-    paintContext.stroke();
-    paintContext.beginPath();
-    paintContext.arc(to.x, to.y, BRUSH_RADIUS, 0, Math.PI * 2);
-    paintContext.fill();
-
-    const gridFrom = { x: from.x * GRID_WIDTH / PICTURE_SIZE, y: from.y * GRID_HEIGHT / PICTURE_SIZE };
-    const gridTo = { x: to.x * GRID_WIDTH / PICTURE_SIZE, y: to.y * GRID_HEIGHT / PICTURE_SIZE };
-    paintGridSegment(
-      paintGrid,
-      GRID_WIDTH,
-      GRID_HEIGHT,
-      gridFrom,
-      gridTo,
-      BRUSH_RADIUS * GRID_WIDTH / PICTURE_SIZE,
-      selected.value,
-    );
+  function setHighlight(regionId) {
+    if (highlight === regionId) return;
+    highlight = regionId;
     render();
-    onPaint?.(paintGrid);
   }
 
-  function pointerDown(event) {
-    if (!selected || pointerId !== null || event.button > 0) return;
+  /** Fill or erase one region, and tell the caller what actually happened. */
+  function apply(regionId) {
+    if (!regionId) return null;
+    if (erasing()) {
+      if (!state.clear(regionId)) return null;
+      onChange?.(regionId, 'erase');
+      render();
+      return 'erase';
+    }
+    const color = selectedColor();
+    if (!color) {
+      onChange?.(regionId, 'no-color');
+      return null;
+    }
+    if (!state.fill(regionId, color)) {
+      // Re-tapping a region in the colour it already holds is not an error and
+      // must not cost an undo step; the caller may still want to answer it.
+      onChange?.(regionId, 'unchanged');
+      return null;
+    }
+    onChange?.(regionId, 'fill');
+    render();
+    return 'fill';
+  }
+
+  function regionFor(event) {
+    const point = pointToPicture(canvas.getBoundingClientRect(), event.clientX, event.clientY);
+    return regionAt(point.x, point.y);
+  }
+
+  function onPointerDown(event) {
+    if (event.button > 0) return;
     event.preventDefault();
-    pointerId = event.pointerId;
-    previous = pointFor(event);
-    canvas.setPointerCapture?.(pointerId);
-    paint(previous, previous);
+    const regionId = regionFor(event);
+    if (!regionId) return;
+    keyboardDriven = false;
+    focusIndex = order.indexOf(regionId);
+    setHighlight(regionId);
+    apply(regionId);
   }
 
-  function pointerMove(event) {
-    if (event.pointerId !== pointerId || !previous) return;
+  function onPointerMove(event) {
+    if (keyboardDriven) return;
+    setHighlight(regionFor(event));
+  }
+
+  function onPointerLeave() {
+    if (!keyboardDriven) setHighlight(null);
+  }
+
+  function step(delta) {
+    keyboardDriven = true;
+    focusIndex = focusIndex < 0
+      ? (delta > 0 ? 0 : order.length - 1)
+      : (focusIndex + delta + order.length) % order.length;
+    setHighlight(order[focusIndex]);
+  }
+
+  function onKeyDown(event) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') step(1);
+    else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') step(-1);
+    else if (event.key === 'Enter' || event.key === ' ') {
+      if (focusIndex < 0) step(1);
+      else apply(order[focusIndex]);
+    } else return;
     event.preventDefault();
-    const next = pointFor(event);
-    paint(previous, next);
-    previous = next;
   }
 
-  function endPointer(event) {
-    if (event.pointerId !== pointerId) return;
-    event.preventDefault();
-    if (canvas.hasPointerCapture?.(pointerId)) canvas.releasePointerCapture(pointerId);
-    pointerId = null;
-    previous = null;
+  function onBlur() {
+    keyboardDriven = false;
+    setHighlight(null);
   }
 
-  canvas.addEventListener('pointerdown', pointerDown);
-  canvas.addEventListener('pointermove', pointerMove);
-  canvas.addEventListener('pointerup', endPointer);
-  canvas.addEventListener('pointercancel', endPointer);
+  canvas.tabIndex = 0;
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerleave', onPointerLeave);
+  canvas.addEventListener('keydown', onKeyDown);
+  canvas.addEventListener('blur', onBlur);
   render();
 
   return {
-    paintGrid,
-    setColor(color) {
-      const value = COLOR_VALUES[color];
-      selected = value ? { value, css: { red: '#ef4f4f', blue: '#3a78e8', yellow: '#ffd43b' }[color] } : null;
+    render,
+    get highlight() { return highlight ?? hint; },
+
+    /**
+     * Rings a region to point at it, without moving the pointer's own
+     * highlight. Used to say "this labelled one is still wrong" — never for the
+     * starred region, where pointing at it would be a step towards telling.
+     */
+    setHint(regionId) {
+      hint = regionId ?? null;
+      render();
     },
-    snapshot() {
+
+    /**
+     * The finished artwork with no instructions on it, for the wall frame.
+     *
+     * Drawn fresh rather than copied off the display canvas, so the ★ and any
+     * remaining colour words are absent and the highlight cannot be baked in.
+     */
+    snapshot(size = PICTURE_SIZE) {
       const result = document.createElement('canvas');
-      result.width = PICTURE_SIZE;
-      result.height = PICTURE_SIZE;
-      result.getContext('2d').drawImage(canvas, 0, 0);
+      result.width = size;
+      result.height = size;
+      const out = result.getContext('2d');
+      out.fillStyle = PAPER;
+      out.fillRect(0, 0, size, size);
+      drawRobot(out, { size, colors: state.snapshot(), labels: false });
       return result;
     },
+
     dispose() {
-      canvas.removeEventListener('pointerdown', pointerDown);
-      canvas.removeEventListener('pointermove', pointerMove);
-      canvas.removeEventListener('pointerup', endPointer);
-      canvas.removeEventListener('pointercancel', endPointer);
-      pointerId = null;
-      previous = null;
-      selected = null;
-      paintCanvas.width = 0;
-      paintCanvas.height = 0;
+      disposed = true;
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
+      canvas.removeEventListener('keydown', onKeyDown);
+      canvas.removeEventListener('blur', onBlur);
+      highlight = null;
     },
   };
 }

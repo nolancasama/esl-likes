@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Paper puppet preview</title>
+<style>
+  body { margin: 0; padding: 14px; background: #e9e4da; font: 13px/1.4 system-ui, sans-serif; color: #2a2f36; }
+  h2 { margin: 16px 0 6px; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; opacity: .6; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { margin-top: 3px; font-size: 10px; opacity: .6; text-align: center; }
+  canvas { display: block; border: 1px solid #c9c2b4; border-radius: 4px; background: #f3efe6; }
+</style>
+</head>
+<body>
+<h2>One hop, twelve frames (front)</h2>
+<div class="row" id="hop"></div>
+<h2>Idle, startup, celebrate</h2>
+<div class="row" id="states"></div>
+<h2>Three-quarter and near-edge views — it has to read as paper</h2>
+<div class="row" id="angles"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { createPaperPuppet } from '/src/minigames/coloring/paperPuppet.js';
+import { DURATIONS, PUPPET_HEIGHT, STATES, poseFor } from '/src/minigames/coloring/robotPuppet.js';
+
+const finished = {
+  antennaLight: 'red', antennaStalk: 'green', face: 'blue', ears: 'yellow', eyes: 'purple',
+  shoulders: 'green', body: 'pink', chestPanel: 'red', buttons: 'purple', sidePanels: 'orange',
+  leftUpperArm: 'red', leftForearm: 'blue', rightUpperArm: 'orange', rightForearm: 'green',
+  leftLeg: 'pink', leftFoot: 'yellow', rightLeg: 'blue', rightFoot: 'purple',
+};
+
+const W = 150, H = 200;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(W, H, false);
+renderer.setClearColor(0xf3efe6);
+
+const scene = new THREE.Scene();
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(12, 12),
+  new THREE.MeshBasicMaterial({ color: 0xe6dfd0 }),
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const puppet = createPaperPuppet({ colors: finished, textureSize: 900 });
+scene.add(puppet.group);
+
+function shot(parent, caption, { state, t, yaw = 0, elev = 0.9, dist = 4.6 }) {
+  puppet.stopRoaming().setState(state);
+  puppet.group.rotation.y = yaw;
+  // setPose goes through the puppet's own apply path, so the glow, the eyelid
+  // and the shadow all match the frame rather than an accumulated clock.
+  puppet.setPose(poseFor(state, t));
+
+  const camera = new THREE.PerspectiveCamera(32, W / H, 0.1, 40);
+  camera.position.set(0, elev + 0.5, dist);
+  camera.lookAt(0, PUPPET_HEIGHT * 0.62, 0);
+  renderer.render(scene, camera);
+
+  const fig = document.createElement('figure');
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  out.getContext('2d').drawImage(renderer.domElement, 0, 0);
+  fig.append(out);
+  const cap = document.createElement('figcaption');
+  cap.textContent = caption;
+  fig.append(cap);
+  parent.append(fig);
+}
+
+const hop = document.getElementById('hop');
+for (let i = 0; i < 12; i += 1) {
+  const t = (i / 12) * DURATIONS[STATES.HOP];
+  shot(hop, `${((i / 12) * 100).toFixed(0)}%`, { state: STATES.HOP, t });
+}
+
+const states = document.getElementById('states');
+for (const [state, fracs] of [
+  [STATES.IDLE, [0, 0.25, 0.5, 0.75]],
+  [STATES.STARTUP, [0.1, 0.45, 0.7, 0.95]],
+  [STATES.CELEBRATE, [0.15, 0.45, 0.75]],
+]) {
+  for (const f of fracs) shot(states, `${state} ${(f * 100).toFixed(0)}%`, { state, t: f * DURATIONS[state] });
+}
+
+const angles = document.getElementById('angles');
+for (const yaw of [0, 0.5, 1.0, 1.35, 1.5, Math.PI]) {
+  shot(angles, `yaw ${yaw.toFixed(2)}`, { state: STATES.IDLE, t: 0.4, yaw });
+}
+
+window.__ready = true;
+</script>
+</body>
+</html>

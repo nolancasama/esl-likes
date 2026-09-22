@@ -275,3 +275,30 @@ export function regionAt(x, y) {
   }
   return null;
 }
+
+/**
+ * A point inside a region that `regionAt` really attributes to it, or null.
+ *
+ * Not the bounding-box centre. Regions overlap on purpose — the chest panel is
+ * drawn over the body, the shoulder cap over both body and arm — so the centre
+ * of the torso's box belongs to the panel. Anything aiming at a region (a test,
+ * a playthrough, a future keyboard hint arrow) needs the point that actually
+ * colours it, and every region having one is an invariant worth asserting:
+ * a region nothing can hit is decoration a child can never use.
+ */
+export function tappablePoint(regionId) {
+  const region = REGION_BY_ID[regionId];
+  if (!region) return null;
+  const steps = 11;
+  for (const shape of region.shapes) {
+    const box = shapeBounds(shape);
+    for (let iy = 1; iy < steps; iy += 1) {
+      for (let ix = 1; ix < steps; ix += 1) {
+        const x = box.minX + (box.maxX - box.minX) * (ix / steps);
+        const y = box.minY + (box.maxY - box.minY) * (iy / steps);
+        if (regionAt(x, y) === regionId) return { x, y };
+      }
+    }
+  }
+  return null;
+}

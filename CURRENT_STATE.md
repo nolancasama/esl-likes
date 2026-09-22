@@ -2,17 +2,90 @@
 
 ## Usage watch
 
-**Weekly quota hit ~97% on 2026-09-22 and work stopped there**, at a clean
-commit with the tree green. Nothing was left half-written. Treat anything large
-as needing a fresh week or a delegating worker — a worker's quota is a separate
-budget, so delegating costs the controller only the brief and the review, which
-is why `.ai/wo-coloring-robot.json` was written rather than the pass started.
-Codex's usage-limit window expired
-2026-09-22T11:00; re-check with `node ~/.claude/workers/bin/route.js` rather
-than assuming either way. Gemini and the agy-* workers were still under the
-global readiness quarantine, and Qwen declines adaptive work.
+Codex was **still inside a usage-limit window until 2026-09-22T11:00** when this
+pass ran, Gemini and all four `agy-*` workers were under the global coding
+readiness quarantine, and Qwen was skipped as a hard task. The router therefore
+chose **Claude direct** for the whole Coloring pass. Always re-check with
+`node ~/.claude/workers/bin/route.js .ai/<order>.json` rather than assuming
+either way; the numbers in this file go stale within hours.
 
-## Latest pass (2026-09-22) — a reusable scene placement editor
+## Latest pass (2026-09-22) — the Coloring robot comes alive
+
+Claude direct (the router found no delegating worker). **Nothing is committed
+for this pass** — the owner asked for no commit or push until they have looked
+at it. The one commit on the branch, `de8f62e`, predates the plan and only fixes
+the three rendering defects the previous pass recorded. Branch
+`coloring-robot-alive`, off `main` at `9bbac23` (which is pushed; the earlier
+note that `main` sat at `8d83807` was stale).
+
+The whole loop now works: **listen → remember a favourite colour → colour the
+required parts → decorate freely → press できた → the child's exact robot comes
+alive and hops around the 3D atelier as a paper puppet.**
+
+### What changed
+
+- **`robotDefinition.js`** — arms narrowed 0.105→0.072 and lengthened (they read
+  as two blobs before), the shoulder plank became two shoulder caps that bridge
+  torso to arm, legs tucked under the torso, `buttons` drawn as three studs, and
+  a `labelBox`/`labelPlacement` model so a colour word can sit on clear paper
+  with a leader when its own shape cannot hold `ORANGE`. `tappablePoint()` is
+  exported: **a region's bounding-box centre is not necessarily in that region**
+  (the middle of the torso belongs to the chest panel), which broke the harness
+  before it broke anything else.
+- **`picture.js`** — rewritten as the live tap-to-fill surface. Pointer, hover
+  highlight, keyboard traversal in reading order, a `setHint` ring for a wrong
+  labelled region, and a labels-free `snapshot()` for the wall frame. The
+  freehand brush, the 72×72 grid and `scoring.js` are **deleted**.
+- **`robotPuppet.js`** (new, pure) — four states, the hop curve, squash/stretch
+  clamped to 0.82–1.18, limb lag, the piece layout/parent/depth tables and the
+  authored roam loop. 30 tests, no three.js.
+- **`paperPuppet.js`** (new) — nine unlit flat quads textured by
+  `robotRenderer.drawPiece`, each with a cream *silhouette* backing for the cut
+  edge, a gradient shadow and a gradient antenna glow.
+- **`index.js`** — seven-colour palette, undo/eraser/guarded reset, the four
+  outcomes, the activation cinematic, the roaming puppet, the old star panel
+  gone, and an `__eslDebug.coloring` snapshot for the harness.
+- **`src/dev/robot-preview/`** — `index.html` renders the page and the nine cut
+  pieces; `puppet.html` renders a hop frame by frame and from several angles.
+  **Use these to judge anything visual here**; three real defects were found
+  this way that no test would have caught.
+
+### Verified
+
+`npm test` **568/568**. `npm run build` OK. The rewritten
+`npm run playthrough:coloring` passes **59/59**, covering all four activation
+outcomes, undo/eraser/reset, keyboard filling, the hop, and the anti-shortcut
+route. **The harness is TRUSTED**: it was proved both ways — 59/59 known-good,
+and 58/59 with `HOP_HEIGHT` forced to 0, failing on exactly the hop check.
+Layout checked at 760×420, 1024×600 and 1366×768 with no overflow and 44px+
+swatches. Claude looked at the colouring page, the piece cut, the hop frames and
+the room.
+
+### Three things that were not obvious
+
+1. **A flat cut-out must not face its travel direction.** Rotating it to its
+   heading showed the camera its edge and the robot was an invisible sliver. It
+   flips (mirror on X) and leans at most 0.17rad instead.
+2. **An untextured quad is a rectangle.** The antenna's additive "glow" rendered
+   as a white box above the robot's head, and the shadow as a grey card. Both
+   needed radial-gradient textures. Only a screenshot showed this.
+3. **A bounding-box centre is not inside its region.** See `tappablePoint`.
+
+### NEXT STEPS for a fresh session
+
+1. **Owner acceptance.** `npm run dev`, enter the Atelier, and play a round.
+   Judge the hop and the activation by watching them. Nothing is committed.
+2. **Commit when the owner is happy** — the work is complete and green, it is
+   held back only by their instruction.
+3. Optional polish noticed but not done: the carried picture plane faces away
+   from the camera while the child walks it to the artist (pre-existing, not a
+   regression); and the effective on-screen size of a small region is ~26px at
+   1024×600, comfortable for a cursor but tight for a finger.
+4. **Owner acceptance of the scene editor** is still outstanding from the
+   previous pass: open the Zoo with `npm run dev` and press `P`.
+5. **Migrate scenery placements to layout JSON** — still not started.
+
+## Previous pass (2026-09-22) — a reusable scene placement editor
 
 Claude direct. The router found **no delegating worker available** (Codex in a
 usage-limit window to 2026-09-22T11:00, Gemini and agy-* quarantined, Qwen
@@ -68,92 +141,14 @@ numeric fields, duplicate, delete, undo, redo, one-undo-per-drag, export, clear,
 import round-trip, unknown-asset and bad-version errors, and confirming the
 editor leaves no trace and the park resumes play on close.
 
-## Also on this branch — the Coloring foundation (2026-09-22)
+## Superseded — the Coloring foundation (2026-09-22)
 
-The owner's 40-section plan for the Coloring minigame is frozen as
-`.ai/coloring-robot-spec.md`, and its **pure half is built and tested**. The
-expensive half is briefed in `.ai/wo-coloring-robot.json` and **not started** —
-it was held back deliberately at ~95% weekly usage with no delegating worker,
-rather than risk stopping half-way through a rendering rewrite.
-
-- `robotDefinition.js` — one robot, shared by the colouring page and the puppet.
-  18 regions (1 `required-favorite`, 2 `required-label`, 15 free), 9 puppet
-  pieces with pivots, hit testing with a 44 px touch floor (`hitPad` grows what
-  you can click without changing what is drawn, so a thin stalk stays thin).
-- `colorState.js` — all seven lesson colours, region fills, undo, eraser,
-  guarded reset, snapshot/restore, and the 40% decoration threshold.
-- `robotScoring.js` — round selection, and **four** outcomes: FULL, ALMOST,
-  NOT_READY and **INCOMPLETE**. The fourth is the important one: everything
-  required is correct, the robot just wants more decoration. Folding that into
-  ALMOST would send a child hunting for a colour mistake that does not exist.
-- `robotRenderer.js` — the one renderer both halves use. The colouring page
-  draws the whole robot; each puppet piece draws only its own regions, with the
-  same code and the same colours, which is what makes the puppet *be* the
-  child's drawing rather than a reconstruction of it. Fills go back to front by
-  `order`, the black line art redraws over every fill, and the eyes are drawn
-  last so a dark face can never swallow them. It takes a 2D context rather than
-  making one, so a recording stub tests the whole draw without a canvas.
-- **Nothing is wired yet.** `index.js`, `picture.js` and `scoring.js` are
-  untouched, so the Coloring minigame still plays exactly as it did. 60 new
-  tests, suite at 535/535.
-
-**Seen on screen (2026-09-22).** Claude rendered the robot in a real browser,
-blank-with-instructions and finished, and looked at it. It reads clearly as a
-friendly cut-paper robot; the seven colours hold together even in a deliberately
-clashing combination; the line art stays crisp over every fill; the eyes draw
-above the fill and stay legible on a yellow band; the ★ and the colour words
-appear and then correctly vanish once a required region is right; and the thin
-antenna stalk still draws thin, so the `hitPad` trick is invisible as intended.
-
-**Three defects to fix before building the puppet on this.** They were recorded
-rather than fixed — the quota ran out, and an unverified geometry edit is worth
-less than a precise description of what is wrong.
-
-1. **Labels overflow their regions.** `RED` spills outside the antenna-light
-   circle and `YELLOW` past both ends of the eye band. `drawLabel` in
-   `robotRenderer.js` sizes the font from the region's *height* only; it must
-   also shrink to fit the region's width (measure the text and scale down).
-   This is a plain bug, not taste.
-2. **The arms read as two stubby blobs beside the torso, not as arms.** The
-   upper arm and forearm are adjacent but far too wide for their length, and
-   they sit almost flush against the body, so the silhouette has no shoulder
-   joint. Narrow them and lengthen them.
-3. **The `shoulders` bar reads as a plank laid across the robot**, especially
-   when coloured differently from the body. It wants to become two shoulder
-   caps, or to be merged into the torso.
-
-Also not yet seen: the nine puppet pieces cut apart. The render laid them out
-but the viewport was too narrow to capture that third panel, so the piece cut
-is still unjudged. Render it before trusting `drawPiece`.
-
-### The decision worth knowing before continuing
-
-Colouring becomes **pure tap-to-fill**; freehand painting and the 72×72
-pixel-grid correctness (with its two-cell neatness margin) are to be deleted,
-not extended — with a dozen small accent regions a neatness margin stops being
-forgiving and becomes impossible. That also resolves the plan's own §6/§13
-tension: once region colours *are* the artwork, the puppet can render each
-piece from the shared shape definitions with the same draw code, so there is no
-canvas cropping, no texture atlas, and no crop-bounds arithmetic to get wrong.
-
-### NEXT STEPS for a fresh session
-
-1. **Hand `.ai/wo-coloring-robot.json` to the router.** Codex's usage-limit
-   window ends 2026-09-22T11:00. Do not edit `robotDefinition.js`,
-   `colorState.js` or `robotScoring.js` — they are the frozen interface.
-   `robotRenderer.js` now exists too, so the brief's "rewrite picture.js" item
-   is largely done: what remains there is wiring the renderer to a real canvas,
-   pointer hit-testing through `regionAt`, and deleting the old freehand path.
-   **Fix the three rendering defects recorded above first** — label overflow,
-   stubby arms, the shoulder plank — and re-render to check the piece cut.
-2. **Owner acceptance of the scene editor.** Open the Zoo with `npm run dev`,
-   press `P`, and judge it by using it. The demo at
-   `/src/dev/scene-editor/demo/` is the same tool with no game code.
-3. **Migrate scenery placements to layout JSON.** The editor exports it and
-   `loadLayoutInto` consumes it, but `scenery.js` is still the source of truth.
-   Moving a subset (trees, bushes, rocks) across is the proof.
-4. **Branch `zoo-park-and-scene-editor`, three commits, nothing pushed.** `main`
-   is untouched at `8d83807`.
+The pure half (`robotDefinition`, `colorState`, `robotScoring`, `robotRenderer`)
+was built and tested in this pass and then **built upon** by the pass at the top
+of this file, which fixed its three recorded rendering defects and wired
+everything to a canvas, to three.js and to `index.js`. Nothing is outstanding
+from it; `.ai/coloring-robot-spec.md` remains the frozen contract and
+`.ai/wo-coloring-robot.json` the (now completed) work order.
 
 ## Previous pass (2026-09-20) — the Zoo becomes a roaming animal park
 
@@ -370,7 +365,7 @@ owner has not reviewed renders) on top of solo-then-rush (2026-09-16) and open
 seating `583e07d`; earlier the conveyor revision, Zoo wrong-photo rule and Zoo harness.
 
 Pushed with known gaps (owner informed): `npm test` 239/239 and build passed,
-but Drink Stand/Coloring/Sports/Zoo playthroughs were not rerun after the
+but Drink Stand/Sports/Zoo playthroughs were not rerun after the
 conveyor change (`src/config/lesson.js` touched), the owner has not reviewed
 screenshots A–E, the Restaurant harness is UNTRUSTED (131–134/136, no
 known-bad run), and the tub-over-delivery Space priority ships unchanged.
@@ -436,7 +431,8 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 - Restaurant playthrough 127/127 on the current tree, including the Challenge
   staged takeover, rival freeze during speech (sampled mid-walk), rival-owned
   delivery refusal, and a full 11-customer Challenge shift.
-- Regression: Drink Stand 56/56, Coloring 25/25, Sports 21/21.
+- Regression: Drink Stand 56/56, Sports 21/21. (The Coloring figure here is
+  historical — that harness was rewritten on 2026-09-22 and now runs 59/59.)
 - Owner visual confirmation of Challenge screenshots 09–12: rival clearly
   distinct, score pill readable, room reads busy, five-order stretch kept.
 
