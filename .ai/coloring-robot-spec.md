@@ -7,7 +7,7 @@ something here is impossible, stop and say so rather than inventing a
 different shape.
 
 The pass proves one loop: **listen → remember a favourite colour → colour the
-required parts → freely decorate → Done → the child's exact robot walks into the
+required parts → freely decorate → Done → the child's exact robot hops into the
 3D atelier as a paper puppet.** One robot. No second picture.
 
 ## The decision that shapes everything: pure region fill
@@ -92,9 +92,17 @@ Only the three required regions are marked. Free regions carry nothing.
 - The favourite region shows **★ only**. It must never render the colour name —
   that is the listening task. The existing
   `★の ところは おともだちの すきないろで ぬろう` line stays.
-- The two labelled regions show a small English colour word inside the shape:
-  `RED`, `YELLOW`, `GREEN`, … Readable, not louder than the artwork.
+- The two labelled regions show a small English colour word: `RED`, `YELLOW`,
+  `GREEN`, … Readable, not louder than the artwork.
 - A required region's label fades out once it is filled with the right colour.
+- **Placement is authored, not automatic.** A word goes inside its region by
+  default, but a region may carry a `labelBox` when its own shape cannot hold
+  `ORANGE` legibly — the 55px antenna light, or the eye band already occupied by
+  the pupils. A box outside the region draws a thin leader from the region's
+  *edge* to the word, so the instruction is never mistaken for one about the
+  shape it happens to sit on. `labelPlacement()` in `robotDefinition.js` owns
+  this, and `fitLabelFont()` measures the word and shrinks it to the box width —
+  sizing from height alone let `RED` spill outside the light.
 
 ## Round selection
 
@@ -146,13 +154,33 @@ shared draw code onto a transparent canvas, cropped to that piece's bounds.
 Deliberately papery: thin geometry, a slight edge, a small drop shadow, a
 visible flat side at an angle. Not a glossy 3D robot.
 
-Animation is rigid pieces around authored pivots — no skeleton, no deformation.
+Animation is rigid pieces around authored pivots plus **light squash and
+stretch** — no skeleton and no vertex deformation, but a piece group may be
+scaled non-uniformly. A paper toy flexes a little as it hops; it is not rubber.
+Cap it: no axis outside 0.82–1.18, and the two axes compensate so a piece never
+changes apparent area by more than a fifth.
 
-- **Idle** — small body bob, occasional blink, slight antenna sway.
-- **Walk** — legs alternate, arms swing opposite, slight torso bob and head
-  counter-motion.
+**Locomotion is hopping, not walking.** A conventional articulated walk cycle is
+the wrong read for a flat cut-out — it invites comparison with a real biped and
+loses every time. A hop is stylised on purpose, so it reads as a hand-puppeted
+paper toy rather than a bad walk.
 
-In the atelier it roams a small authored loop (walk → idle → turn → walk) on a
+- **Idle** — small up/down bob, subtle sway, occasional blink, antenna wiggle,
+  slight side-to-side drift.
+- **Startup** — an excited anticipatory shake, a quick bounce, eyes light up,
+  arms twitch outward.
+- **Hop** — crouch (compress) → pop up and forward (stretch) → airborne, tilted
+  → land (squash) → small recovery bounce → repeat. It must read as
+  *boing → land → boing → land*.
+- **Celebrate** — two or three quick hops, a happy arm flap, an excited antenna
+  wiggle.
+
+During a hop the limbs are deliberately loose: arms flap outward, legs stretch
+a little in the air, hands and feet lag behind the piece they hang from, and the
+antenna trails the head. Charming beats correct. Four states, no state-machine
+framework.
+
+In the atelier it roams a small authored loop (hop → idle → turn → hop) on a
 handful of points, clear of the walls, easel, table and the artist NPC. It stays
 visible for the rest of the minigame; the wall frame shows the finished static
 artwork at the same time (the plan's option **A**).
@@ -160,7 +188,8 @@ artwork at the same time (the plan's option **A**).
 ## Cinematic
 
 3–6 seconds, then control returns: glow → blink → antenna lights → arms twitch →
-lifts off the page → cut → lands on the atelier floor → walks.
+a hop in place → peels off the paper → cut → drops onto the atelier floor →
+starts hopping.
 
 The old `すてきな えが できたよ！` star panel is **removed** from this path. A
 generic results modal between correct colouring and the robot waking up is
@@ -199,8 +228,10 @@ survives a snapshot/restore round trip unchanged.
 
 Puppet: the piece list is complete; the region→piece mapping is total and
 onto; a rendered piece contains exactly its own regions in the child's chosen
-colours; idle/walk transitions; walking alternates limbs; roam points stay
-inside the safe area.
+colours; a piece's texture bounds match `pieceBounds`; idle/startup/hop/celebrate
+transitions; a hop cycles through crouch → air → land → recover and returns to
+where it started vertically; the squash/stretch helper never leaves the 0.82–1.18
+band on either axis; roam points stay inside the safe area.
 
 ## Out of scope
 

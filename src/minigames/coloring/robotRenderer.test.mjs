@@ -39,6 +39,8 @@ function fakeContext() {
     roundRect(...args) { current?.ops.push(['roundRect', ...args]); },
     rect(...args) { current?.ops.push(['rect', ...args]); },
     arc(...args) { current?.ops.push(['arc', ...args]); },
+    moveTo(...args) { current?.ops.push(['moveTo', ...args]); },
+    lineTo(...args) { current?.ops.push(['lineTo', ...args]); },
     fill() { fills.push({ style: ctx.fillStyle, shape: current }); calls.push('fill'); },
     stroke() { calls.push('stroke'); },
     strokeText(text) { ctx.texts.push(text); },

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Robot preview</title>
+<style>
+  body { margin: 0; padding: 16px; background: #e9e4da; font: 13px/1.4 system-ui, sans-serif; color: #2a2f36; }
+  h2 { margin: 18px 0 6px; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { margin-top: 4px; font-size: 11px; opacity: .6; }
+  canvas { background: #f7f4ee; border: 1px solid #c9c2b4; border-radius: 6px; display: block; }
+  .piece canvas { background: repeating-conic-gradient(#ded8cb 0% 25%, #f2eee4 0% 50%) 0 0/14px 14px; }
+</style>
+</head>
+<body>
+<h2>Blank, with this round's instructions</h2>
+<div class="row" id="blank"></div>
+<h2>Finished, with a deliberately clashing set of accents</h2>
+<div class="row" id="done"></div>
+<h2>Every label word, in place</h2>
+<div class="row" id="labels"></div>
+<h2>The nine puppet pieces, cut apart</h2>
+<div class="row" id="pieces"></div>
+
+<script type="module">
+import { drawRobot, drawPiece, pieceTextureBounds } from '/src/minigames/coloring/robotRenderer.js';
+import { PALETTE } from '/src/minigames/coloring/colorState.js';
+import { PIECES, PICTURE_SIZE } from '/src/minigames/coloring/robotDefinition.js';
+
+const round = { favourite: 'purple', starred: 'chestPanel',
+  labelled: [{ regionId: 'antennaLight', color: 'red' }, { regionId: 'eyes', color: 'yellow' }] };
+
+const finished = {
+  antennaLight: 'red', antennaStalk: 'green', face: 'orange', ears: 'pink', eyes: 'yellow',
+  shoulders: 'blue', body: 'green', chestPanel: 'purple', buttons: 'pink', sidePanels: 'purple',
+  leftUpperArm: 'blue', leftForearm: 'orange', rightUpperArm: 'blue', rightForearm: 'orange',
+  leftLeg: 'purple', leftFoot: 'red', rightLeg: 'purple', rightFoot: 'red',
+};
+
+function page(parent, size, opts, caption) {
+  const fig = document.createElement('figure');
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const dctx = c.getContext('2d');
+  dctx.fillStyle = '#f7f4ee'; dctx.fillRect(0, 0, size, size);
+  drawRobot(dctx, { size, ...opts });
+  fig.append(c);
+  const cap = document.createElement('figcaption'); cap.textContent = caption;
+  fig.append(cap);
+  parent.append(fig);
+}
+
+page(document.getElementById('blank'), 560, { colors: {}, round }, 'blank + ★ + RED + YELLOW');
+page(document.getElementById('blank'), 320, { colors: {}, round }, 'same at 320px');
+page(document.getElementById('done'), 560, { colors: finished, round }, 'finished (labels gone)');
+page(document.getElementById('done'), 560, { colors: finished, round, highlight: 'leftForearm' },
+  'hover highlight on the left forearm');
+
+// Every one of the seven words in both label slots, to prove none overflows.
+for (const color of PALETTE) {
+  page(document.getElementById('labels'), 240, {
+    colors: {}, round: { favourite: 'blue', starred: 'chestPanel',
+      labelled: [{ regionId: 'antennaLight', color }, { regionId: 'eyes', color }] },
+  }, color.toUpperCase());
+}
+
+const pieces = document.getElementById('pieces');
+for (const piece of PIECES) {
+  const box = pieceTextureBounds(piece, { size: PICTURE_SIZE });
+  const fig = document.createElement('figure');
+  fig.className = 'piece';
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(box.width); c.height = Math.ceil(box.height);
+  drawPiece(c.getContext('2d'), piece, { size: PICTURE_SIZE, colors: finished });
+  fig.append(c);
+  const cap = document.createElement('figcaption');
+  cap.textContent = `${piece} ${c.width}x${c.height}`;
+  fig.append(cap);
+  pieces.append(fig);
+}
+window.__ready = true;
+</script>
+</body>
+</html>

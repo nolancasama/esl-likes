@@ -20,6 +20,7 @@ import {
   REGIONS,
   REGION_BY_ID,
   REGIONS_BY_PIECE,
+  labelPlacement,
   pieceBounds,
   regionBounds,
 } from './robotDefinition.js';
@@ -32,6 +33,9 @@ const HIGHLIGHT = '#ffd400';
 /** Line weights, as a fraction of the picture, so they scale with it. */
 const OUTLINE = 0.006;
 const DETAIL = 0.004;
+
+/** The white halo behind a label word, as a share of its font size, per side. */
+const HALO = 0.14;
 
 /** Regions drawn back to front. Panels sit on the body, eyes sit on the face. */
 export function drawOrder(only = null) {
@@ -123,19 +127,64 @@ function drawEyes(ctx, colors, size) {
   }
 }
 
-function drawLabel(ctx, region, text, size) {
-  const box = regionBounds(region.id);
-  const cx = (box.minX + box.maxX) / 2 * size;
-  const cy = (box.minY + box.maxY) / 2 * size;
-  const height = (box.maxY - box.minY) * size;
-  const fontSize = Math.max(10, Math.min(height * 0.5, size * 0.035));
+/** Below this the line would be a smudge rather than a leader. */
+const LEADER_MIN = 0.02;
+
+const setLabelFont = (ctx, fontSize) => {
   ctx.font = `700 ${fontSize}px ui-monospace, Menlo, Consolas, monospace`;
+};
+
+/**
+ * The font size a word may use in a box: capped by the box height and by a
+ * share of the picture, then **measured and shrunk until it also fits the box
+ * width**. Sizing from height alone let `RED` spill outside the antenna light
+ * and `YELLOW` past both ends of the eye band. The halo counts as width,
+ * because it is what actually crosses the outline.
+ */
+export function fitLabelFont(ctx, text, width, height, size) {
+  let fontSize = Math.min(height * 0.62, size * 0.038);
+  const usable = width * 0.9;
+  setLabelFont(ctx, fontSize);
+  const measured = ctx.measureText?.(text)?.width ?? 0;
+  // measureText is unavailable in the recording stub; the height cap still holds.
+  if (measured > 0) {
+    const needed = measured + fontSize * HALO * 2;
+    if (needed > usable) fontSize *= usable / needed;
+  }
+  return Math.max(size * 0.014, fontSize);
+}
+
+function drawLabel(ctx, region, text, size) {
+  const place = labelPlacement(region.id);
+  const cx = (place.minX + place.maxX) / 2 * size;
+  const cy = (place.minY + place.maxY) / 2 * size;
+  const fontSize = fitLabelFont(
+    ctx, text, (place.maxX - place.minX) * size, (place.maxY - place.minY) * size, size,
+  );
+
+  if (place.leader && place.anchor) {
+    const own = regionBounds(region.id);
+    const gap = Math.max(place.minX - own.maxX, own.minX - place.maxX,
+      place.minY - own.maxY, own.minY - place.maxY);
+    if (gap >= LEADER_MIN) {
+      ctx.save();
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = DETAIL * 0.7 * size;
+      ctx.beginPath();
+      ctx.moveTo(place.anchor.x * size, place.anchor.y * size);
+      ctx.lineTo(cx, cy);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  setLabelFont(ctx, fontSize);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // A pale halo keeps the word legible over any of the seven fills without
-  // shouting over the artwork.
-  ctx.lineWidth = fontSize * 0.28;
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  // A pale halo keeps the word legible over any of the seven fills, and over
+  // the leader line, without shouting over the artwork.
+  ctx.lineWidth = fontSize * HALO * 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.88)';
   ctx.strokeText(text, cx, cy);
   ctx.fillStyle = INK;
   ctx.fillText(text, cx, cy);

@@ -44,16 +44,17 @@ export const PIVOTS = deepFreeze({
   head: { x: 0.5, y: 0.345 },
   antenna: { x: 0.5, y: 0.155 },
   torso: { x: 0.5, y: 0.5 },
-  leftUpperArm: { x: 0.2275, y: 0.395 },
-  leftForearm: { x: 0.2275, y: 0.51 },
-  rightUpperArm: { x: 0.7725, y: 0.395 },
-  rightForearm: { x: 0.7725, y: 0.51 },
-  leftLeg: { x: 0.4025, y: 0.64 },
-  rightLeg: { x: 0.5975, y: 0.64 },
+  leftUpperArm: { x: 0.226, y: 0.408 },
+  leftForearm: { x: 0.226, y: 0.538 },
+  rightUpperArm: { x: 0.774, y: 0.408 },
+  rightForearm: { x: 0.774, y: 0.538 },
+  leftLeg: { x: 0.4025, y: 0.628 },
+  rightLeg: { x: 0.5975, y: 0.628 },
 });
 
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const box = (x, y, width, height) => ({ minX: x, minY: y, maxX: x + width, maxY: y + height });
 
 /**
  * Eighteen regions: one `required-favorite`, two `required-label`, fifteen free.
@@ -66,6 +67,9 @@ export const REGIONS = deepFreeze([
   {
     id: 'antennaLight', piece: 'antenna', type: 'required-label', order: 90,
     shapes: [circle(0.5, 0.045, 0.038)],
+    // A 55px circle cannot hold `ORANGE` at a legible size, so the word sits on
+    // clear paper beside the light with a leader line back to it.
+    labelBox: box(0.565, 0.018, 0.2, 0.054),
   },
   {
     id: 'antennaStalk', piece: 'antenna', type: 'free', order: 10,
@@ -83,12 +87,20 @@ export const REGIONS = deepFreeze([
   {
     id: 'eyes', piece: 'head', type: 'required-label', order: 91,
     shapes: [rect(0.375, 0.195, 0.25, 0.075, 0.035)],
+    // The band is occupied by the pupils, so the word sits under it on the face,
+    // far enough clear to carry a leader — without one it read as an
+    // instruction for the face rather than for the eyes.
+    labelBox: box(0.375, 0.292, 0.25, 0.048),
   },
 
   // --- torso --------------------------------------------------------------
   {
-    id: 'shoulders', piece: 'torso', type: 'free', order: 30,
-    shapes: [rect(0.245, 0.355, 0.51, 0.055, 0.025)], hitPad: 0.012,
+    // Two caps rather than one bar. A single bar across the whole width read as
+    // a plank laid over the robot as soon as it was coloured differently from
+    // the body; a cap per side reads as a shoulder and bridges torso to arm.
+    id: 'shoulders', piece: 'torso', type: 'free', order: 35,
+    shapes: [rect(0.226, 0.362, 0.145, 0.062, 0.031), rect(0.629, 0.362, 0.145, 0.062, 0.031)],
+    hitPad: 0.008,
   },
   { id: 'body', piece: 'torso', type: 'free', order: 31, shapes: [rect(0.3, 0.41, 0.4, 0.215, 0.045)] },
   {
@@ -96,8 +108,11 @@ export const REGIONS = deepFreeze([
     shapes: [rect(0.395, 0.435, 0.21, 0.105, 0.025)],
   },
   {
+    // Three studs, not one pill: `buttons` should look like buttons. Each is
+    // well under the touch floor on its own, which `hitBounds` grows for free.
     id: 'buttons', piece: 'torso', type: 'free', order: 33,
-    shapes: [rect(0.43, 0.555, 0.14, 0.055, 0.027)], hitPad: 0.012,
+    shapes: [circle(0.44, 0.582, 0.022), circle(0.5, 0.582, 0.022), circle(0.56, 0.582, 0.022)],
+    hitPad: 0.012,
   },
   {
     id: 'sidePanels', piece: 'torso', type: 'free', order: 32,
@@ -106,15 +121,19 @@ export const REGIONS = deepFreeze([
   },
 
   // --- arms ---------------------------------------------------------------
-  { id: 'leftUpperArm', piece: 'leftUpperArm', type: 'free', order: 40, shapes: [rect(0.175, 0.385, 0.105, 0.115, 0.04)] },
-  { id: 'leftForearm', piece: 'leftForearm', type: 'free', order: 41, shapes: [rect(0.175, 0.5, 0.105, 0.155, 0.04)] },
-  { id: 'rightUpperArm', piece: 'rightUpperArm', type: 'free', order: 42, shapes: [rect(0.72, 0.385, 0.105, 0.115, 0.04)] },
-  { id: 'rightForearm', piece: 'rightForearm', type: 'free', order: 43, shapes: [rect(0.72, 0.5, 0.105, 0.155, 0.04)] },
+  // Slim and long: at 0.105 wide for 0.27 of length these read as two blobs
+  // beside the torso. 0.072 wide for 0.30, held off the body by a gap the
+  // shoulder cap bridges, gives the silhouette a shoulder and an elbow.
+  { id: 'leftUpperArm', piece: 'leftUpperArm', type: 'free', order: 40, shapes: [rect(0.19, 0.4, 0.072, 0.135, 0.03)] },
+  { id: 'leftForearm', piece: 'leftForearm', type: 'free', order: 41, shapes: [rect(0.19, 0.535, 0.072, 0.165, 0.03)] },
+  { id: 'rightUpperArm', piece: 'rightUpperArm', type: 'free', order: 42, shapes: [rect(0.738, 0.4, 0.072, 0.135, 0.03)] },
+  { id: 'rightForearm', piece: 'rightForearm', type: 'free', order: 43, shapes: [rect(0.738, 0.535, 0.072, 0.165, 0.03)] },
 
   // --- legs ---------------------------------------------------------------
-  { id: 'leftLeg', piece: 'leftLeg', type: 'free', order: 50, shapes: [rect(0.345, 0.635, 0.115, 0.17, 0.035)] },
+  // Tucked up under the torso rather than floating 0.01 below it.
+  { id: 'leftLeg', piece: 'leftLeg', type: 'free', order: 50, shapes: [rect(0.345, 0.618, 0.115, 0.187, 0.035)] },
   { id: 'leftFoot', piece: 'leftLeg', type: 'free', order: 51, shapes: [rect(0.325, 0.805, 0.155, 0.07, 0.03)] },
-  { id: 'rightLeg', piece: 'rightLeg', type: 'free', order: 52, shapes: [rect(0.54, 0.635, 0.115, 0.17, 0.035)] },
+  { id: 'rightLeg', piece: 'rightLeg', type: 'free', order: 52, shapes: [rect(0.54, 0.618, 0.115, 0.187, 0.035)] },
   { id: 'rightFoot', piece: 'rightLeg', type: 'free', order: 53, shapes: [rect(0.52, 0.805, 0.155, 0.07, 0.03)] },
 ]);
 
@@ -165,6 +184,35 @@ function mergeBounds(list) {
     maxX: Math.max(box.maxX, next.maxX),
     maxY: Math.max(box.maxY, next.maxY),
   }));
+}
+
+/**
+ * Where a region's instruction word is drawn.
+ *
+ * Its own bounds by default. A region may author a `labelBox` instead when its
+ * shape cannot hold a legible word — a small circle, or a band already occupied
+ * by the pupils. `leader` says the box sits outside the region, so the renderer
+ * should draw a thin line from one to the other.
+ */
+export function labelPlacement(regionId) {
+  const region = REGION_BY_ID[regionId];
+  if (!region) return null;
+  const own = regionBounds(regionId);
+  if (!region.labelBox) return { ...own, leader: false, anchor: null };
+  const b = region.labelBox;
+  const overlaps = b.minX < own.maxX && b.maxX > own.minX && b.minY < own.maxY && b.maxY > own.minY;
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  return {
+    ...b,
+    leader: !overlaps,
+    // Clamped to the region's edge rather than its centre, so the line meets
+    // the shape it points at instead of being drawn across its fill.
+    anchor: {
+      x: Math.min(Math.max(cx, own.minX), own.maxX),
+      y: Math.min(Math.max(cy, own.minY), own.maxY),
+    },
+  };
 }
 
 /**

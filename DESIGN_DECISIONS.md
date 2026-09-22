@@ -2078,3 +2078,41 @@ combination alone, which still ships the code.
 `territories.js` authors waypoints as pairs. An export shaped differently from
 the file it came from has to be hand-converted every time, which is how a tool
 stops being used.
+
+## 2026-09-22 — the paper robot hops; it does not walk
+
+**Locomotion is hopping, not a walk cycle.** The frozen spec said the puppet
+would walk: legs alternating, arms swinging opposite. The owner replaced that
+with a repeated hop — crouch, pop, airborne, land, recovery bounce — and it is
+the better call for a reason worth keeping. A flat cut-out with nine rigid
+pieces invites comparison with a real biped the moment it tries to walk, and it
+loses that comparison every time; the same pieces hopping read as a
+hand-puppeted paper toy, which is exactly what they are. Stylised motion cannot
+be judged against reality, so it cannot look wrong. Rejected: the articulated
+walk, and also a fully modelled 3D robot, which would have thrown away the one
+thing the minigame is for — that *this* drawing, with these accents, is alive.
+
+**Light squash and stretch is allowed; deformation is not.** The spec said
+rigid pieces about authored pivots and nothing else. A hop with no compression
+on landing reads as a sprite being teleported upward, so a piece group may be
+scaled non-uniformly, capped at 0.82–1.18 per axis with the axes compensating.
+That is a paper toy flexing, not rubber hose. No skeleton and no vertex
+deformation either way, so the puppet is still just textured quads.
+
+**Required-colour labels are placed by hand, not centred automatically.**
+Sizing a word from its region's height alone let `RED` spill outside the 55px
+antenna light and `YELLOW` past both ends of the eye band. Two fixes, both
+kept: `fitLabelFont` measures the word and shrinks it to the box width, and a
+region may author a `labelBox` elsewhere with a leader line drawn from the
+region's *edge* to the word. The leader is not decoration — `YELLOW` sitting
+silently under the eye band read as an instruction about the face. Rejected:
+growing the eye band to fit its own label, which would have redesigned the
+robot's face to solve a typography problem.
+
+**Two shoulder caps, not one shoulder bar.** A single bar across the full width
+read as a plank laid across the robot as soon as a child coloured it differently
+from the body. A cap per side reads as a shoulder and does useful work for the
+puppet: it belongs to the torso piece and overlaps the arm, so it hides the
+joint when the arm swings. The arms were also narrowed from 0.105 wide to 0.072
+and lengthened — at the old proportions they were two blobs beside the torso
+with no shoulder and no elbow.
