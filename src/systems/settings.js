@@ -1,9 +1,10 @@
 import { UI } from '../config/lesson.js';
+import { SHELL_MODAL_ESCAPE_PRIORITY } from '../ui/backControl.js';
 
 const TEXT_SIZE_VALUES = ['normal', 'large', 'extraLarge'];
 const TEXT_SIZE_SCALES = [1, 1.15, 1.3];
 
-export function createSettings({ root, progression }) {
+export function createSettings({ root, progression, registerEscapeGuard }) {
   if (!root || !progression) {
     throw new TypeError('createSettings requires root and progression');
   }
@@ -145,10 +146,11 @@ export function createSettings({ root, progression }) {
   difficulty.addEventListener('change', () => update({ difficulty: Number(difficulty.value) }));
   textSize.addEventListener('change', () => update({ textSize: textSize.value }));
 
-  const onKeyDown = (event) => {
-    if (open && event.key === 'Escape') hide();
-  };
-  window.addEventListener('keydown', onKeyDown);
+  const unregisterEscapeGuard = registerEscapeGuard?.(() => {
+    if (!open) return false;
+    hide();
+    return true;
+  }, { priority: SHELL_MODAL_ESCAPE_PRIORITY }) ?? (() => {});
 
   const unsubscribeProgression = progression.subscribe((state) => apply(state.settings, true));
   apply(get());
@@ -175,7 +177,7 @@ export function createSettings({ root, progression }) {
     },
     destroy() {
       unsubscribeProgression();
-      window.removeEventListener('keydown', onKeyDown);
+      unregisterEscapeGuard();
       launcher.remove();
       backdrop.remove();
       style.remove();

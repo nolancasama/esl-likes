@@ -75,6 +75,7 @@ export const LESSON_BY_ID = Object.freeze(
 export const UI = Object.freeze({
   appTitle: 'えいごで「すき」をつたえよう',
   loading: 'よみこみ中…',
+  back: '← もどる',
   hub: {
     title: 'すきなゲームをえらぼう',
     moveHint: 'WASD / やじるしキーで あるく　スペースで はいる',

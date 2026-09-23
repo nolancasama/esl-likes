@@ -1,0 +1,70 @@
+{
+  "task": "Add one shared global Back button to the minigame shell, so a child can leave any minigame and return to the hub from the same place, and make Escape do the same thing through the same handler.",
+
+  "context": [
+    "The shell is src/main.js. It already has everything this needs: returnToHub() runs transitions.run(() => replaceController(makeHub)), and replaceController() already calls controller?.exit() - the normal teardown every minigame already implements. So Back must call returnToHub() and nothing else. Do NOT touch scenes, dispose three.js objects, or add a second teardown path.",
+    "returnToHub() is already guarded by the module-level `routing` flag and returns early while a transition runs, which is the double-fire guard. Do not add a second one.",
+    "handleFinish() awards a progression stamp. Back is an abandon, not a finish: it must NOT award a stamp, so it calls returnToHub() directly and never handleFinish().",
+    "The model to pair with is the Settings launcher in src/systems/settings.js: `.settings-launcher { position: absolute; top: 1rem; right: 1rem; min-width: 7rem; min-height: 3rem; z-index: 40; pointer-events: auto; }`, injected from that module's own <style>. Back is its mirror on the left.",
+    "Escape is currently owned by three separate places: src/systems/settings.js line ~149 (closes the settings panel), src/ui/stampBook.js line ~71 (closes the stamp book), and src/minigames/zoo/index.js line ~858 (leaves the viewfinder phase). The zoo listener is registered when the zoo is entered, which is AFTER any shell listener, so ordering alone cannot make the shell defer to it. A registry is required.",
+    "src/config/lesson.js holds UI strings (UI.settings.open is 'せってい'). The Back label belongs there too.",
+    "scripts/lib/dom-shim.mjs exists and is what the unit tests use for DOM-only modules."
+  ],
+
+  "requirements": [
+    "NEW FILE src/ui/backControl.js exporting createBackControl({ root, label, onBack }) which returns { element, setAvailable(available), registerEscapeGuard(guard), destroy() }.",
+    "It renders one button reading '← もどる' (the arrow and the word, from the strings file, not hard-coded in the module) pinned to the upper-left with the same shared safe margin the Settings launcher uses on the right, so the two read as a matched pair of shell controls. Minimum hit area 44x44 CSS px - matching the Settings launcher's min-height 3rem is fine. It must stay put across every minigame and viewport and must never be reflowed by minigame layout.",
+    "Style it as obvious but SECONDARY: rounded, light/white fill, dark outline, dark text, a left arrow, a modest shadow, the same visual language as Settings. It must not read as a primary gameplay action.",
+    "Z-INDEX: survey what every minigame and system actually uses (coloring's painting and room overlays, restaurant's panels, the dialogue layer, the HUD, the transition wipe, settings' launcher 40 and backdrop 50) and give Back a value that keeps it clickable during gameplay, close-up painting, speech prompts, dialogue, rival introductions, result scenes and activation cinematics. It should sit below the settings backdrop and the transition wipe, and above every minigame overlay. Report any overlay whose stacking or pointer-events you had to change.",
+    "setAvailable(available) shows or hides it. main.js keeps it hidden in the hub - there is nowhere to go back to - and shown whenever a minigame is active.",
+    "ESCAPE AUTHORITY. backControl owns the single global keydown listener for Escape. registerEscapeGuard(guard) adds a guard and returns an unregister function. On Escape the guards run most-recently-registered first; if any returns true the key is considered consumed and Back does NOT fire. If none consumes it and the control is available, Escape does exactly what clicking Back does. One Escape press must never both close a local UI and leave the minigame.",
+    "Migrate the three existing Escape owners onto guards and delete their own Escape listeners: settings.js (consume only while its panel is open), stampBook.js (consume only while it is open), zoo/index.js (consume only while phase === 'viewfinder'). Their behaviour must not otherwise change.",
+    "settings and stampBook are constructed in main.js, so create the back control BEFORE them and pass registerEscapeGuard into their factories. For minigames, add registerEscapeGuard to the ctx object main.js builds in enterMinigame - this is a deliberate, documented extension of the frozen plug-in surface. Zoo uses it; no other minigame needs to.",
+    "A minigame's guard must be unregistered on exit, so a stale guard from a previous visit can never swallow Escape later. Verify the zoo does this.",
+    "Do not let Escape fire while focus is in a text input or an editable field."
+  ],
+
+  "constraints": [
+    "Implement the control ONCE in the shared shell. Do not copy Back-button code into Coloring, Restaurant, Drink Stand, Zoo or Sports, and do not give any minigame its own Back button or its own Escape-to-hub path.",
+    "Do not bypass minigame teardown and do not manipulate scenes from the Back button. Route through returnToHub() only.",
+    "Do not change what any minigame does on exit(). If a minigame leaks on exit today, report it - do not fix it in this order.",
+    "Coloring's session-level saved robots must survive Back: coloringSession is app-session state and is cleared only when the whole game session ends. Back must not clear it and must not save an unfinished current painting. This should already follow from calling the existing exit path - verify it, do not add new save logic.",
+    "Restaurant must stop updating after Back. Its existing exit() already tears down customers, robot customers, rival characters, conveyor, dishes, speech, timers and overlays - verify, do not rewrite.",
+    "Do not require a confirmation dialog for Back.",
+    "Do not change unrelated shell behaviour: Settings, the Talk button, mic-free mode, the stamp book, difficulty availability, transitions, or the finish/stamp flow.",
+    "Do NOT touch src/minigames/coloring/index.js in this order. The controller is changing that file for the Finished-button work in the same pass. If Coloring's overlay stacking turns out to need a change for Back to be clickable, report it precisely instead of editing it.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism - do not try another escaped variant.",
+    "Append this pass's decisions to DESIGN_DECISIONS.md, dated, each with what, why and the rejected alternative: one shell-owned Back control rather than per-minigame buttons, and the Escape guard registry rather than listener ordering or a modal-open query."
+  ],
+
+  "startingPoints": [
+    "src/main.js (returnToHub ~line 118, enterMinigame ~line 145, the ctx object it builds, dispose ~line 225)",
+    "src/systems/settings.js (the launcher style and the Escape listener ~line 149)",
+    "src/ui/stampBook.js (Escape ~line 71)",
+    "src/minigames/zoo/index.js (Escape ~line 858)",
+    "src/config/lesson.js (UI strings)",
+    "src/styles.css",
+    "scripts/lib/dom-shim.mjs (for the unit tests)"
+  ],
+
+  "tests": [
+    "backControl.test.mjs against the DOM shim: clicking calls onBack exactly once; Escape with no guards calls onBack; a guard returning true consumes Escape and onBack is not called; guards run most-recently-registered first; an unregistered guard no longer runs; setAvailable(false) hides the control AND makes Escape do nothing; destroy() removes the listener so a later Escape does nothing; Escape while focus is in a text input does nothing.",
+    "A test that the shell wires Back to the hub rather than to the finish path - asserting against src/main.js source that the back control's onBack calls returnToHub and never handleFinish, so no stamp is awarded for abandoning.",
+    "A test that settings, stampBook and zoo no longer register their own Escape listeners and register guards instead."
+  ],
+
+  "validation": ["npm test", "npm run build"],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "note": "The browser pass - Back and Escape from each of the five minigames at 760x420, 1024x600 and 1366x768, checking the hub returns cleanly with no stale overlay, audio or speech, and that re-entering works - belongs to the controller. This worker's sandbox cannot start this project's vite preview, so do not attempt it and do not claim it."
+  },
+
+  "category": "ui-shell",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

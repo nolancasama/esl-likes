@@ -12,6 +12,7 @@ import { createProgression } from './systems/progression.js';
 import { createSettings } from './systems/settings.js';
 import { createSpeechSystem } from './systems/speech.js';
 import { createTransitions } from './systems/transitions.js';
+import { createBackControl } from './ui/backControl.js';
 import { createHud } from './ui/hud.js';
 import { createStampBook } from './ui/stampBook.js';
 import { createHub } from './scenes/hub.js';
@@ -49,7 +50,12 @@ const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
 camera.position.set(7.5, 7.5, 10);
 
 const progression = createProgression();
-const settings = createSettings({ root: uiRoot, progression });
+const backControl = createBackControl({ root: uiRoot, label: UI.back, onBack: returnToHub });
+const settings = createSettings({
+  root: uiRoot,
+  progression,
+  registerEscapeGuard: backControl.registerEscapeGuard,
+});
 const audio = createAudio(settings);
 const input = createInput(window);
 const cameraRig = createCameraRig(camera);
@@ -57,7 +63,13 @@ const characters = createCharacterSystem(camera);
 const speech = createSpeechSystem();
 const hud = createHud({ root: uiRoot, strings: UI.speech, audio, settings });
 const dialogue = createDialogue({ root: uiRoot, camera, audio, strings: UI.dialogue });
-const stampBook = createStampBook({ root: uiRoot, progression, lessons: LESSONS, strings: UI.stampBook });
+const stampBook = createStampBook({
+  root: uiRoot,
+  progression,
+  lessons: LESSONS,
+  strings: UI.stampBook,
+  registerEscapeGuard: backControl.registerEscapeGuard,
+});
 const transitions = createTransitions(wipe);
 const unbindSpeech = speech.bind(hud.talkButton);
 
@@ -110,6 +122,7 @@ async function replaceController(makeController, enterArgument) {
 }
 
 function makeHub() {
+  backControl.setAvailable(false);
   return createHub({
     scene,
     camera,
@@ -163,8 +176,11 @@ async function enterMinigame(id) {
   settings.setDifficultyAvailable?.(!FIXED_DIFFICULTY_GAMES.has(id));
   try {
     await transitions.run(() => replaceController(() => {
+      backControl.setAvailable(true);
       // This is the frozen plug-in surface for all five minigames. `transitions`
       // lets a minigame wipe between its own screens (Coloring: 3D -> 2D -> 3D).
+      // `registerEscapeGuard` deliberately extends that surface so a temporary
+      // local UI can consume Escape before the shell routes back to the hub.
       const ctx = {
         scene,
         camera,
@@ -182,6 +198,7 @@ async function enterMinigame(id) {
         hud,
         settings,
         transitions,
+        registerEscapeGuard: backControl.registerEscapeGuard,
         // The WebGL buffer is empty between frames, so a minigame reading the
         // canvas from an event handler gets a blank image (the Zoo's photos).
         // Render once and hand the canvas over in the same task instead, which
@@ -234,6 +251,7 @@ function dispose() {
   hud.dispose();
   stampBook.destroy();
   settings.destroy();
+  backControl.destroy();
   audio.destroy();
   input.destroy();
   cameraRig.destroy();

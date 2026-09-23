@@ -128,6 +128,10 @@ export function createPaintingSurface({
       coverage: coverage.coverage(),
       milestone: coverage.takeMilestone(),
       canUndo: strokes.length > 0,
+      // Reported on every extend, so the page can tell "the child is mid-drag"
+      // from "the child has lifted the brush". `finish` clears `live` before it
+      // reports, so the stroke that completes the picture arrives as false.
+      strokeActive: live !== null,
     });
   }
 

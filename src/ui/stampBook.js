@@ -1,4 +1,5 @@
 import { formatUi } from '../config/lesson.js';
+import { SHELL_MODAL_ESCAPE_PRIORITY } from './backControl.js';
 
 function makeElement(tag, className, text) {
   const element = document.createElement(tag);
@@ -7,7 +8,7 @@ function makeElement(tag, className, text) {
   return element;
 }
 
-export function createStampBook({ root, progression, lessons, strings }) {
+export function createStampBook({ root, progression, lessons, strings, registerEscapeGuard }) {
   const backdrop = makeElement('div', 'modal-backdrop is-hidden');
   const modal = makeElement('section', 'modal');
   const header = makeElement('div', 'modal-header');
@@ -67,10 +68,11 @@ export function createStampBook({ root, progression, lessons, strings }) {
   backdrop.addEventListener('pointerdown', (event) => {
     if (event.target === backdrop) close();
   });
-  const onKeyDown = (event) => {
-    if (event.key === 'Escape' && !backdrop.classList.contains('is-hidden')) close();
-  };
-  window.addEventListener('keydown', onKeyDown);
+  const unregisterEscapeGuard = registerEscapeGuard?.(() => {
+    if (backdrop.classList.contains('is-hidden')) return false;
+    close();
+    return true;
+  }, { priority: SHELL_MODAL_ESCAPE_PRIORITY }) ?? (() => {});
 
   return {
     open,
@@ -78,7 +80,7 @@ export function createStampBook({ root, progression, lessons, strings }) {
     toggle() { backdrop.classList.contains('is-hidden') ? open() : close(); },
     isOpen() { return !backdrop.classList.contains('is-hidden'); },
     destroy() {
-      window.removeEventListener('keydown', onKeyDown);
+      unregisterEscapeGuard();
       backdrop.remove();
     },
   };

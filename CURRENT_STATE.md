@@ -9,7 +9,58 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — the child's robots visit the Restaurant
+## Latest pass (2026-09-23) — a way out, and a finish worth pressing
+
+Two shell/UI changes. Order `.ai/wo-global-back-button.json` (Codex via the
+router, Sol medium, SUCCESS) for the Back button; Claude did the Coloring
+Finished work directly, reviewed the delegated half, fixed one ordering defect
+in it, and owned the browser pass.
+
+- **One shell-owned Back control.** `src/ui/backControl.js` renders `← もどる`
+  upper-left, mirroring the Settings launcher on the right, and routes through
+  the existing `returnToHub()` — which already ran `controller.exit()`, so no
+  minigame needed its own Back code or its own teardown.
+- **One Escape authority.** backControl owns the only global Escape listener.
+  Settings, the stamp book and the Zoo viewfinder register guards instead of
+  their own listeners, so one press can never both close a local UI and leave
+  the minigame. Claude added a **priority** to the registry: the viewfinder sits
+  at `z-index: 18` and the Settings launcher at 40, so a child can open Settings
+  over an open viewfinder, and most-recent-first would have closed the
+  viewfinder underneath. Shell modals now outrank minigame guards.
+- **`できた！` is the primary action.** Brighter green, gold ring, gold star,
+  resting at `scale(1.06)`; flat grey and motionless below full power.
+- **Three pulses, then it settles** (~1.6 s), fired on the below-full → full
+  edge only — and **held until the brush lifts**: `picture.js` now reports
+  `strokeActive`, because the surface reports on every pointer move and full
+  power almost always arrives mid-drag.
+- **The cue re-arms.** `createCompletionReadiness` resets when readiness is
+  lost, so erasing the liked colour and painting it back invites Done again.
+  This deliberately reverses the once-per-round rule recorded last pass.
+
+### Validation
+
+`npm test` **651/651**. `npm run build` OK.
+
+### Browser pass — controller-owned, DONE
+
+Harness `.tmp/accept-back-button.mjs` (session scratchpad, **UNTRUSTED** — no
+known-bad run; `SKIP_BACK=1` runs only the Coloring half). **19/19**, plus a
+full sweep of all five minigames: Coloring, Restaurant, Drink Stand, Sports and
+Zoo each opened, showed Back upper-left at 122x60 px, returned to the hub (Back
+by click for three, Escape for two) with no stale minigame UI, and Coloring
+re-entered cleanly afterwards. Back and Settings hold opposite corners and never
+overlap at 760x420, 1024x600 and 1366x768. The mid-drag deferral was genuinely
+exercised — the run reports power crossing full with the pointer still down and
+no pulse under the brush.
+
+### Not exercised in the browser
+
+Back during a cinematic or a rival introduction specifically (the control is a
+fixed shell element at `z-index: 45`, above every minigame overlay — the only
+higher layer is `#scene-wipe` at 1000, which is `pointer-events: none`), and
+`prefers-reduced-motion` (asserted in CSS by unit test, not rendered).
+
+## Previous pass (2026-09-23) — the child's robots visit the Restaurant
 
 Two changes: the paper puppet stopped sinking into the floor, and saved Coloring
 robots now turn up as Restaurant customers. Order

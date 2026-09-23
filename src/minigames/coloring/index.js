@@ -171,12 +171,21 @@ export function buildColoringEasel({ box, plane, easelMaterial, paperMaterial, a
   return { group, canvasGroup, paper, art, shelf, uprights: [leftFrontLeg, rightFrontLeg, rearLeg] };
 }
 
-/** Readiness may come and go with the paint; its celebration belongs to the round. */
+/**
+ * Readiness may come and go with the paint, and so may its celebration.
+ *
+ * Edge-triggered on below-full -> full, so holding at full power cannot replay
+ * the cue every stroke or every frame. It re-arms the moment readiness is lost:
+ * a child who erases their liked colour and paints it back has finished the
+ * picture a second time, and the invitation to press Done should say so again.
+ * (This reverses the earlier once-per-round rule — see DESIGN_DECISIONS.)
+ */
 export function createCompletionReadiness() {
   let celebrated = false;
   return {
     update(value) {
       const ready = value >= 1;
+      if (!ready) celebrated = false;
       const celebrate = ready && !celebrated;
       if (celebrate) celebrated = true;
       return { ready, celebrate };
@@ -261,7 +270,11 @@ export function createColoring(ctx) {
   let finishRemaining = 0;
   let acceptedAnswer = null;
   let finishCalled = false;
+  /** Three pulses at about half a second each, then Done rests bright. */
+  const READY_PULSE_MS = 1600;
   const completionReadiness = createCompletionReadiness();
+  /** Set when full power arrives mid-drag; spent the moment the brush lifts. */
+  let celebrationPending = false;
   let elapsed = 0;
   let debugRootCreated = false;
 
@@ -375,11 +388,28 @@ export function createColoring(ctx) {
         outline-offset: .18rem; }
       .coloring-tool--done { min-width: 7rem; background: #248a68; font-weight: 950;
         box-shadow: 0 .28rem 0 rgb(18 85 63 / .35); }
+      /* Below full power Done must look plainly unavailable — no glow, no
+         pulse, nothing to tease a child into pressing what cannot work yet. */
       .coloring-tool--done:disabled { background: #9eb5ac; color: #edf2ef; box-shadow: none; }
-      .coloring-tool--ready-pulse { animation: coloring-done-ready .7s cubic-bezier(.2,.9,.3,1.25) 1; }
+      /* Done is only ever enabled at full power, so this IS the full-power
+         state: brighter, ringed in gold, lifted and a little larger than the
+         two utility buttons beside it. Transform only, so Undo and the eraser
+         never shift under the child's hand. */
+      .coloring-tool--done:not(:disabled) {
+        background: #16a06f; border-color: #ffe9a8;
+        box-shadow: 0 .3rem 0 rgb(14 74 54 / .45), 0 0 0 .22rem rgb(255 191 47 / .85);
+        transform: scale(1.06); }
+      /* A star, not an emoji: ✨ renders as a dark monochrome glyph on this
+         green and reads as a smudge at tool size. */
+      .coloring-tool--done:not(:disabled)::after {
+        content: '★'; margin-left: .38rem; color: #ffd166; }
+      /* Three clear pulses, then it settles. Never a loop: an invitation that
+         never stops asking becomes noise the child paints straight past. */
+      .coloring-tool--ready-pulse {
+        animation: coloring-done-ready .52s cubic-bezier(.2,.9,.3,1.25) 3; }
       @keyframes coloring-done-ready {
-        0%, 100% { transform: none; }
-        45% { transform: translateY(-.3rem) scale(1.08); filter: brightness(1.15); }
+        0%, 100% { transform: scale(1.06); }
+        45% { transform: translateY(-.3rem) scale(1.14); filter: brightness(1.15); }
       }
       .coloring-canvas-wrap { position: relative; min-width: 0; min-height: 0;
         height: 100%; width: auto; max-height: min(78vh, 46rem); max-width: 100%;
@@ -496,6 +526,9 @@ export function createColoring(ctx) {
         .coloring-canvas-wrap--alive { animation-duration: .5s; }
         .coloring-canvas-wrap--spark, .coloring-power--pulse,
         .coloring-canvas-wrap--speaking, .coloring-bubble { animation: none; }
+        /* No three pulses here. Done still arrives bright, ringed and raised —
+           that state is plain CSS, so the invitation survives without motion. */
+        .coloring-tool--ready-pulse { animation: none; }
         .coloring-screen[data-stage="painting"] .coloring-side,
         .coloring-screen[data-stage="painting"] .coloring-power,
         .coloring-screen[data-stage="painting"] .coloring-tools { animation: none; }
@@ -841,19 +874,38 @@ export function createColoring(ctx) {
     powerBar.classList.toggle('coloring-power--full', clamped >= 1);
   }
 
-  /** Readiness follows the live artwork; only its first arrival is celebrated. */
-  function updateReadiness(value) {
+  /** Readiness follows the live artwork; each fresh arrival at full is celebrated. */
+  function updateReadiness(value, { strokeActive = false } = {}) {
     if (!doneButton) return;
     const { ready, celebrate } = completionReadiness.update(value);
     doneButton.disabled = !ready;
+    // `disabled` already stops the press; `aria-disabled` is what a screen
+    // reader announces while the button stays in the tab order's shape.
+    doneButton.setAttribute('aria-disabled', String(!ready));
     if (phase === 'coloring') {
       paintInstruction.textContent = ready
         ? STRINGS.readyHint
         : selectedColor ? STRINGS.paintHint : STRINGS.chooseColor;
     }
-    if (!celebrate) return;
+    if (celebrate) celebrationPending = true;
+    // Full power almost always arrives in the middle of a drag, and a button
+    // jumping about under a moving brush is exactly the distraction a child
+    // painting does not need. Hold the cue until the brush lifts.
+    if (!celebrationPending || strokeActive) return;
+    celebrationPending = false;
+    playReadyCue();
+  }
+
+  /**
+   * The moment the picture is finished: the meter flares, the robot blinks, and
+   * Done pulses three times before settling into its bright resting state.
+   *
+   * About 1.6s in total. It is an invitation, not a transition — nothing is
+   * locked, and the child may keep painting straight through it.
+   */
+  function playReadyCue() {
     flash(powerBar, 'coloring-power--pulse', 620);
-    flash(doneButton, 'coloring-tool--ready-pulse', 720);
+    flash(doneButton, 'coloring-tool--ready-pulse', READY_PULSE_MS);
     blinkOnce(1);
     audio.playSfx('spark', SOUNDS.spark);
   }
@@ -906,7 +958,7 @@ export function createColoring(ctx) {
   /** Answers the surface after every stroke: the meter, tools and live readiness. */
   function onPaintChanged(info) {
     setPower(info.power);
-    updateReadiness(info.power);
+    updateReadiness(info.power, { strokeActive: info.strokeActive === true });
     if (info.needsColor) {
       paintInstruction.textContent = STRINGS.chooseColor;
       flash(palette, 'coloring-palette--invite', 1600);
@@ -1070,6 +1122,7 @@ export function createColoring(ctx) {
     stirRemaining = 0;
     exitElapsed = 0;
     completionReadiness.reset();
+    celebrationPending = false;
     favourite = PALETTE[Math.floor(Math.random() * PALETTE.length)];
     coverage = createCoverage({ favourite });
     createPaintingOverlay();

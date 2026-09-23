@@ -191,22 +191,59 @@ test('ROBOT POWER is a bottom-anchored vertical progress meter', () => {
 
 test('full power grants and revokes Done without changing phase', () => {
   const changed = between('function onPaintChanged(info)', 'function finishArtwork()');
-  assert.match(changed, /updateReadiness\(info\.power\)/);
+  assert.match(changed, /updateReadiness\(info\.power, \{ strokeActive/);
   assert.doesNotMatch(changed, /beginCharging/);
-  const readiness = between('function updateReadiness(value)', 'function flash(');
+  const readiness = between('function updateReadiness(value', 'function playReadyCue(');
   assert.match(readiness, /completionReadiness\.update\(value\)/);
   assert.match(readiness, /doneButton\.disabled = !ready/);
-  assert.match(readiness, /if \(!celebrate\) return/);
+  assert.match(readiness, /aria-disabled/, 'Done does not announce that it is unavailable');
+  // The cue waits for the brush to lift rather than firing mid-drag.
+  assert.match(readiness, /if \(!celebrationPending \|\| strokeActive\) return/);
   assert.match(source, /completionReadiness\.reset\(\);[\s\S]*?favourite = PALETTE/,
-    'a new round does not reset the one-shot celebration');
+    'a new round does not reset the celebration state');
 });
 
-test('Done readiness follows every power change but celebrates only once per round', () => {
+test('the finished cue waits for the child to lift the brush', () => {
+  // The surface reports on every extend, so full power almost always arrives
+  // mid-drag. The page must be able to tell that from a completed stroke.
+  const picture = readFileSync(new URL('./picture.js', import.meta.url), 'utf8');
+  assert.match(picture, /strokeActive: live !== null/,
+    'the painting surface no longer says whether a stroke is in progress');
+  const finish = picture.slice(picture.indexOf('function finish()'));
+  assert.ok(
+    finish.indexOf('live = null') < finish.indexOf('report()'),
+    'finish must clear the live stroke before reporting, or the last stroke never releases the cue',
+  );
+});
+
+test('Done pulses three times and then rests, and rests bright without motion', () => {
+  assert.match(source, /animation: coloring-done-ready [\d.]+s [^;]*? 3;/,
+    'the finished cue is not three pulses');
+  assert.doesNotMatch(source, /animation: coloring-done-ready [^;]*?infinite/,
+    'the finished cue must never loop');
+  assert.match(source, /\.coloring-tool--done:not\(:disabled\)/,
+    'Done has no distinct full-power resting state');
+  const reduced = source.slice(source.indexOf('@media (prefers-reduced-motion: reduce)'));
+  assert.match(reduced.slice(0, 700), /\.coloring-tool--ready-pulse \{ animation: none/,
+    'the pulse still runs under prefers-reduced-motion');
+});
+
+test('Done celebrates each fresh arrival at full power, never a held one', () => {
   const readiness = createCompletionReadiness();
   assert.deepEqual(readiness.update(0.99), { ready: false, celebrate: false });
   assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
-  assert.deepEqual(readiness.update(0.7), { ready: false, celebrate: false });
+
+  // Holding at full must not replay the cue on every stroke or every frame.
   assert.deepEqual(readiness.update(1), { ready: true, celebrate: false });
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: false });
+
+  // Erasing the liked colour and painting it back finishes the picture again,
+  // so the invitation is offered again. This deliberately replaces the earlier
+  // once-per-round rule.
+  assert.deepEqual(readiness.update(0.7), { ready: false, celebrate: false });
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: false });
+
   readiness.reset();
   assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
 });

@@ -2490,3 +2490,55 @@ Each fresh puppet increments the count and an idempotent dispose decrements it;
 or gradients. Rejected: letting each minigame unconditionally free the shared
 objects on exit, because Restaurant and Coloring now construct the same kind of
 puppet and one owner cannot safely assume no other live instance exists.
+
+## 2026-09-23 — Shell navigation and Escape authority
+
+**Back is one shell-owned control.** The shell creates a single upper-left Back
+button, mirrors the Settings launcher's safe margin, and routes it through the
+existing `returnToHub()` transition and controller teardown. This keeps its
+position, styling, availability and stacking consistent across every minigame.
+Rejected: separate Back buttons in each minigame, because they would duplicate
+navigation and could drift in placement or bypass shared teardown.
+
+**Escape uses a most-recent-first guard registry.** The Back control owns the
+only global Escape listener. Settings, the stamp book and temporary minigame UI
+register guards that may consume one press before Back runs, and minigames
+unregister their guards on exit. Rejected: relying on DOM listener order, which
+can close a local UI and leave the game on the same press, and querying a fixed
+set of modal-open states from the shell, which would couple it to local UI
+implementations.
+
+**Shell modals outrank a minigame's Escape guard.** Most-recent-first alone was
+not enough: the Zoo's viewfinder sits at `z-index: 18` and the Settings launcher
+at 40, so a child can open the Settings panel on top of an open viewfinder — and
+the later-registered viewfinder guard would then close the thing they cannot see
+instead of the panel they are looking at. Guards therefore carry a priority, and
+Settings and the stamp book register at `SHELL_MODAL_ESCAPE_PRIORITY`. Rejected:
+reordering registration, which the entry-time lifecycle of a minigame makes
+impossible, and giving the shell a list of known modals, which re-couples it to
+each local UI.
+
+## 2026-09-23 — The finished picture asks again every time
+
+**`できた！` is the primary action, Undo and the eraser stay utilities.** At full
+power Done alone turns brighter green, gains a gold ring and a gold star, and
+rests at `scale(1.06)`; below full power it is flat grey with no glow and no
+motion at all. Emphasis is transform-only so the two buttons beside it never
+shift under a child's hand. Rejected: an emoji sparkle — ✨ renders as a dark
+monochrome glyph on this green and reads as a smudge at tool size.
+
+**The full-power cue replays on every fresh arrival at full, not once a round.**
+`createCompletionReadiness` now re-arms the moment readiness is lost, so a child
+who erases their liked colour and paints it back is invited to press Done again.
+Holding at full still celebrates nothing — the trigger is the below-full → full
+edge, never the state. This reverses the once-per-round rule recorded earlier in
+this file: that rule was written when the concern was cue spam, and edge
+triggering already prevents that without also punishing a child who keeps
+working on a finished picture.
+
+**The cue waits for the brush to lift.** The painting surface reports on every
+pointer move, so full power almost always arrives mid-drag; firing three pulses
+under a moving brush is exactly the distraction a painting child does not need.
+`picture.js` now reports `strokeActive`, and the page holds the celebration
+until the stroke ends. Rejected: debouncing on a timer, which would fire in the
+middle of a long sweep just the same.

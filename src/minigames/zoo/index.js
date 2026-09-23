@@ -66,6 +66,7 @@ export function createZoo(ctx) {
     hud,
     settings,
     transitions,
+    registerEscapeGuard,
     finish,
   } = ctx;
 
@@ -85,6 +86,7 @@ export function createZoo(ctx) {
   let closeButton = null;
   let listenAgain = null;
   let unsubscribeSettings = null;
+  let unregisterEscapeGuard = null;
   let active = false;
   let finishCalled = false;
   let debugRootCreated = false;
@@ -855,9 +857,6 @@ export function createZoo(ctx) {
     if ((event.key === 'c' || event.key === 'C') && phase === 'playing') {
       event.preventDefault();
       openViewfinder();
-    } else if (event.key === 'Escape' && phase === 'viewfinder') {
-      event.preventDefault();
-      closeViewfinder();
     }
   }
 
@@ -1039,6 +1038,11 @@ export function createZoo(ctx) {
     buildWorld();
     installDebugHook();
     window.addEventListener('keydown', onKeyDown);
+    unregisterEscapeGuard = registerEscapeGuard?.(() => {
+      if (!active || phase !== 'viewfinder') return false;
+      closeViewfinder();
+      return true;
+    }) ?? null;
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       hud.setMicFree(next.micFree);
@@ -1130,6 +1134,8 @@ export function createZoo(ctx) {
     phase = 'inactive';
     unsubscribeSettings?.();
     unsubscribeSettings = null;
+    unregisterEscapeGuard?.();
+    unregisterEscapeGuard = null;
     window.removeEventListener('keydown', onKeyDown);
     speech.clearTarget();
     speech.cancel();
