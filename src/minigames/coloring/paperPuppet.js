@@ -16,13 +16,11 @@
 
 import * as THREE from 'three';
 
-import { DETAILS, PIECES, silhouetteBounds } from './robotDefinition.js';
+import { pieceAt, silhouetteBounds } from './robotDefinition.js';
 import { drawPiece, pieceTextureBounds } from './robotRenderer.js';
 import {
   DURATIONS,
   HOP_DISTANCE,
-  PIECE_DEPTH,
-  PIECE_PARENTS,
   PUPPET_HEIGHT,
   ROAM_POINTS,
   STATES,
@@ -41,8 +39,6 @@ import {
  * the silhouette's own lowest point means the next change to the robot's
  * proportions moves the ground with it, silently and correctly.
  */
-const FEET = silhouetteBounds().maxY;
-
 /** Paper thickness, and how much the backing quad oversteps the artwork. */
 const PAPER_DEPTH = 0.012;
 const PAPER_EDGE = 1.035;
@@ -70,9 +66,6 @@ const LEAN = 0.17;
 export const PUPPET_TEXTURE_SIZE = 640;
 
 /** Picture units to world units. The picture is a unit square. */
-const toWorldX = (pictureX) => (pictureX - 0.5) * PUPPET_HEIGHT;
-const toWorldY = (pictureY) => (FEET - pictureY) * PUPPET_HEIGHT;
-
 /**
  * One piece's texture, cut out of the child's paint.
  *
@@ -81,12 +74,12 @@ const toWorldY = (pictureY) => (FEET - pictureY) * PUPPET_HEIGHT;
  * stroke, every gap, every bit of bare paper the child left. Paint that spilled
  * outside the lines is left behind, which is exactly why spilling is allowed.
  */
-function pieceTexture(piece, paint, size) {
-  const box = pieceTextureBounds(piece, { size });
+function pieceTexture(subject, piece, paint, size) {
+  const box = pieceTextureBounds(piece, { subject, size });
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.ceil(box.width));
   canvas.height = Math.max(1, Math.ceil(box.height));
-  drawPiece(canvas.getContext('2d'), piece, { size, paint });
+  drawPiece(canvas.getContext('2d'), piece, { subject, size, paint });
   return { texture: asTexture(canvas), canvas, box };
 }
 
@@ -207,16 +200,20 @@ export const sharedPaperAssets = () => ({
  * Builds the puppet and returns a controller for it.
  *
  * @param {object} options
- * @param {object} options.colors  the child's finished region colours
+ * @param {object} options.subject the authored subject definition
+ * @param {HTMLCanvasElement} [options.paint] the child's finished strokes
  * @param {number} [options.textureSize] picture size the textures are drawn at
  */
-export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_SIZE, onLand } = {}) {
+export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_TEXTURE_SIZE, onLand } = {}) {
   const disposables = { geometries: new Set(), materials: new Set(), textures: new Set(), canvases: [] };
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
   let disposed = false;
+  const liveScale = PUPPET_HEIGHT * subject.liveScale;
+  const feet = silhouetteBounds(subject).maxY;
+  const rootPiece = subject.pieces[0];
 
   const root = new THREE.Group();
-  root.name = 'paper-robot';
+  root.name = `paper-${subject.id}`;
 
   /** The squash/stretch group, so a scale never disturbs where the puppet stands. */
   const body = new THREE.Group();
@@ -229,17 +226,17 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
   const pieces = {};
 
   // Parents before children, so a piece's group exists when its child needs it.
-  const ordered = [...PIECES].sort((a, b) => depthInTree(a) - depthInTree(b));
+  const ordered = [...subject.pieces].sort((a, b) => depthInTree(a) - depthInTree(b));
   function depthInTree(piece) {
     let depth = 0;
     let at = piece;
-    while (PIECE_PARENTS[at]) { at = PIECE_PARENTS[at]; depth += 1; }
+    while (subject.parents[at]) { at = subject.parents[at]; depth += 1; }
     return depth;
   }
 
   for (const piece of ordered) {
-    const layout = pieceLayout(piece);
-    const parentName = PIECE_PARENTS[piece];
+    const layout = pieceLayout(subject, piece);
+    const parentName = subject.parents[piece];
     const parent = parentName ? pieces[parentName].group : body;
 
     const group = new THREE.Group();
@@ -247,16 +244,20 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
     if (parentName) {
       const parentLayout = pieces[parentName].layout;
       group.position.set(
-        (layout.pivot.x - parentLayout.pivot.x) * PUPPET_HEIGHT,
-        -(layout.pivot.y - parentLayout.pivot.y) * PUPPET_HEIGHT,
+        (layout.pivot.x - parentLayout.pivot.x) * liveScale,
+        -(layout.pivot.y - parentLayout.pivot.y) * liveScale,
         0,
       );
     } else {
-      group.position.set(toWorldX(layout.pivot.x), toWorldY(layout.pivot.y), 0);
+      group.position.set(
+        (layout.pivot.x - 0.5) * liveScale,
+        (feet - layout.pivot.y) * liveScale,
+        0,
+      );
     }
     parent.add(group);
 
-    const { texture, canvas } = pieceTexture(piece, paint, textureSize);
+    const { texture, canvas } = pieceTexture(subject, piece, paint, textureSize);
     own('textures', texture);
     disposables.canvases.push(canvas);
     const material = own('materials', new THREE.MeshBasicMaterial({
@@ -269,14 +270,14 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
       depthWrite: true,
     }));
 
-    const width = layout.width * PUPPET_HEIGHT;
-    const height = layout.height * PUPPET_HEIGHT;
+    const width = layout.width * liveScale;
+    const height = layout.height * liveScale;
     const mesh = new THREE.Mesh(quad, material);
     mesh.scale.set(width, height, 1);
     mesh.position.set(
-      layout.offset.x * PUPPET_HEIGHT,
-      -layout.offset.y * PUPPET_HEIGHT,
-      PIECE_DEPTH[piece] * PAPER_DEPTH,
+      layout.offset.x * liveScale,
+      -layout.offset.y * liveScale,
+      subject.depth[piece] * PAPER_DEPTH,
     );
     group.add(mesh);
 
@@ -304,40 +305,40 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
   const lidMaterial = own('materials', new THREE.MeshBasicMaterial({
     color: 0x17233a, transparent: true, opacity: 0, side: THREE.DoubleSide,
   }));
-  const lids = DETAILS.eyes.map((eye) => {
+  const lids = subject.details.eyes.map((eye) => {
     const lid = new THREE.Mesh(quad, lidMaterial);
-    const body = pieces.body.layout;
-    lid.scale.set(eye.r * 1.7 * PUPPET_HEIGHT, eye.r * 0.42 * PUPPET_HEIGHT, 1);
+    const eyePiece = pieceAt(subject, eye.cx, eye.cy) ?? rootPiece;
+    const owner = pieces[eyePiece].layout;
+    lid.scale.set(eye.r * 1.7 * liveScale, eye.r * 0.42 * liveScale, 1);
     lid.position.set(
-      (eye.cx - body.pivot.x) * PUPPET_HEIGHT,
-      -(eye.cy - body.pivot.y) * PUPPET_HEIGHT,
-      PIECE_DEPTH.body * PAPER_DEPTH + 0.006,
+      (eye.cx - owner.pivot.x) * liveScale,
+      -(eye.cy - owner.pivot.y) * liveScale,
+      subject.depth[eyePiece] * PAPER_DEPTH + 0.006,
     );
-    pieces.body.group.add(lid);
+    pieces[eyePiece].group.add(lid);
     return lid;
   });
 
   // The antenna light glowing when the robot powers up. A gradient, not a flat
   // quad: additive blending over a plain square gave it a white box for a halo.
-  const glowArt = sharedGlowArt();
-  const glowMaterial = own('materials', new THREE.MeshBasicMaterial({
+  const glowSpec = subject.personality.glow;
+  const glowArt = glowSpec ? sharedGlowArt() : null;
+  const glowMaterial = glowSpec ? own('materials', new THREE.MeshBasicMaterial({
     map: glowArt.texture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide,
-  }));
-  const glow = new THREE.Mesh(quad, glowMaterial);
-  {
-    const body = pieces.body.layout;
-    // The antenna ball, from the definition: it is part of the body piece now.
-    const ball = { cx: 0.5, cy: 0.065, r: 0.036 };
-    const span = ball.r * 5.2 * PUPPET_HEIGHT;
+  })) : null;
+  const glow = glowSpec ? new THREE.Mesh(quad, glowMaterial) : null;
+  if (glowSpec) {
+    const owner = pieces[glowSpec.piece].layout;
+    const span = glowSpec.r * 5.2 * liveScale;
     glow.scale.set(span, span, 1);
     glow.position.set(
-      (ball.cx - body.pivot.x) * PUPPET_HEIGHT,
-      -(ball.cy - body.pivot.y) * PUPPET_HEIGHT,
-      PIECE_DEPTH.body * PAPER_DEPTH + 0.008,
+      (glowSpec.cx - owner.pivot.x) * liveScale,
+      -(glowSpec.cy - owner.pivot.y) * liveScale,
+      subject.depth[glowSpec.piece] * PAPER_DEPTH + 0.008,
     );
+    pieces[glowSpec.piece].group.add(glow);
   }
-  pieces.body.group.add(glow);
 
   // A soft shadow on the floor. It shrinks as the puppet leaves the ground,
   // which is most of what sells a hop as a hop.
@@ -348,14 +349,14 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
   const shadow = new THREE.Mesh(quad, shadowMaterial);
   shadow.rotation.x = -Math.PI / 2;
   shadow.position.set(0, 0.012, 0);
-  shadow.scale.set(PUPPET_HEIGHT * 0.72, PUPPET_HEIGHT * 0.5, 1);
+  shadow.scale.set(liveScale * 0.72, liveScale * 0.5, 1);
   root.add(shadow);
 
   let state = STATES.IDLE;
   let stateTime = 0;
   let roam = null;
   let glowFloor = 0;
-  let lastPose = poseFor(STATES.IDLE, 0);
+  let lastPose = poseFor(subject, STATES.IDLE, 0);
   /** +1 faces right, -1 faces left. A cut-out turns by flipping, not rotating. */
   let mirror = 1;
 
@@ -365,25 +366,25 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
     if (newPose.stage === 'land' && lastPose.stage !== 'land') onLand?.();
     lastPose = newPose;
     body.position.set(
-      newPose.root.x * PUPPET_HEIGHT * 0.5,
-      newPose.root.y * PUPPET_HEIGHT * 0.5,
+      newPose.root.x * liveScale * 0.5,
+      newPose.root.y * liveScale * 0.5,
       0,
     );
     body.rotation.z = newPose.root.tilt * mirror;
     body.scale.set(newPose.root.scale.x * mirror, newPose.root.scale.y, 1);
-    for (const piece of PIECES) {
+    for (const piece of subject.pieces) {
       pieces[piece].group.rotation.z = newPose.rotations[piece] ?? 0;
     }
     lidMaterial.opacity = newPose.blink;
     for (const lid of lids) lid.visible = newPose.blink > 0.02;
-    glowMaterial.opacity = Math.max(glowFloor, newPose.glow) * 0.75;
+    if (glowMaterial) glowMaterial.opacity = Math.max(glowFloor, newPose.glow) * 0.75;
 
     // The shadow tracks height, not the piece hierarchy: tighter and fainter
     // the higher the puppet is.
     const lift = Math.max(0, newPose.root.y);
     shadowMaterial.opacity = 0.85 / (1 + lift * 2.4);
     const tighten = 1 / (1 + lift * 0.85);
-    shadow.scale.set(PUPPET_HEIGHT * 0.72 * tighten, PUPPET_HEIGHT * 0.5 * tighten, 1);
+    shadow.scale.set(liveScale * 0.72 * tighten, liveScale * 0.5 * tighten, 1);
   }
 
   applyPose(lastPose);
@@ -405,7 +406,7 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
      * needs something cheap it can compare. Sampled once, not per frame.
      */
     fingerprint(samples = 6) {
-      const canvas = pieces.body?.artwork;
+      const canvas = pieces[rootPiece]?.artwork;
       if (!canvas?.width) return [];
       const out = [];
       const ctx = canvas.getContext('2d');
@@ -502,7 +503,7 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
         api.setHeading(roam.facing);
       }
 
-      applyPose(poseFor(state, stateTime));
+      applyPose(poseFor(subject, state, stateTime));
       return api;
     },
 

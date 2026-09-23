@@ -6,7 +6,7 @@
  * objects, and the stored canvas is never handed to the live painting surface.
  */
 
-const robots = [];
+const creations = [];
 
 function copyCanvas(source) {
   const ownerDocument = source?.ownerDocument ?? globalThis.document;
@@ -26,8 +26,9 @@ function copyCanvas(source) {
  * surface can be reset or disposed; crowd data is reduced to the personality
  * fields needed to reconstruct the robot on a later visit.
  */
-export function saveCompletedRobot(artwork, crowd) {
+export function saveCompletedCreation({ subjectId, artwork, crowd }) {
   const record = Object.freeze({
+    subjectId,
     artwork: copyCanvas(artwork),
     crowd: Object.freeze({
       start: crowd.start,
@@ -35,17 +36,21 @@ export function saveCompletedRobot(artwork, crowd) {
       stateTime: crowd.stateTime,
     }),
   });
-  robots.push(record);
+  creations.push(record);
   return record;
 }
 
 /** A snapshot of the saved-record list; the stored canvases remain read-only assets. */
+export function savedCreations() {
+  return creations.slice();
+}
+
+/** Robot-only compatibility view used by Restaurant. Missing ids are legacy robots. */
 export function savedRobots() {
-  return robots.slice();
+  return creations.filter((record) => record.subjectId == null || record.subjectId === 'robot');
 }
 
 /** Called only when the whole running game session ends, never on minigame exit. */
 export function clearColoringSession() {
-  robots.length = 0;
+  creations.length = 0;
 }
-

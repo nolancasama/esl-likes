@@ -79,6 +79,7 @@ export function replayStroke(ctx, stroke, size = PICTURE_SIZE) {
  * @param {(info: object) => void} [options.onChange]
  */
 export function createPaintingSurface({
+  subject,
   canvas,
   coverage,
   color,
@@ -114,7 +115,7 @@ export function createPaintingSurface({
     if (disposed) return;
     const ratio = resize();
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    drawPage(ctx, { size: PICTURE_SIZE, paint, blink });
+    drawPage(ctx, { subject, size: PICTURE_SIZE, paint, blink });
   }
 
   function rebuildPaint() {
@@ -242,7 +243,7 @@ export function createPaintingSurface({
       const result = document.createElement('canvas');
       result.width = size;
       result.height = size;
-      drawPage(result.getContext('2d'), { size, paint, blink: 0 });
+      drawPage(result.getContext('2d'), { subject, size, paint, blink: 0 });
       return result;
     },
 

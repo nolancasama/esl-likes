@@ -5,15 +5,21 @@ import {
   FAVOURITE_POWER_THRESHOLD,
   GRID,
   MILESTONES,
-  createCoverage,
-  robotCellCount,
+  createCoverage as trackCoverage,
   sessionStars,
-  silhouetteMask,
+  silhouetteMask as subjectMask,
+  subjectCellCount,
 } from './coverage.js';
 import * as coverageModule from './coverage.js';
 import { PALETTE, PALETTE_HEX, isColor } from './palette.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH, brushFor } from './brushes.js';
-import { insideSilhouette } from './robotDefinition.js';
+import { insideSilhouette as subjectContains } from './robotDefinition.js';
+import robot from './subjects/robot.js';
+
+const createCoverage = (options = {}) => trackCoverage({ subject: robot, ...options });
+const silhouetteMask = () => subjectMask(robot);
+const robotCellCount = () => subjectCellCount(robot);
+const insideSilhouette = (x, y) => subjectContains(robot, x, y);
 
 const D = (name) => BRUSHES[name].diameter / 720;
 

@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
   clearColoringSession,
-  saveCompletedRobot,
+  saveCompletedCreation,
+  savedCreations,
   savedRobots,
 } from './coloringSession.js';
+
+const saveCompletedRobot = (artwork, crowd) => saveCompletedCreation({
+  subjectId: 'robot', artwork, crowd,
+});
 
 class FakeCanvas {
   constructor(ownerDocument, pixels = []) {
@@ -51,6 +56,7 @@ test('saving detaches artwork from the live painting canvas immediately', () => 
   const saved = saveCompletedRobot(live, variation(2));
 
   assert.notEqual(saved.artwork, live);
+  assert.equal(saved.subjectId, 'robot');
   assert.deepEqual(saved.artwork.pixels, [0, 14, 0, 29]);
 
   live.pixels.fill(99);
@@ -109,4 +115,15 @@ test('clearing the whole session drops records without disposing stored canvases
   assert.equal(record.artwork.disposed, false);
   assert.equal(record.artwork.width, 4);
   assert.deepEqual(record.artwork.pixels, [8, 6, 7, 5]);
+});
+
+test('savedCreations exposes every subject while savedRobots is a compatibility filter', () => {
+  saveCompletedRobot(canvas([1]), variation(0));
+  saveCompletedCreation({ subjectId: 'future-subject', artwork: canvas([2]), crowd: variation(1) });
+  saveCompletedCreation({ artwork: canvas([3]), crowd: variation(2) });
+
+  assert.deepEqual(savedCreations().map((record) => record.subjectId), [
+    'robot', 'future-subject', undefined,
+  ]);
+  assert.deepEqual(savedRobots().map((record) => record.artwork.pixels), [[1], [3]]);
 });

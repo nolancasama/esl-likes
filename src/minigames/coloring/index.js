@@ -9,7 +9,8 @@ import { createCoverage, sessionStars } from './coverage.js';
 import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 import { createCrowd } from './robotCrowd.js';
-import { saveCompletedRobot, savedRobots } from './coloringSession.js';
+import { saveCompletedCreation, savedCreations } from './coloringSession.js';
+import { DEFAULT_SUBJECT_ID, subjectById } from './subjectRegistry.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
@@ -209,6 +210,7 @@ export function createColoring(ctx) {
     transitions,
     finish,
   } = ctx;
+  const activeSubject = subjectById(DEFAULT_SUBJECT_ID);
 
   let world = null;
   let player = null;
@@ -568,9 +570,9 @@ export function createColoring(ctx) {
     const size = easelArtCanvas.width;
     const art = easelArtCanvas.getContext('2d');
     art.clearRect(0, 0, size, size);
-    drawBlankBody(art, { size });
+    drawBlankBody(art, { subject: activeSubject, size });
     if (paint) art.drawImage(paint, 0, 0, size, size);
-    drawLineArt(art, { size });
+    drawLineArt(art, { subject: activeSubject, size });
     easelArtTexture.needsUpdate = true;
   }
 
@@ -1080,6 +1082,7 @@ export function createColoring(ctx) {
 
     document.querySelector('#ui-layer').append(paintingOverlay);
     surface = createPaintingSurface({
+      subject: activeSubject,
       canvas: paintingCanvas,
       coverage,
       color: () => selectedColor,
@@ -1124,7 +1127,7 @@ export function createColoring(ctx) {
     completionReadiness.reset();
     celebrationPending = false;
     favourite = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    coverage = createCoverage({ favourite });
+    coverage = createCoverage({ subject: activeSubject, favourite });
     createPaintingOverlay();
     phase = 'canvas-question';
     targetQuestion();
@@ -1204,8 +1207,12 @@ export function createColoring(ctx) {
     // Both consumers copy the live paint before teardown: the puppet into its
     // piece textures, and the session store into one detached canvas.
     pendingMember = crowd.join();
-    pendingPuppet = createPaperPuppet({ paint: surface.paint, onLand: landTap });
-    saveCompletedRobot(surface.paint, pendingMember);
+    pendingPuppet = createPaperPuppet({ subject: activeSubject, paint: surface.paint, onLand: landTap });
+    saveCompletedCreation({
+      subjectId: activeSubject.id,
+      artwork: surface.paint,
+      crowd: pendingMember,
+    });
     setEaselArt('finished', { paint: surface.paint });
 
     world.visible = true;
@@ -1479,7 +1486,11 @@ export function createColoring(ctx) {
     if (!world) return 0;
     for (let i = 0; i < count; i += 1) {
       const member = crowd.join();
-      const puppet = createPaperPuppet({ paint: paint ?? surface?.paint ?? null, onLand: landTap });
+      const puppet = createPaperPuppet({
+        subject: activeSubject,
+        paint: paint ?? surface?.paint ?? null,
+        onLand: landTap,
+      });
       world.add(puppet.group);
       puppet.startRoaming(member.points, member);
       livingRobots.push({ id: member.id, puppet, member });
@@ -1489,9 +1500,11 @@ export function createColoring(ctx) {
 
   /** Rebuilds session robots from plain records after the room exists. */
   function restoreSavedRobots() {
-    for (const record of savedRobots()) {
+    for (const record of savedCreations()) {
+      const subject = subjectById(record.subjectId ?? DEFAULT_SUBJECT_ID);
+      if (!subject) continue;
       const member = crowd.join(record.crowd);
-      const puppet = createPaperPuppet({ paint: record.artwork, onLand: landTap });
+      const puppet = createPaperPuppet({ subject, paint: record.artwork, onLand: landTap });
       world.add(puppet.group);
       puppet.startRoaming(member.points, member);
       livingRobots.push({ id: member.id, puppet, member });

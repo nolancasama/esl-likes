@@ -1,0 +1,74 @@
+{
+  "task": "Turn Coloring's hard-wired Robot into one reusable subject system, and migrate the Robot onto it as the only subject. This is slice 1 of 3: the contract and the migration. NO new characters are drawn in this order.",
+
+  "context": [
+    "Coloring currently assumes exactly one figure. robotDefinition.js holds PICTURE_SIZE, PIECES, PIVOTS, SHAPES, SHAPES_BY_PIECE, DETAILS and the geometry helpers (shapeBounds, pieceBounds, silhouetteBounds, insideShape, insideSilhouette, pieceAt, silhouetteArea, drawOrder). robotRenderer.js draws from those module constants. robotPuppet.js holds the motion (STATES, DURATIONS, hopPhase, poseFor, pieceLayout, PIECE_PARENTS, PIECE_DEPTH, PUPPET_HEIGHT) with the robot's own piece names baked into poseFor. coverage.js builds its mask from the module-level silhouette. paperPuppet.js builds the three.js cutout from PIECES and DETAILS.",
+    "The upcoming slice 2 adds eight more subjects (penguin, chicken, cat, dog, snowman, gingerbread, hero, ninja) as pure data. Everything this order builds exists so that those can be data alone, with no new mechanics and no per-subject branching.",
+    "Piece sets genuinely differ between subjects: the snowman has no legs, the cat and dog have a tail, the hero has a cape. So nothing downstream may assume the names 'leftArm' / 'rightArm' / 'leftLeg' / 'rightLeg' exist. poseFor currently does.",
+    "DETAILS is currently robot-specific named fields (eyes, pupilRatio, mouth, bolts, lines). Other subjects need a beak, a carrot nose, buttons, a scarf. Generalise the marks into a typed primitive list the renderer loops over, but KEEP `eyes` a named concept: paperPuppet.js builds blink lids from the eye positions and needs to find them.",
+    "The Restaurant imports savedRobots() from coloringSession.js and must keep receiving robot records only. It was shipped in the previous pass and must not regress.",
+    "The feet baseline is already derived per figure: paperPuppet.js does `const FEET = silhouetteBounds().maxY`. That must become per-subject, never a constant, for the same reason it stopped being 0.875."
+  ],
+
+  "requirements": [
+    "NEW subject modules under src/minigames/coloring/subjects/, starting with robot.js, each default-exporting one deeply frozen subject object. The shape, which slice 2 will fill in eight more times: { id, category: 'character'|'animal', zooSpecies: string|null, pieces: string[] (the root piece first), pivots: {piece: {x,y}}, parents: {piece: parentPiece}, depth: {piece: number}, shapes: [{id, piece, order, shape}], details: { eyes: [{cx,cy,r}], pupilRatio, marks: [typed primitives] }, personality: {...}, liveScale: number }.",
+    "`marks` is a list of typed drawing primitives the renderer loops over - at minimum line, circle, arc, polygon and triangle - so a beak, a carrot nose, buttons, a scarf or a bow tie are data, not renderer branches. The robot's existing mouth, bolts and cuff/knee lines migrate into it unchanged in appearance.",
+    "NEW src/minigames/coloring/subjectRegistry.js exporting the registry, subjectById(id), DEFAULT_SUBJECT_ID = 'robot', and a selector pickNextSubject({ random, lastId }) that never returns lastId when more than one subject exists. In THIS order the registry holds only the robot, and the selector must already be correct and tested for a multi-subject registry.",
+    "Every function that silently reads the one global robot now takes a subject. Geometry: silhouetteBounds(subject), pieceBounds(subject, piece), insideSilhouette(subject, x, y), pieceAt(subject, x, y), silhouetteArea(subject), drawOrder(subject). Renderer: drawPage, drawPiece, pieceTextureBounds, drawBlankBody, drawLineArt, pathSilhouette all take the subject in their options object. Puppet: pieceLayout(subject, piece), poseFor(subject, state, t). Coverage: silhouetteMask(subject), createCoverage({ subject, favourite }). paperPuppet: createPaperPuppet({ subject, paint, ... }).",
+    "PICTURE_SIZE, PUPPET_HEIGHT, the roam geometry (SAFE_AREA, OBSTACLES, ROAM_POINTS, HOP_DISTANCE, IDLE_PAUSE), SQUASH_LIMIT, HOP_STAGES, hopPhase, hopProgress, blinkAt, squashStretch and the crowd stay SHARED. They are the mechanics, not the character.",
+    "MOTION. Keep one animation engine with shared primitives (idle, hop, land, celebrate, blink, squash/stretch). poseFor must build its rotations from the subject's OWN piece list plus a declarative `personality`, so a subject with no legs or with a tail needs no new code. A reasonable personality shape is per-state, per-piece rotation amplitudes and phases plus a few scalars (hop height scale, bob amount, tilt) - choose the simplest form that expresses the robot today and could express a waddle, a head bob, a tail sway or a wobble tomorrow. Do not write a second engine and do not add a per-subject switch.",
+    "The standing baseline stays derived: paperPuppet's FEET becomes silhouetteBounds(subject).maxY for the subject it is building, so every subject's lowest point maps to world Y=0.",
+    "SESSION RECORDS. coloringSession.js saves { subjectId, artwork, crowd } and exports savedCreations(). savedRobots() remains exported as a COMPATIBILITY view returning only records whose subjectId is 'robot', treating a record with no subjectId as a robot. Do not change the Restaurant. Do not introduce localStorage. clearColoringSession() keeps its current meaning.",
+    "src/minigames/coloring/index.js drives the round from an active subject rather than from module constants, and puts that subject's id into the saved record. In this order the active subject is always the robot.",
+    "Restaurant's robot customers keep working unchanged: it still imports savedRobots(), still builds a paper puppet, and must now pass the robot subject through to createPaperPuppet."
+  ],
+
+  "constraints": [
+    "THE BAR FOR THIS ORDER IS THAT NOTHING VISIBLE CHANGES. The robot's colouring page, its power behaviour, its puppet, its motion, the easel emergence and the room must be pixel-for-pixel and beat-for-beat what they are now. This is a refactor; every existing test must pass, adapted only where a signature genuinely moved.",
+    "Do NOT add penguin, chicken, cat, dog, snowman, gingerbread, hero or ninja in this order. Do not stub them, and do not leave empty files for them. Slice 2 adds them as data.",
+    "Do NOT change the visible power wording yet - ロボットパワー stays until other subjects actually exist (slice 3).",
+    "Do not add a character-selection screen and do not change which subject a round uses: it is always the robot here.",
+    "Do not duplicate the geometry, renderer, motion or coverage modules per subject. One engine, subject-specific data.",
+    "Do not put a switch or an if-chain on subject id anywhere - in the controller, the renderer, the puppet or the coverage.",
+    "Do not touch the Zoo. Do not broaden what the Restaurant accepts.",
+    "Do not change FAVOURITE_POWER_THRESHOLD (0.28) or how power is normalised: it is already favourite-coloured area over the subject's own silhouette area, which is what keeps a small figure and a large one comparable.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism - do not try another escaped variant.",
+    "Append this pass's decisions to DESIGN_DECISIONS.md, dated, each with what, why and the rejected alternative: the subject contract, typed detail marks instead of named fields, the declarative personality over one shared animation engine, and savedCreations() with savedRobots() as a filtered compatibility view."
+  ],
+
+  "startingPoints": [
+    "src/minigames/coloring/robotDefinition.js",
+    "src/minigames/coloring/robotRenderer.js",
+    "src/minigames/coloring/robotPuppet.js",
+    "src/minigames/coloring/coverage.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/coloringSession.js",
+    "src/minigames/coloring/index.js",
+    "src/minigames/restaurant/robotCustomer.js and src/minigames/restaurant/index.js (the only consumers outside Coloring)",
+    "the existing test files beside each of those modules"
+  ],
+
+  "tests": [
+    "A registry test: every registered subject has a non-empty silhouette, bounds inside the 0..1 picture, at least one piece, a root piece that is first, every shape belonging to a declared piece, pivots for every piece, no NaN anywhere, valid piece texture bounds, and a category. Write it as a loop over the registry so slice 2's eight subjects are covered the moment they land.",
+    "Per subject (so, the robot today): its lowest silhouette point maps to world Y approximately 0 through the paper puppet, and no hard-coded baseline is typed anywhere.",
+    "pickNextSubject never repeats lastId when the registry holds more than one subject, returns the only subject when it holds one, and can reach every subject across seeded runs.",
+    "coloringSession: a saved record carries its subjectId; savedCreations() returns every subject; savedRobots() returns only robot records; a legacy record with no subjectId is treated as a robot and still reaches savedRobots().",
+    "A regression assertion that the robot's geometry is unchanged by the migration - for example that its silhouette bounds, silhouette area and per-piece bounds still equal the values the current module produces.",
+    "An assertion that no module switches on subject id."
+  ],
+
+  "validation": ["npm test", "npm run build"],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "note": "The browser pass - the robot's colouring page, power, activation, easel emergence and room roaming all looking exactly as they do today - belongs to the controller. This worker's sandbox cannot start this project's vite preview, so do not attempt it and do not claim it."
+  },
+
+  "category": "refactor-architecture",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large",
+  "composition": "atomic"
+}

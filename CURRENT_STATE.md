@@ -9,7 +9,57 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — a way out, and a finish worth pressing
+## Latest pass (2026-09-23) — Coloring learns what a "subject" is
+
+Slice 1 of 3 of the nine-subject Coloring plan. Order
+`.ai/wo-coloring-subject-contract.json` (Codex via the router, Sol high,
+SUCCESS). **No new characters yet** — this is the contract and the Robot's
+migration onto it.
+
+- `subjects/robot.js` holds the Robot as data: pieces, pivots, parents, depth,
+  shapes, typed detail `marks`, a declarative `personality` and `liveScale`.
+  `subjectRegistry.js` holds the registry, `subjectById`, `DEFAULT_SUBJECT_ID`
+  and `pickNextSubject({ random, lastId })`.
+- Geometry, renderer, motion, coverage and `createPaperPuppet` all take a
+  subject. `poseFor(subject, state, t)` builds rotations from the subject's own
+  piece list, so a legless snowman or a cat with a tail needs no new code.
+- Session records carry `subjectId`. `savedCreations()` is the general view;
+  `savedRobots()` is the filtered compatibility view the Restaurant still uses,
+  treating a record with no `subjectId` as a robot.
+
+### The bar was "nothing visible changes", and it was checked, not assumed
+
+The controller diffed the new code against the pre-refactor modules directly:
+
+- **Motion is bit-identical** — 15,652 numbers compared across all four states
+  at 0.01 s steps, largest difference **0**.
+- **Geometry is identical** — same silhouette bounds, same area to 8 decimal
+  places, **0** membership and **0** piece-owner mismatches over 90,000 sampled
+  points, and identical per-piece bounds.
+
+### Validation
+
+`npm test` **657/657**. `npm run build` OK. Browser: the full Coloring →
+Restaurant playthrough still runs end to end (two robots painted, activation,
+easel emergence, room roaming, door turnaround, hub, robot customers seated).
+
+### A regression from the previous pass, found and fixed here
+
+The Back button was sitting **on top of the Coloring room's title and hint**.
+`.top-bar` is shared by Coloring, the Drink Stand, Sports, the Zoo and the hub,
+so this affected four minigames, not one. Fixed with a `shell-has-back` class
+and one shared padding rule. The earlier browser pass checked Back against
+Settings but never against a scene card — worth remembering when adding any
+shell-level control.
+
+### Next
+
+Slice 2: the eight subject definitions (penguin, chicken, cat, dog, snowman,
+gingerbread, hero, ninja) as pure data against this contract. Slice 3: random
+subject selection, the generic POWER wording (ロボットパワー still says "robot"),
+and the browser review of all nine.
+
+## Previous pass (2026-09-23) — a way out, and a finish worth pressing
 
 Two shell/UI changes. Order `.ai/wo-global-back-button.json` (Codex via the
 router, Sol medium, SUCCESS) for the Back button; Claude did the Coloring

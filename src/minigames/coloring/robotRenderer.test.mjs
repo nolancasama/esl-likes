@@ -4,16 +4,30 @@ import assert from 'node:assert/strict';
 import {
   INK,
   PAPER,
-  drawBlankBody,
-  drawLineArt,
-  drawPage,
-  drawPiece,
-  pathSilhouette,
-  pieceTextureBounds,
+  drawBlankBody as renderBlankBody,
+  drawLineArt as renderLineArt,
+  drawPage as renderPage,
+  drawPiece as renderPiece,
+  pathSilhouette as renderSilhouette,
+  pieceTextureBounds as textureBounds,
 } from './robotRenderer.js';
 import {
-  DETAILS, PICTURE_SIZE, PIECES, SHAPES, SHAPES_BY_PIECE, pieceBounds,
+  PICTURE_SIZE, pieceBounds as subjectPieceBounds,
 } from './robotDefinition.js';
+import robot from './subjects/robot.js';
+
+const { details: DETAILS, pieces: PIECES, shapes: SHAPES } = robot;
+const SHAPES_BY_PIECE = Object.fromEntries(
+  PIECES.map((piece) => [piece, SHAPES.filter((entry) => entry.piece === piece)]),
+);
+const withSubject = (options = {}) => ({ subject: robot, ...options });
+const drawBlankBody = (ctx, options) => renderBlankBody(ctx, withSubject(options));
+const drawLineArt = (ctx, options) => renderLineArt(ctx, withSubject(options));
+const drawPage = (ctx, options) => renderPage(ctx, withSubject(options));
+const drawPiece = (ctx, piece, options) => renderPiece(ctx, piece, withSubject(options));
+const pathSilhouette = (ctx, options) => renderSilhouette(ctx, withSubject(options));
+const pieceTextureBounds = (piece, options) => textureBounds(piece, withSubject(options));
+const pieceBounds = (piece) => subjectPieceBounds(robot, piece);
 
 /**
  * A recording stand-in for a 2D context.
@@ -206,4 +220,27 @@ test('the blank body is drawn in something lighter than the paint but not the pa
   assert.equal(styles.size, 1, 'the blank body should be one flat colour');
   const [blank] = [...styles];
   assert.notEqual(blank, PAPER, 'an unpainted robot must still read against the page');
+});
+
+test('typed detail marks support every reusable primitive without subject branches', () => {
+  const subject = {
+    ...robot,
+    details: {
+      eyes: [],
+      pupilRatio: 0.5,
+      marks: [
+        { type: 'line', piece: 'body', x1: 0.4, y1: 0.2, x2: 0.6, y2: 0.2 },
+        { type: 'circle', piece: 'body', cx: 0.5, cy: 0.25, r: 0.02 },
+        { type: 'arc', piece: 'body', cx: 0.5, cy: 0.3, r: 0.04, startAngle: 0, endAngle: Math.PI },
+        { type: 'polygon', piece: 'body', points: [{ x: 0.4, y: 0.4 }, { x: 0.6, y: 0.4 }, { x: 0.5, y: 0.5 }] },
+        { type: 'triangle', piece: 'body', points: [{ x: 0.4, y: 0.55 }, { x: 0.6, y: 0.55 }, { x: 0.5, y: 0.65 }] },
+      ],
+    },
+  };
+  const ctx = fakeContext();
+  renderLineArt(ctx, { subject });
+  const details = ctx.strokes.slice(subject.shapes.length);
+  assert.equal(details.length, subject.details.marks.length);
+  assert.ok(details.some((stroke) => stroke.ops.some((op) => op[0] === 'arc')));
+  assert.ok(details.some((stroke) => stroke.ops.filter((op) => op[0] === 'lineTo').length >= 3));
 });

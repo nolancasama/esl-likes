@@ -11,7 +11,7 @@
  * is what they are.
  */
 
-import { PIECES, PIVOTS, pieceBounds } from './robotDefinition.js';
+import { pieceBounds } from './robotDefinition.js';
 
 export const STATES = Object.freeze({
   IDLE: 'idle',
@@ -137,8 +137,6 @@ export function blinkAt(seconds) {
   return cycle > 0.972 ? 1 : 0;
 }
 
-const NO_ROTATION = Object.freeze(Object.fromEntries(PIECES.map((piece) => [piece, 0])));
-
 /**
  * A pose: where the whole puppet sits, and how far each piece has turned.
  *
@@ -146,10 +144,12 @@ const NO_ROTATION = Object.freeze(Object.fromEntries(PIECES.map((piece) => [piec
  * applied to the puppet as a whole; individual limb scaling would fight the
  * shared pivots for no visible gain.
  */
-function pose(overrides = {}) {
+function pose(subject, overrides = {}) {
   return {
     root: { x: 0, y: 0, tilt: 0, scale: { x: 1, y: 1 }, ...overrides.root },
-    rotations: { ...NO_ROTATION, ...overrides.rotations },
+    rotations: Object.fromEntries(subject.pieces.map((piece) => (
+      [piece, overrides.rotations?.[piece] ?? 0]
+    ))),
     blink: overrides.blink ?? 0,
     glow: overrides.glow ?? 0,
     progress: overrides.progress ?? 0,
@@ -169,21 +169,22 @@ function pose(overrides = {}) {
  * in the cycle than the body, which is what still reads as a puppet rather than
  * a rigid sprite being moved up and down. The antenna rides the body now.
  */
-function hopRotations(t, flare = 1) {
-  const here = airborneness(hopPhase(t).height);
-  const lagged = airborneness(hopPhase(t - 0.1).height);
-
-  // The arm trails the body, so it is driven by the lagged phase, not `here`.
-  const arm = (0.18 + 0.95 * lagged) * flare;
-  const leg = 0.22 * here * flare;
-
-  return {
-    body: 0,
-    leftArm: -arm,
-    rightArm: arm,
-    leftLeg: -leg,
-    rightLeg: leg,
-  };
+function rotationsFor(subject, state, channels) {
+  const statePersonality = subject.personality[state] ?? {};
+  const authored = statePersonality.rotations ?? {};
+  return Object.fromEntries(subject.pieces.map((piece) => {
+    const rule = authored[piece] ?? {};
+    const bob = channels.cycle === undefined
+      ? channels.bob
+      : Math.sin(channels.cycle * Math.PI * 2 * (rule.frequency ?? 1) + (rule.phase ?? 0));
+    const rotation = (rule.base ?? 0)
+      + (rule.bob ?? 0) * bob
+      + (rule.flare ?? 0) * channels.flare
+      + (rule.bounce ?? 0) * channels.bounce
+      + (rule.air ?? 0) * channels.air
+      + (rule.lagAir ?? 0) * channels.lagAir;
+    return [piece, rotation * (statePersonality.rotationScale ?? 1)];
+  }));
 }
 
 /**
@@ -192,25 +193,24 @@ function hopRotations(t, flare = 1) {
  * One function, four states, no state-machine framework — the spec asks for
  * simple and readable over general.
  */
-export function poseFor(state, t = 0) {
+export function poseFor(subject, state, t = 0) {
   const seconds = Math.max(0, t);
 
   if (state === STATES.IDLE) {
     const cycle = seconds / DURATIONS[STATES.IDLE];
     const bob = Math.sin(cycle * Math.PI * 2);
-    return pose({
+    const personality = subject.personality.idle;
+    return pose(subject, {
       root: {
-        x: Math.sin(cycle * Math.PI) * 0.06,
-        y: 0.018 * bob,
-        tilt: 0.035 * Math.sin(cycle * Math.PI * 2 + 0.6),
-        scale: squashStretch(-0.06 * bob),
+        x: Math.sin(cycle * Math.PI) * (personality.root.sway ?? 0),
+        y: (personality.root.bob ?? 0) * bob,
+        tilt: (personality.root.tilt ?? 0)
+          * Math.sin(cycle * Math.PI * 2 + (personality.root.tiltPhase ?? 0)),
+        scale: squashStretch((personality.root.squash ?? 0) * bob),
       },
-      rotations: {
-        leftArm: -0.08 - 0.05 * bob,
-        rightArm: 0.08 + 0.05 * bob,
-        leftLeg: -0.015 * bob,
-        rightLeg: 0.015 * bob,
-      },
+      rotations: rotationsFor(subject, 'idle', {
+        bob, cycle, flare: 0, bounce: 0, air: 0, lagAir: 0,
+      }),
       blink: blinkAt(seconds),
     });
   }
@@ -218,26 +218,27 @@ export function poseFor(state, t = 0) {
   if (state === STATES.STARTUP) {
     const k = clamp(seconds / DURATIONS[STATES.STARTUP], 0, 1);
     // An anticipatory shake that tightens, then one bounce as it wakes up.
-    const shake = Math.sin(seconds * 34) * 0.055 * (1 - k) ** 0.7;
     const bounce = k > 0.62 ? Math.sin((k - 0.62) / 0.38 * Math.PI) : 0;
     // A twitch, which means it returns: leaving the arms flung out at the end
     // made a visible snap the moment the roam loop's idle pose took over.
     const flare = k > 0.45 ? Math.sin(((k - 0.45) / 0.55) * Math.PI) : 0;
-    return pose({
+    const personality = subject.personality.startup;
+    const root = personality.root;
+    const shake = Math.sin(seconds * (root.shakeFrequency ?? 0))
+      * (root.shake ?? 0) * (1 - k) ** 0.7;
+    return pose(subject, {
       root: {
         x: shake,
-        y: 0.3 * bounce,
-        tilt: shake * 0.8,
-        scale: squashStretch(0.35 * (1 - k) - 0.55 * bounce),
+        y: (root.lift ?? 0) * bounce,
+        tilt: shake * (root.tiltFromShake ?? 0),
+        scale: squashStretch((root.restSquash ?? 0) * (1 - k)
+          + (root.bounceSquash ?? 0) * bounce),
       },
-      rotations: {
-        leftArm: -(0.1 + 1.05 * flare),
-        rightArm: 0.1 + 1.05 * flare,
-        leftLeg: -0.12 * bounce,
-        rightLeg: 0.12 * bounce,
-      },
+      rotations: rotationsFor(subject, 'startup', {
+        bob: 0, flare, bounce, air: 0, lagAir: 0,
+      }),
       // Powering up: the glow leads the movement.
-      glow: easeOut(clamp(k / 0.7, 0, 1)),
+      glow: (personality.glow ?? 0) * easeOut(clamp(k / 0.7, 0, 1)),
       blink: k > 0.2 && k < 0.3 ? 1 : 0,
     });
   }
@@ -246,24 +247,29 @@ export function poseFor(state, t = 0) {
   const duration = DURATIONS[celebrating ? STATES.CELEBRATE : STATES.HOP];
   const cycle = seconds / duration;
   const phase = hopPhase(cycle);
-  const flare = celebrating ? 1.45 : 1;
+  const stateName = celebrating ? 'celebrate' : 'hop';
+  const personality = subject.personality[stateName] ?? subject.personality.hop;
+  const air = airborneness(phase.height);
+  const lagAir = airborneness(hopPhase(cycle - 0.1).height);
 
-  return pose({
+  return pose(subject, {
     root: {
-      y: phase.height,
-      tilt: 0.24 * airborneness(phase.height) * (celebrating ? 0.4 : 1),
+      y: phase.height * (personality.root.hopHeightScale ?? 1),
+      tilt: (personality.root.tilt ?? 0) * air * (personality.root.tiltScale ?? 1),
       scale: squashStretch(phase.squash),
     },
-    rotations: hopRotations(cycle, flare),
-    blink: celebrating ? 0 : blinkAt(seconds),
-    glow: celebrating ? 0.6 : 0.25,
+    rotations: rotationsFor(subject, stateName, {
+      bob: 0, flare: 0, bounce: 0, air, lagAir,
+    }),
+    blink: personality.blink ? blinkAt(seconds) : 0,
+    glow: personality.glow ?? 0,
     progress: hopProgress(cycle),
     stage: phase.stage,
   });
 }
 
 /** Every rotation a pose can carry names a real puppet piece. */
-export const poseRotationKeys = () => Object.keys(NO_ROTATION);
+export const poseRotationKeys = (subject) => [...subject.pieces];
 
 // --- where it hops ---------------------------------------------------------
 
@@ -409,10 +415,10 @@ export function stepRoam(plan, dt) {
  * `robotRenderer.drawPiece` produces, so the geometry and the artwork can never
  * disagree about where a piece is.
  */
-export function pieceLayout(piece) {
-  const box = pieceBounds(piece);
+export function pieceLayout(subject, piece) {
+  const box = pieceBounds(subject, piece);
   if (!box) return null;
-  const pivot = PIVOTS[piece];
+  const pivot = subject.pivots[piece];
   return {
     piece,
     width: box.maxX - box.minX,
@@ -422,22 +428,12 @@ export function pieceLayout(piece) {
   };
 }
 
-export const PIECE_LAYOUTS = Object.freeze(PIECES.map(pieceLayout));
-
 /**
  * Which piece hangs off which, so a rotation carries its children with it.
  *
  * The torso is the root, and this is a parenting tree, not a skeleton — every
  * piece is still a rigid flat quad.
  */
-export const PIECE_PARENTS = Object.freeze({
-  body: null,
-  leftArm: 'body',
-  rightArm: 'body',
-  leftLeg: 'body',
-  rightLeg: 'body',
-});
-
 /**
  * Depth order front to back.
  *
@@ -447,10 +443,6 @@ export const PIECE_PARENTS = Object.freeze({
  * and the join becomes a visible step, with the torso's paint showing on the
  * arm where the two share pixels.
  */
-export const PIECE_DEPTH = Object.freeze({
-  leftArm: -0.5, rightArm: -0.5, leftLeg: -0.7, rightLeg: -0.7, body: 0,
-});
-
 /**
  * How tall the puppet stands in world units. The picture is a unit square, so
  * this is also the scale from picture coordinates to world coordinates.

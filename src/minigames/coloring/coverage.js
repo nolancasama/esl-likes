@@ -49,12 +49,12 @@ const CELL_FAVOURITE = 2;
  * centre rather than the whole cell keeps the mask stable and cheap; at 6px a
  * cell the edge error is invisible in a progress bar.
  */
-function buildMask() {
+function buildMask(subject) {
   const mask = new Uint8Array(GRID * GRID);
   let cells = 0;
   for (let gy = 0; gy < GRID; gy += 1) {
     for (let gx = 0; gx < GRID; gx += 1) {
-      if (insideSilhouette((gx + 0.5) / GRID, (gy + 0.5) / GRID)) {
+      if (insideSilhouette(subject, (gx + 0.5) / GRID, (gy + 0.5) / GRID)) {
         mask[gy * GRID + gx] = 1;
         cells += 1;
       }
@@ -63,15 +63,15 @@ function buildMask() {
   return { mask, cells };
 }
 
-let cached = null;
-/** The robot mask, shared: it depends only on the definition. */
-export function silhouetteMask() {
-  cached ||= buildMask();
-  return cached;
+const masks = new WeakMap();
+/** A subject mask, shared by coverage trackers for that frozen definition. */
+export function silhouetteMask(subject) {
+  if (!masks.has(subject)) masks.set(subject, buildMask(subject));
+  return masks.get(subject);
 }
 
-/** Cells on the robot. Exported so a test can reason about the threshold. */
-export const robotCellCount = () => silhouetteMask().cells;
+/** Cells on a subject. Exported so a test can reason about the threshold. */
+export const subjectCellCount = (subject) => silhouetteMask(subject).cells;
 
 /**
  * Tracks what has been coloured.
@@ -79,8 +79,8 @@ export const robotCellCount = () => silhouetteMask().cells;
  * @param {object} [options]
  * @param {string|null} [options.favourite] the NPC's colour this round
  */
-export function createCoverage({ favourite = null } = {}) {
-  const { mask, cells: robotCells } = silhouetteMask();
+export function createCoverage({ subject, favourite = null } = {}) {
+  const { mask, cells: robotCells } = silhouetteMask(subject);
   const painted = new Uint8Array(GRID * GRID);
   /** Undo is per stroke: the cells this stroke changed, and what they were. */
   const strokes = [];

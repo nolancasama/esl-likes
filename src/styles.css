@@ -82,6 +82,13 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   gap: 12px;
 }
 
+/* Coloring, the Drink Stand, Sports and the Zoo all put a scene card at the
+   start of this bar, which is the corner the Back control took. The class is
+   set only while a minigame is open, so the hub's own bar is untouched. */
+.shell-has-back .top-bar {
+  padding-left: 150px;
+}
+
 .top-actions { display: flex; gap: 10px; margin-right: 8rem; }
 
 .hub-card, .scene-card {

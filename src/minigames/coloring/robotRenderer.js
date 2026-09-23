@@ -17,12 +17,11 @@
  */
 
 import {
-  DETAILS,
   PICTURE_SIZE,
-  SHAPES,
-  SHAPES_BY_PIECE,
   drawOrder,
+  pieceAt,
   pieceBounds,
+  shapesForPiece,
 } from './robotDefinition.js';
 
 export const INK = '#17233a';
@@ -55,10 +54,10 @@ function pathShape(ctx, shape, size) {
  * Also the mask: calling this and then `ctx.clip()` is how a puppet piece keeps
  * only the paint that belongs to it.
  */
-export function pathSilhouette(ctx, { size = PICTURE_SIZE, only = null } = {}) {
+export function pathSilhouette(ctx, { subject, size = PICTURE_SIZE, only = null } = {}) {
   const entries = only
-    ? SHAPES.filter((entry) => only.includes(entry.id))
-    : drawOrder();
+    ? subject.shapes.filter((entry) => only.includes(entry.id))
+    : drawOrder(subject);
   ctx.beginPath();
   for (const entry of entries) {
     const shape = entry.shape;
@@ -78,8 +77,10 @@ export function pathSilhouette(ctx, { size = PICTURE_SIZE, only = null } = {}) {
 }
 
 /** The unpainted robot: a pale body, so the shape reads before any paint. */
-export function drawBlankBody(ctx, { size = PICTURE_SIZE, only = null } = {}) {
-  const entries = only ? SHAPES.filter((e) => only.includes(e.id)) : drawOrder();
+export function drawBlankBody(ctx, { subject, size = PICTURE_SIZE, only = null } = {}) {
+  const entries = only
+    ? subject.shapes.filter((entry) => only.includes(entry.id))
+    : drawOrder(subject);
   ctx.fillStyle = BLANK;
   for (const entry of entries) {
     pathShape(ctx, entry.shape, size);
@@ -93,9 +94,11 @@ export function drawBlankBody(ctx, { size = PICTURE_SIZE, only = null } = {}) {
  * Drawn last, so it survives any paint. The eyes are filled white first so a
  * child who scribbles the head dark can still see the robot looking back.
  */
-export function drawLineArt(ctx, { size = PICTURE_SIZE, only = null, blink = 0 } = {}) {
-  const entries = only ? SHAPES.filter((e) => only.includes(e.id)) : drawOrder();
-  const showsFace = entries.some((entry) => entry.id === 'head');
+export function drawLineArt(ctx, { subject, size = PICTURE_SIZE, only = null, blink = 0 } = {}) {
+  const entries = only
+    ? subject.shapes.filter((entry) => only.includes(entry.id))
+    : drawOrder(subject);
+  const selectedPieces = new Set(entries.map((entry) => entry.piece));
 
   ctx.save();
   ctx.strokeStyle = INK;
@@ -107,72 +110,64 @@ export function drawLineArt(ctx, { size = PICTURE_SIZE, only = null, blink = 0 }
     ctx.stroke();
   }
 
-  if (showsFace) {
-    ctx.lineWidth = DETAIL * size;
-    for (const eye of DETAILS.eyes) {
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(eye.cx * size, eye.cy * size, eye.r * size, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = INK;
-      ctx.stroke();
-      // A blink closes the eye to a line rather than hiding it.
-      const open = 1 - Math.min(1, Math.max(0, blink));
-      ctx.fillStyle = INK;
-      ctx.beginPath();
-      if (open > 0.15) {
-        ctx.ellipse(eye.cx * size, eye.cy * size, eye.r * DETAILS.pupilRatio * size,
-          eye.r * DETAILS.pupilRatio * open * size, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.lineWidth = DETAIL * 1.6 * size;
-        ctx.moveTo((eye.cx - eye.r * 0.7) * size, eye.cy * size);
-        ctx.lineTo((eye.cx + eye.r * 0.7) * size, eye.cy * size);
-        ctx.stroke();
-        ctx.lineWidth = DETAIL * size;
-      }
-    }
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = DETAIL * 1.3 * size;
+  ctx.lineWidth = DETAIL * size;
+  for (const eye of subject.details.eyes) {
+    const eyePiece = pieceAt(subject, eye.cx, eye.cy) ?? subject.pieces[0];
+    if (only && !selectedPieces.has(eyePiece)) continue;
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.moveTo(DETAILS.mouth.x1 * size, DETAILS.mouth.y * size);
-    ctx.lineTo(DETAILS.mouth.x2 * size, DETAILS.mouth.y * size);
+    ctx.arc(eye.cx * size, eye.cy * size, eye.r * size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = INK;
     ctx.stroke();
+    // A blink closes the eye to a line rather than hiding it.
+    const open = 1 - Math.min(1, Math.max(0, blink));
+    ctx.fillStyle = INK;
+    ctx.beginPath();
+    if (open > 0.15) {
+      ctx.ellipse(eye.cx * size, eye.cy * size, eye.r * subject.details.pupilRatio * size,
+        eye.r * subject.details.pupilRatio * open * size, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.lineWidth = DETAIL * 1.6 * size;
+      ctx.moveTo((eye.cx - eye.r * 0.7) * size, eye.cy * size);
+      ctx.lineTo((eye.cx + eye.r * 0.7) * size, eye.cy * size);
+      ctx.stroke();
+      ctx.lineWidth = DETAIL * size;
+    }
   }
 
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = DETAIL * size;
-  if (entries.some((entry) => entry.id === 'torso')) {
-    for (const bolt of DETAILS.bolts) {
-      ctx.beginPath();
-      ctx.arc(bolt.cx * size, bolt.cy * size, bolt.r * size, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+  for (const mark of subject.details.marks) {
+    if (only && !selectedPieces.has(mark.piece)) continue;
+    drawMark(ctx, mark, size);
   }
-  // Cuffs and knees, kept with whichever piece their line sits on.
-  const box = only ? null : undefined;
-  for (const line of DETAILS.lines) {
-    if (only && !lineBelongsTo(line, only)) continue;
-    ctx.beginPath();
-    ctx.moveTo(line.x1 * size, line.y * size);
-    ctx.lineTo(line.x2 * size, line.y * size);
-    ctx.stroke();
-  }
-  void box;
   ctx.restore();
 }
 
-/** A cuff or knee line belongs to whichever shape it is drawn across. */
-function lineBelongsTo(line, only) {
-  const midX = (line.x1 + line.x2) / 2;
-  return SHAPES.some((entry) => {
-    if (!only.includes(entry.id)) return false;
-    const bounds = entry.shape.kind === 'circle'
-      ? null
-      : { minX: entry.shape.x, maxX: entry.shape.x + entry.shape.width, minY: entry.shape.y, maxY: entry.shape.y + entry.shape.height };
-    if (!bounds) return false;
-    return midX >= bounds.minX && midX <= bounds.maxX && line.y >= bounds.minY && line.y <= bounds.maxY;
-  });
+function drawMark(ctx, mark, size) {
+  ctx.strokeStyle = mark.stroke || INK;
+  ctx.fillStyle = typeof mark.fill === 'string' ? mark.fill : INK;
+  ctx.lineWidth = DETAIL * (mark.lineWidth ?? 1) * size;
+  ctx.beginPath();
+  if (mark.type === 'line') {
+    ctx.moveTo(mark.x1 * size, mark.y1 * size);
+    ctx.lineTo(mark.x2 * size, mark.y2 * size);
+  } else if (mark.type === 'circle') {
+    ctx.arc(mark.cx * size, mark.cy * size, mark.r * size, 0, Math.PI * 2);
+  } else if (mark.type === 'arc') {
+    ctx.arc(mark.cx * size, mark.cy * size, mark.r * size,
+      mark.startAngle ?? 0, mark.endAngle ?? Math.PI * 2, mark.counterclockwise ?? false);
+  } else if (mark.type === 'polygon' || mark.type === 'triangle') {
+    const points = mark.points ?? [];
+    if (!points.length) return;
+    ctx.moveTo(points[0].x * size, points[0].y * size);
+    for (const point of points.slice(1)) ctx.lineTo(point.x * size, point.y * size);
+    ctx.lineTo(points[0].x * size, points[0].y * size);
+  } else {
+    return;
+  }
+  if (mark.fill) ctx.fill();
+  if (mark.stroke !== false) ctx.stroke();
 }
 
 /**
@@ -183,20 +178,20 @@ function lineBelongsTo(line, only) {
  * @param {object} options
  * @param {HTMLCanvasElement} [options.paint] the child's strokes, same size
  */
-export function drawPage(ctx, { size = PICTURE_SIZE, paint = null, blink = 0 } = {}) {
+export function drawPage(ctx, { subject, size = PICTURE_SIZE, paint = null, blink = 0 } = {}) {
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, size, size);
-  drawBlankBody(ctx, { size });
+  drawBlankBody(ctx, { subject, size });
   if (paint) ctx.drawImage(paint, 0, 0, size, size);
-  drawLineArt(ctx, { size, blink });
+  drawLineArt(ctx, { subject, size, blink });
 }
 
 /**
  * The pixel box a puppet piece's texture covers: the piece's bounds plus a
  * margin for the outline, which straddles the edge of a shape.
  */
-export function pieceTextureBounds(piece, { size = PICTURE_SIZE, margin = OUTLINE } = {}) {
-  const box = pieceBounds(piece);
+export function pieceTextureBounds(piece, { subject, size = PICTURE_SIZE, margin = OUTLINE } = {}) {
+  const box = pieceBounds(subject, piece);
   if (!box) return null;
   const pad = margin * size;
   return {
@@ -219,23 +214,23 @@ export function pieceTextureBounds(piece, { size = PICTURE_SIZE, margin = OUTLIN
  * The caller supplies a correctly sized transparent canvas from
  * `pieceTextureBounds`.
  */
-export function drawPiece(ctx, piece, { size = PICTURE_SIZE, paint = null } = {}) {
-  const box = pieceTextureBounds(piece, { size });
+export function drawPiece(ctx, piece, { subject, size = PICTURE_SIZE, paint = null } = {}) {
+  const box = pieceTextureBounds(piece, { subject, size });
   if (!box) return null;
-  const ids = SHAPES_BY_PIECE[piece].map((entry) => entry.id);
+  const ids = shapesForPiece(subject, piece).map((entry) => entry.id);
 
   ctx.save();
   ctx.translate(-box.x, -box.y);
 
   ctx.save();
-  pathSilhouette(ctx, { size, only: ids });
+  pathSilhouette(ctx, { subject, size, only: ids });
   ctx.clip();
-  drawBlankBody(ctx, { size, only: ids });
+  drawBlankBody(ctx, { subject, size, only: ids });
   if (paint) ctx.drawImage(paint, 0, 0, size, size);
   ctx.restore();
 
   // Outside the clip, so the outline reads at full weight on the cut edge.
-  drawLineArt(ctx, { size, only: ids });
+  drawLineArt(ctx, { subject, size, only: ids });
   ctx.restore();
   return box;
 }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { createPaperPuppet } from '../coloring/paperPuppet.js';
 import { PUPPET_HEIGHT, STATES } from '../coloring/robotPuppet.js';
+import robot from '../coloring/subjects/robot.js';
 
 /** Keep a flat puppet this far from either edge-on heading. */
 export const EDGE_GUARD = 0.44;
@@ -65,7 +66,7 @@ function readableStep(yaw, destination, previous) {
  * visible sheet independently while still arriving at that heading.
  */
 export function createRobotCustomerCharacter({ artwork, textureSize } = {}) {
-  const puppet = createPaperPuppet({ paint: artwork, textureSize });
+  const puppet = createPaperPuppet({ subject: robot, paint: artwork, textureSize });
   const character = new THREE.Group();
   character.name = 'restaurant-robot-customer';
   character.add(puppet.group);

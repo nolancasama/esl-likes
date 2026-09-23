@@ -57,12 +57,25 @@ function makeHarness() {
     children: [],
     append(element) { this.children.push(element); },
   };
-  globalThis.document = { createElement: (tagName) => new FakeElement(tagName) };
+  const classes = new Set();
+  const documentElement = {
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name),
+      contains: (name) => classes.has(name),
+      toggle: (name, force) => (force ? classes.add(name) : classes.delete(name)),
+    },
+  };
+  globalThis.document = {
+    createElement: (tagName) => new FakeElement(tagName),
+    documentElement,
+  };
   globalThis.window = fakeWindow;
 
   return {
     root,
     window: fakeWindow,
+    documentElement,
     restore() {
       globalThis.document = previousDocument;
       globalThis.window = previousWindow;
@@ -128,6 +141,31 @@ test('Escape guards run newest first and a consuming guard blocks Back', () => {
     assert.deepEqual(calls, ['older']);
     assert.equal(backCount, 0);
     control.destroy();
+  } finally {
+    harness.restore();
+  }
+});
+
+test('showing Back makes room for a minigame scene card', () => {
+  const harness = makeHarness();
+  try {
+    const control = createBackControl({
+      root: harness.root,
+      label: '← もどる',
+      onBack: () => {},
+    });
+    const root = harness.documentElement;
+
+    // Four minigames start their shared `.top-bar` in the same corner Back
+    // occupies. Without this the title and hint sit underneath the button.
+    control.setAvailable(true);
+    assert.ok(root.classList.contains('shell-has-back'), 'the scene card was left under Back');
+    control.setAvailable(false);
+    assert.ok(!root.classList.contains('shell-has-back'), 'the hub bar kept a gap for a hidden button');
+
+    control.setAvailable(true);
+    control.destroy();
+    assert.ok(!root.classList.contains('shell-has-back'), 'the gap outlived the control');
   } finally {
     harness.restore();
   }

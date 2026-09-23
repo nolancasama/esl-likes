@@ -97,14 +97,14 @@ test('nothing ever removes a robot from the room', () => {
 });
 
 test('finished robots are saved before teardown and rebuilt after the world', () => {
-  const save = source.indexOf('saveCompletedRobot(surface.paint, pendingMember)');
+  const save = source.indexOf('saveCompletedCreation({');
   const paintTeardown = source.indexOf('disposePaintingOverlay();', save);
   assert.ok(save > 0 && paintTeardown > save,
     'the live paint canvas is torn down before the detached session copy');
   const world = source.indexOf('buildWorld();');
   const restore = source.indexOf('restoreSavedRobots();', world);
   assert.ok(world > 0 && restore > world, 'saved robots are not rebuilt after the room exists');
-  assert.match(source, /createPaperPuppet\(\{ paint: record\.artwork/);
+  assert.match(source, /createPaperPuppet\(\{ subject, paint: record\.artwork/);
   assert.match(source, /crowd\.join\(record\.crowd\)/);
 });
 
@@ -123,7 +123,7 @@ test('stars come from the robot count, and no per-round score survives', () => {
 test('the puppet is built from the live paint before the surface is torn down', () => {
   // Reversed, this silently produces blank robots: the paint canvas is zeroed
   // by `disposePaintingOverlay`, and a puppet built afterwards copies nothing.
-  const build = source.indexOf('createPaperPuppet({ paint: surface.paint');
+  const build = source.indexOf('createPaperPuppet({ subject: activeSubject, paint: surface.paint');
   const teardown = source.indexOf('disposePaintingOverlay();', build);
   assert.ok(build > 0, 'the puppet is not built from the live paint canvas');
   assert.ok(teardown > build, 'the painting surface is disposed before the puppet copies it');

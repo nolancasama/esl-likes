@@ -2542,3 +2542,49 @@ under a moving brush is exactly the distraction a painting child does not need.
 `picture.js` now reports `strokeActive`, and the page holds the celebration
 until the stroke ends. Rejected: debouncing on a timer, which would fire in the
 middle of a long sweep just the same.
+
+## 2026-09-23 — Coloring subjects are frozen data behind one contract
+
+**Every colorable figure is one deeply frozen subject object.** Its pieces,
+pivots, parent tree, depth, silhouette shapes, details, personality and live
+scale travel together, while geometry, rendering, coverage and puppet code take
+that object explicitly. This makes authored data the only variable between
+figures and prevents one module from silently falling back to the robot.
+Rejected: parallel per-character modules or keeping robot constants as implicit
+globals, both of which would duplicate engines or let page and puppet drift.
+
+## 2026-09-23 — Line-art details are typed drawing primitives
+
+**Small visual details are an ordered list of line, circle, arc, polygon and
+triangle marks owned by pieces.** The renderer loops over them; the robot's
+mouth, bolts, cuffs and knees use their original coordinates and weights. This
+lets later noses, buttons, scarves, beaks and ties remain data. Rejected: named
+fields such as `mouth` and `bolts`, or subject-id branches in the renderer,
+because every new figure would otherwise expand renderer policy.
+
+## 2026-09-23 — One motion engine reads declarative personality
+
+**Idle, startup, hop, land, celebration, blink and squash/stretch remain shared
+mechanics, while per-state root amounts and per-piece rotation drivers live in
+the subject personality.** The engine starts from the subject's own piece list,
+so absent legs and future heads or tails require data rather than code. Rejected:
+one animation implementation per subject and subject-id switches, which would
+make timing fixes diverge across the cast.
+
+## 2026-09-23 — Coloring saves creations; robots remain a compatibility view
+
+**Session records now carry `{ subjectId, artwork, crowd }`, and Coloring reads
+them through `savedCreations()`.** `savedRobots()` remains as a filtered view for
+Restaurant and treats id-less legacy records as robots, so Restaurant's customer
+scope does not widen. Rejected: broadening Restaurant to every subject, deleting
+the old view, or adding browser persistence; each changes behavior outside this
+contract migration.
+
+**The shell reserves its corner; the shared top bar moves over.** Adding Back
+uncovered that `.top-bar` — used by Coloring, the Drink Stand, Sports, the Zoo
+and the hub — starts its scene card in exactly the corner Back now occupies, so
+the room title and hint sat underneath the button. The back control sets a
+`shell-has-back` class on the document while it is visible and one shared rule
+pads the bar clear of it. Rejected: nudging each minigame's own card, which is
+four places to keep in sync and would have left the hub's bar indented for a
+button that is not there.

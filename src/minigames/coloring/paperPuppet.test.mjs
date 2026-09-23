@@ -86,10 +86,16 @@ if (!globalThis.document.createElement) {
 }
 
 const {
-  PUPPET_TEXTURE_SIZE, STATES, createPaperPuppet, disposeSharedPaperAssets, sharedPaperAssets,
+  PUPPET_TEXTURE_SIZE, STATES, createPaperPuppet: buildPaperPuppet,
+  disposeSharedPaperAssets, sharedPaperAssets,
 } = await import('./paperPuppet.js');
-const { PIECES, silhouetteBounds } = await import('./robotDefinition.js');
-const { PUPPET_HEIGHT, pieceLayout } = await import('./robotPuppet.js');
+const { silhouetteBounds: subjectBounds } = await import('./robotDefinition.js');
+const { PUPPET_HEIGHT, pieceLayout: subjectPieceLayout } = await import('./robotPuppet.js');
+const { default: robot } = await import('./subjects/robot.js');
+const PIECES = robot.pieces;
+const createPaperPuppet = (options = {}) => buildPaperPuppet({ subject: robot, ...options });
+const silhouetteBounds = () => subjectBounds(robot);
+const pieceLayout = (piece) => subjectPieceLayout(robot, piece);
 const THREE = await import('three');
 const { readFileSync } = await import('node:fs');
 const puppetSource = readFileSync(new URL('./paperPuppet.js', import.meta.url), 'utf8');
@@ -206,12 +212,12 @@ test('the lowest point of the robot silhouette stands on world Y=0', () => {
 test('the ground baseline is derived from the silhouette, not typed', () => {
   assert.match(
     puppetSource,
-    /const FEET = silhouetteBounds\(\)\.maxY;/,
+    /const feet = silhouetteBounds\(subject\)\.maxY;/,
     'the standing baseline is not derived from the robot definition',
   );
   assert.doesNotMatch(
     puppetSource,
-    /const FEET = [\d.]+;/,
+    /const feet = [\d.]+;/,
     'a hard-coded standing baseline is back, and it goes stale the next time the robot changes',
   );
 });

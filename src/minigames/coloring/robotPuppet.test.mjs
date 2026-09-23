@@ -6,9 +6,6 @@ import {
   HOP_DISTANCE,
   HOP_STAGES,
   OBSTACLES,
-  PIECE_DEPTH,
-  PIECE_LAYOUTS,
-  PIECE_PARENTS,
   ROAM_POINTS,
   SAFE_AREA,
   SQUASH_LIMIT,
@@ -18,13 +15,21 @@ import {
   hopPhase,
   hopProgress,
   insideSafeArea,
-  pieceLayout,
-  poseFor,
-  poseRotationKeys,
+  pieceLayout as subjectPieceLayout,
+  poseFor as subjectPoseFor,
+  poseRotationKeys as subjectPoseRotationKeys,
   squashStretch,
   stepRoam,
 } from './robotPuppet.js';
-import { PIECES, PIVOTS, pieceBounds } from './robotDefinition.js';
+import { pieceBounds as subjectPieceBounds } from './robotDefinition.js';
+import robot from './subjects/robot.js';
+
+const { depth: PIECE_DEPTH, parents: PIECE_PARENTS, pieces: PIECES, pivots: PIVOTS } = robot;
+const pieceBounds = (piece) => subjectPieceBounds(robot, piece);
+const pieceLayout = (piece) => subjectPieceLayout(robot, piece);
+const poseFor = (state, time) => subjectPoseFor(robot, state, time);
+const poseRotationKeys = () => subjectPoseRotationKeys(robot);
+const PIECE_LAYOUTS = Object.freeze(PIECES.map(pieceLayout));
 
 const samples = (count = 400) => Array.from({ length: count }, (_, i) => i / count);
 

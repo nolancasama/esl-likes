@@ -77,6 +77,11 @@ export function createBackControl({ root, label, onBack }) {
     setAvailable(nextAvailable) {
       available = nextAvailable === true;
       element.hidden = !available;
+      // Four minigames put a scene card in the shared `.top-bar`, which starts
+      // at the same corner Back now occupies. Marking the document lets the one
+      // shared rule move them clear, and leaves the hub — where Back is hidden —
+      // exactly as it was.
+      document.documentElement?.classList?.toggle('shell-has-back', available);
     },
     /**
      * `priority` lifts a guard above the ordinary last-registered-wins rule.
@@ -101,6 +106,7 @@ export function createBackControl({ root, label, onBack }) {
       destroyed = true;
       available = false;
       guards.length = 0;
+      document.documentElement?.classList?.remove('shell-has-back');
       window.removeEventListener('keydown', onKeyDown);
       element.removeEventListener('click', activate);
       element.remove();

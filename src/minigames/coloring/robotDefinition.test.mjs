@@ -2,20 +2,49 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DETAILS,
   PICTURE_SIZE,
-  PIECES,
-  PIVOTS,
-  SHAPES,
-  SHAPES_BY_PIECE,
   insideShape,
-  insideSilhouette,
-  pieceAt,
-  pieceBounds,
+  insideSilhouette as subjectContains,
+  pieceAt as subjectPieceAt,
+  pieceBounds as subjectPieceBounds,
   shapeBounds,
-  silhouetteArea,
-  silhouetteBounds,
+  silhouetteArea as subjectArea,
+  silhouetteBounds as subjectBounds,
 } from './robotDefinition.js';
+import robot from './subjects/robot.js';
+
+const { details: DETAILS, pieces: PIECES, pivots: PIVOTS, shapes: SHAPES } = robot;
+const SHAPES_BY_PIECE = Object.fromEntries(
+  PIECES.map((piece) => [piece, SHAPES.filter((entry) => entry.piece === piece)]),
+);
+const insideSilhouette = (x, y) => subjectContains(robot, x, y);
+const pieceAt = (x, y) => subjectPieceAt(robot, x, y);
+const pieceBounds = (piece) => subjectPieceBounds(robot, piece);
+const silhouetteArea = (samples) => subjectArea(robot, samples);
+const silhouetteBounds = () => subjectBounds(robot);
+
+function assertDeepFrozen(value) {
+  if (!value || typeof value !== 'object') return;
+  assert.ok(Object.isFrozen(value));
+  for (const child of Object.values(value)) assertDeepFrozen(child);
+}
+
+test('robot is one deeply frozen subject contract', () => {
+  assert.equal(robot.id, 'robot');
+  assert.equal(robot.category, 'character');
+  assert.equal(robot.zooSpecies, null);
+  assert.equal(robot.pieces[0], 'body');
+  assert.equal(robot.liveScale, 1);
+  for (const piece of robot.pieces) {
+    assert.ok(piece in robot.pivots, `${piece} has no pivot`);
+    assert.ok(piece in robot.parents, `${piece} has no parent entry`);
+    assert.ok(piece in robot.depth, `${piece} has no depth`);
+  }
+  assert.ok(robot.details.eyes.length > 0);
+  assert.ok(robot.details.pupilRatio > 0);
+  assert.ok(robot.details.marks.every((mark) => ['line', 'circle', 'arc', 'polygon', 'triangle'].includes(mark.type)));
+  assertDeepFrozen(robot);
+});
 
 test('the robot is five pieces, and every shape belongs to exactly one', () => {
   assert.deepEqual(PIECES, ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg']);
@@ -153,14 +182,19 @@ test('the face and the details sit on the head and the torso', () => {
     assert.ok(insideShape(eye.cx, eye.cy, head), 'an eye is off the head');
     assert.ok(eye.r * PICTURE_SIZE > 14, 'the eyes must be big enough to read');
   }
-  assert.ok(insideShape(DETAILS.mouth.x1, DETAILS.mouth.y, head));
-  assert.ok(insideShape(DETAILS.mouth.x2, DETAILS.mouth.y, head));
+  const mouth = DETAILS.marks.find((mark) => mark.type === 'line' && mark.lineWidth === 1.3);
+  assert.ok(insideShape(mouth.x1, mouth.y1, head));
+  assert.ok(insideShape(mouth.x2, mouth.y2, head));
   const torso = SHAPES.find((entry) => entry.id === 'torso').shape;
-  for (const bolt of DETAILS.bolts) {
+  const bolts = DETAILS.marks.filter((mark) => mark.type === 'circle');
+  assert.equal(bolts.length, 3);
+  for (const bolt of bolts) {
     assert.ok(insideShape(bolt.cx, bolt.cy, torso), 'a bolt is off the torso');
   }
-  for (const line of DETAILS.lines) {
-    assert.ok(insideSilhouette((line.x1 + line.x2) / 2, line.y), 'a detail line is off the robot');
+  const detailLines = DETAILS.marks.filter((mark) => mark.type === 'line');
+  assert.equal(detailLines.length, 5);
+  for (const line of detailLines) {
+    assert.ok(insideSilhouette((line.x1 + line.x2) / 2, line.y1), 'a detail line is off the robot');
   }
 });
 
