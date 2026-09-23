@@ -16,7 +16,7 @@
 
 import * as THREE from 'three';
 
-import { DETAILS, PIECES } from './robotDefinition.js';
+import { DETAILS, PIECES, silhouetteBounds } from './robotDefinition.js';
 import { drawPiece, pieceTextureBounds } from './robotRenderer.js';
 import {
   DURATIONS,
@@ -32,8 +32,16 @@ import {
   stepRoam,
 } from './robotPuppet.js';
 
-/** The picture y the puppet stands on, so its feet land on the floor. */
-const FEET = 0.875;
+/**
+ * The picture y the puppet stands on, so its feet land on the floor.
+ *
+ * Derived, never typed. This was `0.875` for as long as that happened to be
+ * where the robot's feet ended; the definition later grew and the feet reached
+ * 0.947, so every puppet stood an eighth of a unit *through* the floor. Taking
+ * the silhouette's own lowest point means the next change to the robot's
+ * proportions moves the ground with it, silently and correctly.
+ */
+const FEET = silhouetteBounds().maxY;
 
 /** Paper thickness, and how much the backing quad oversteps the artwork. */
 const PAPER_DEPTH = 0.012;
@@ -167,6 +175,7 @@ const glowTexture = () => radialTexture([
 let sharedQuad = null;
 let sharedGlow = null;
 let sharedShadow = null;
+let livePuppetCount = 0;
 
 const quadGeometry = () => (sharedQuad ||= new THREE.PlaneGeometry(1, 1));
 const sharedGlowArt = () => (sharedGlow ||= glowTexture());
@@ -174,6 +183,7 @@ const sharedShadowArt = () => (sharedShadow ||= shadowTexture());
 
 /** Frees the shared quad and gradients. Call once, after the last puppet is gone. */
 export function disposeSharedPaperAssets() {
+  if (livePuppetCount > 0) return;
   sharedQuad?.dispose();
   sharedQuad = null;
   for (const art of [sharedGlow, sharedShadow]) {
@@ -203,6 +213,7 @@ export const sharedPaperAssets = () => ({
 export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_SIZE, onLand } = {}) {
   const disposables = { geometries: new Set(), materials: new Set(), textures: new Set(), canvases: [] };
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
+  let disposed = false;
 
   const root = new THREE.Group();
   root.name = 'paper-robot';
@@ -501,6 +512,9 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
     },
 
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      livePuppetCount -= 1;
       root.parent?.remove(root);
       for (const texture of disposables.textures) texture.dispose();
       for (const material of disposables.materials) material.dispose();
@@ -514,6 +528,7 @@ export function createPaperPuppet({ paint = null, textureSize = PUPPET_TEXTURE_S
     },
   };
 
+  livePuppetCount += 1;
   return api;
 }
 

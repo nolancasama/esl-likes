@@ -86,9 +86,13 @@ if (!globalThis.document.createElement) {
 }
 
 const {
-  PUPPET_TEXTURE_SIZE, createPaperPuppet, disposeSharedPaperAssets, sharedPaperAssets,
+  PUPPET_TEXTURE_SIZE, STATES, createPaperPuppet, disposeSharedPaperAssets, sharedPaperAssets,
 } = await import('./paperPuppet.js');
-const { PIECES } = await import('./robotDefinition.js');
+const { PIECES, silhouetteBounds } = await import('./robotDefinition.js');
+const { PUPPET_HEIGHT, pieceLayout } = await import('./robotPuppet.js');
+const THREE = await import('three');
+const { readFileSync } = await import('node:fs');
+const puppetSource = readFileSync(new URL('./paperPuppet.js', import.meta.url), 'utf8');
 
 /** Counts three.js `dispose` events, which is how a real disposal is observable. */
 function watch(target) {
@@ -166,6 +170,74 @@ test('only disposeSharedPaperAssets frees the shared assets, and then they rebui
   const rebuilt = sharedPaperAssets();
   assert.ok(rebuilt.quad && rebuilt.quad !== shared.quad, 'a disposed quad was handed out again');
   later.dispose();
+});
+
+// --- the puppet stands on the floor -----------------------------------------
+
+/**
+ * Where the lowest paint on the puppet actually is, in world units.
+ *
+ * The piece meshes only: the backing quad oversteps the artwork by a few
+ * percent by design, and the shadow is a separate flat quad. This is the paint
+ * the child sees, which is the thing that was sinking.
+ */
+function lowestPaintY(puppet) {
+  puppet.group.updateMatrixWorld(true);
+  let lowest = Infinity;
+  for (const piece of PIECES) {
+    const box = new THREE.Box3().setFromObject(puppet.pieces[piece].mesh);
+    lowest = Math.min(lowest, box.min.y);
+  }
+  return lowest;
+}
+
+test('the lowest point of the robot silhouette stands on world Y=0', () => {
+  disposeSharedPaperAssets();
+  const puppet = createPaperPuppet({ paint: paint(901) });
+  const lowest = lowestPaintY(puppet);
+
+  // The newborn pose has a slight tilt, so a foot corner dips a few
+  // millimetres. What must never come back is the eighth of a unit the stale
+  // 0.875 baseline buried the feet by.
+  assert.ok(Math.abs(lowest) < 0.02, `the feet sit at ${lowest}, not on the floor`);
+  puppet.dispose();
+});
+
+test('the ground baseline is derived from the silhouette, not typed', () => {
+  assert.match(
+    puppetSource,
+    /const FEET = silhouetteBounds\(\)\.maxY;/,
+    'the standing baseline is not derived from the robot definition',
+  );
+  assert.doesNotMatch(
+    puppetSource,
+    /const FEET = [\d.]+;/,
+    'a hard-coded standing baseline is back, and it goes stale the next time the robot changes',
+  );
+});
+
+test('a change to the robot proportions moves the ground with it', () => {
+  disposeSharedPaperAssets();
+  const puppet = createPaperPuppet({ paint: paint(902) });
+
+  // The torso is the root piece, so its world y *is* the baseline in use.
+  // Asserting the mapping rather than a number is what makes a later change to
+  // the definition carry the floor with it instead of stranding it.
+  const expected = (silhouetteBounds().maxY - pieceLayout('body').pivot.y) * PUPPET_HEIGHT;
+  assert.ok(
+    Math.abs(puppet.pieces.body.group.position.y - expected) < 1e-9,
+    'the torso is not placed from the current silhouette bottom',
+  );
+  puppet.dispose();
+});
+
+test('the idle puppet does not start below the floor', () => {
+  disposeSharedPaperAssets();
+  const puppet = createPaperPuppet({ paint: paint(903) });
+  puppet.setState(STATES.IDLE);
+  puppet.update(0);
+  assert.ok(lowestPaintY(puppet) > -0.02, 'the idle robot starts underground');
+  puppet.dispose();
 });
 
 // --- each robot keeps its own artwork ---------------------------------------

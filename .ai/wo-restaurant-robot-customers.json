@@ -1,0 +1,74 @@
+{
+  "task": "Let the robots a child painted in Coloring show up as customers in the Restaurant, using the Restaurant's existing customer state machine unchanged. The only thing that differs between a human customer and a robot customer is what customer.character is.",
+
+  "context": [
+    "Coloring already saves finished robots as session records in src/minigames/coloring/coloringSession.js: savedRobots() returns [{ artwork: <canvas copy>, crowd: {...} }]. Those records are the source of truth. Do NOT add localStorage, a second save format, or a Restaurant-side copy of the artwork.",
+    "src/minigames/coloring/paperPuppet.js builds a paper-cutout three.js puppet from one artwork canvas: createPaperPuppet({ paint }) returns { group, pieces, setState, setPose, update(dt), placeAt, setHeading, startRoaming, isFinished, dispose, ... }. Its states come from robotPuppet.js STATES = { IDLE, STARTUP, HOP, CELEBRATE }.",
+    "The controller has ALREADY FIXED the sinking-feet bug in this same tree: paperPuppet.js now derives the standing baseline as const FEET = silhouetteBounds().maxY, with four new tests in paperPuppet.test.mjs. Do not revisit it, do not re-derive it, and do not change those tests.",
+    "src/systems/characters.js create() returns a THREE.Group with playAnimation, updateAnimation and disposeCharacter attached to it as plain properties. That is the entire character contract the Restaurant relies on. The robot adapter must be the same duck type: a THREE.Group with those three methods.",
+    "Restaurant customer picking walks up from the ray hit through .parent looking for userData.restaurantTarget, so an extra nested group under the character is harmless.",
+    "The Restaurant camera is a fixed world-aligned three-quarter view; customers face rotation.y = 0 when seated. The paper sheet's front is the group's local +Z.",
+    "The HOP pose is vertical only (no forward travel in the pose itself), so a hopping robot translated by the Restaurant needs no extra travel maths."
+  ],
+
+  "requirements": [
+    "NEW FILE src/minigames/restaurant/robotCasting.js - pure logic, no three.js, no DOM. Decides which customer slots are robots. Export at least: chooseGuaranteedRobotSlot({ savedCount, shiftLength, random }) returning a number or null; isRobotSlot({ index, guaranteedSlot, savedCount, random, extraChance }) returning a boolean; and pickRobotRecord({ records, random, lastIndex }) returning { record, index }. random is an injected 0..1 function defaulting to Math.random so tests can seed it.",
+    "CASTING RULE, exactly: savedCount === 0 means guaranteedSlot is null and no slot is ever a robot, so the Restaurant behaves precisely as it does today. savedCount >= 1 means exactly one slot is reserved up front and that slot is ALWAYS a robot, never decided by a probability roll. Reserve it uniformly from the first three customer arrivals (indices 0, 1, 2, clamped to the shift length) so the child sees their creation early but the first customer is not always a robot.",
+    "Additional non-reserved slots may become robots with extraChance = 0.25. Humans stay the clear majority. Randomness can never produce zero robot customers when saved robots exist.",
+    "pickRobotRecord picks uniformly at random, and when more than one record exists it must not return the same index as lastIndex (the previous robot customer's record), so two consecutive robot customers are not the same artwork. Records are read only - never removed, mutated, or consumed from coloringSession.",
+    "NEW FILE src/minigames/restaurant/robotCustomer.js - the character adapter. Export createRobotCustomerCharacter({ artwork, textureSize }) returning a THREE.Group with playAnimation(name, options), updateAnimation(dt), disposeCharacter(), plus the standard Object3D position / rotation / scale / visible / add() / getWorldPosition() which come free from Group. The puppet's group is a child of the returned group, so the adapter can turn the sheet independently of the yaw the Restaurant sets.",
+    "The adapter builds a FRESH puppet from the saved artwork: createPaperPuppet({ paint: record.artwork }). Never reuse, move, or reparent a live Coloring puppet, and never touch Coloring's three.js objects.",
+    "ANIMATION MAPPING in the adapter, with everything else falling back to idle: walk maps to STATES.HOP (continuous hopping in place); idle maps to STATES.IDLE; emote-yes maps to STATES.CELEBRATE and returns to IDLE once isFinished(); static maps to IDLE with the clock held still. Calling playAnimation with the name already playing must not restart the cycle. The robot must never attempt a human skeletal animation.",
+    "EDGE-ON READABILITY. The Restaurant sets character.rotation.y directly and instantly, from atan2 while walking, and the robot must genuinely turn with it - the paper effect is wanted. The adapter therefore keeps a rendered yaw on its inner puppet group that eases toward the group's own rotation.y with roughly a 0.25 second time constant, and that is kept at least EDGE_GUARD = 0.44 radians (about 25 degrees) away from plus or minus PI/2, so the sheet never presents less than about 42 percent of its width and can never become invisible. Export EDGE_GUARD so a test can assert it. The seated look-around of plus or minus 0.35 radians and the 0 and PI headings must pass through untouched.",
+    "Do NOT change PAPER_DEPTH or PAPER_EDGE in paperPuppet.js. The guard band is what keeps the edge readable, and Coloring's look must not shift.",
+    "Note that the Restaurant's side-step to the seat produces a sustained yaw near plus or minus PI/2, so the guard must hold there steadily, without flicker, hunting, or a visible pop every frame.",
+    "STANDING vs SEATED. Humans use character.scale 0.72 and a seated character.position.y = 0.34. Give the robot its own numbers rather than reusing those: pick a standing scale that makes the paper robot read as about the same height as a 0.72-scaled human (PUPPET_HEIGHT is 1.75 at scale 1 - measure the human model, do not guess), and a robot seated y that puts it at the table without sinking, floating, or clipping deeply through it. Expose them on the adapter as groundY (0) and seatedY.",
+    "Wire those through the customer object, NOT through a fork: add customer.seatedY and customer.groundY at creation (0.34 and 0 for humans), and change the two existing y-assignment sites in updateCustomerWalk to use them. No new customer state, and no branch on whether a customer is a robot anywhere in the state machine.",
+    "Do the same, minimally, for the two anchors: customer.bubbleOffsetY (default the current 2.25, used by the ownership and patience bubble) and customer.dialogueOffsetY (default the current 1.65) so the robot's speech bubble and patience bubble sit above its head rather than through it. Humans must keep their exact current values.",
+    "The robot customer gets the same invisible click target as a human, built from customerVisuals.hitGeometry and hitMaterial, positioned and if necessary scaled so that clicking, approaching, asking and delivering work exactly as for a human.",
+    "SHARED PAPER ASSET LIFECYCLE. paperPuppet.js shares one quad geometry and two gradient textures between every puppet, and disposeSharedPaperAssets() currently frees them unconditionally when Coloring exits. Now that the Restaurant also builds paper puppets, make that safe with the simplest robust option: keep a live-puppet count in paperPuppet.js, incremented in createPaperPuppet and decremented in that puppet's dispose, guarded against a double dispose, and make disposeSharedPaperAssets() a no-op while any puppet is still alive. The existing test named 'only disposeSharedPaperAssets frees the shared assets, and then they rebuild' disposes its puppet first and must keep passing unchanged.",
+    "Restaurant teardown disposes every robot puppet it created - the existing customer.character.disposeCharacter?.() loops already reach them - and then calls disposeSharedPaperAssets(). Returning to Coloring afterwards must still show every saved robot, with its artwork unaltered.",
+    "IMPORTS: restaurant may import coloring/coloringSession.js, coloring/paperPuppet.js and coloring/robotPuppet.js only. It must NEVER import src/minigames/coloring/index.js. No circular dependency."
+  ],
+
+  "constraints": [
+    "DO NOT rewrite, fork, or restructure Restaurant customer logic. Keep the single existing customer object and state machine and the single existing update path. A robot customer gets a random food preference, answers the food question, waits, has patience, can be claimed by player or rival, can reject a wrong dish, accepts the right one, eats, leaves, and scores exactly like a human. The robot's Coloring favourite colour has NO effect on Restaurant food.",
+    "Do not change unrelated Restaurant systems: conveyor, player movement, rival claiming and serving, patience, scoring, result stage, rematch and next rounds, teardown. Edits to src/minigames/restaurant/index.js must be additive and narrow - customer creation, the two y-assignment sites, the two bubble offsets, and session setup.",
+    "Do not put any Restaurant-specific logic into paperPuppet.js or any other Coloring file. The only permitted change to paperPuppet.js is the live-puppet count for the shared-asset lifecycle.",
+    "Do not touch the FEET and silhouetteBounds baseline work or its tests - it is already done and green in this tree.",
+    "Wrong-dish refusal needs no bespoke robot animation this pass; idle is acceptable.",
+    "Leaving robots hop out along the same exit route humans use, with no teleporting. The existing final customer.character.visible = false stays as it is.",
+    "Edit source with structured editing tools. If a regex, nested quote, backslash or multiline shell replacement fails once, stop using the shell for that edit and use a real file write.",
+    "Append this pass's product and architecture decisions to DESIGN_DECISIONS.md, dated, each with what, why and the rejected alternative: the derived ground baseline, the guaranteed-robot-slot rule and its 0.25 extra chance, the yaw guard band that keeps the paper edge readable instead of thickening the paper, and the shared-paper-asset live count."
+  ],
+
+  "startingPoints": [
+    "src/minigames/restaurant/index.js (createCustomer near line 1149, customerVisuals near 1098, updateCustomerWalk near 2436, refreshOwnership near 1290, teardown near 4237)",
+    "src/minigames/coloring/coloringSession.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/robotPuppet.js",
+    "src/systems/characters.js",
+    "src/minigames/coloring/paperPuppet.test.mjs (the fake-canvas stub to copy for the adapter's tests)"
+  ],
+
+  "tests": [
+    "robotCasting.test.mjs: zero saved robots gives no guaranteed slot and no robot customers at all; one saved robot gives a reserved slot that is a robot under every seeded random; multiple saved robots means the guaranteed robot is chosen from the saved records; the reserved slot always falls in the first three arrivals but is not always index 0 across seeds; the extra-robot probability path is exercised independently with a seeded random; consecutive robot slots do not reuse the same record index when more than one exists.",
+    "robotCustomer.test.mjs with a fake-canvas stub and no GPU: the adapter exposes position, rotation, scale, visible, add, getWorldPosition, playAnimation, updateAnimation and disposeCharacter; the animation mapping walk to hop, idle to idle, emote-yes to celebrate then idle; replaying the current name does not restart the cycle; the rendered yaw never sits within EDGE_GUARD of plus or minus PI/2 while the group's rotation.y sweeps a full turn, and it does settle at 0 and at PI; disposeCharacter disposes the puppet's own textures and materials but not the shared quad; the adapter reads the record's artwork and never mutates it.",
+    "A robot customer run through the full Restaurant lifecycle - walkingIn, seated, asking the question, awaiting, correct delivery, eating, leaving, hidden - asserting no state-machine special casing, plus wrong dish, patience timeout, rival claim and Listen Again with a robot customer.",
+    "A regression assertion that with zero saved robots the customer creation path is the human path it is today."
+  ],
+
+  "validation": ["npm test", "npm run build"],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "note": "The browser playthrough - create two differently coloured robots in Coloring, enter the Restaurant, watch a robot hop in, sit, be served and leave, then return to Coloring and confirm the saved robots are untouched - belongs to the controller. This worker's sandbox has previously been unable to start this project's vite preview, so do not attempt it and do not claim it."
+  },
+
+  "category": "game-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large"
+}

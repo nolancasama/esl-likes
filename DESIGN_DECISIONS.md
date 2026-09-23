@@ -2458,3 +2458,35 @@ non-empty, so a source change not followed by `npm run build` is graded against
 the previous build. Three runs in this pass were spent on that, and the tell was
 a floating-point power value reproducing to all 16 digits across a supposedly
 changed code path. Recorded because nothing in the harness says so.
+
+## 2026-09-23 — Coloring robots visit the Restaurant
+
+**The paper puppet's ground baseline stays derived from its silhouette.** The
+lowest painted point in the robot definition remains the source of truth for
+world Y=0, so the Restaurant can place a fresh puppet at `groundY` without
+duplicating a foot measurement or inheriting a stale magic number. Rejected:
+typing a Restaurant-specific feet offset, because a future silhouette edit
+would make the same artwork sink or float in one minigame only.
+
+**Every shift with saved artwork reserves one of its first three arrivals for a
+robot, then gives every other arrival a 0.25 chance.** The reserved index is
+chosen uniformly from the first three slots, clamped to the shift length, so a
+child reliably meets their creation early without making the opening customer
+predictable. Rejected: probability alone, because even a generous chance can
+produce a whole shift with none of the child's robots; and reserving slot zero,
+because the reveal would become mechanical.
+
+**A yaw guard keeps the paper sheet 0.44 radians away from edge-on.** The inner
+puppet eases toward the Restaurant character's heading but holds a stable side
+of the guard band during the sustained sideways step to a chair. This preserves
+the wanted flat-paper turn while retaining at least about 42 percent of the
+sheet's width. Rejected: increasing `PAPER_DEPTH` or `PAPER_EDGE`, because that
+would change every Coloring puppet and make paper read as a thick object rather
+than solve the Restaurant camera angle.
+
+**Shared paper assets are freed only when the live-puppet count reaches zero.**
+Each fresh puppet increments the count and an idempotent dispose decrements it;
+`disposeSharedPaperAssets()` does nothing while any puppet still uses the quad
+or gradients. Rejected: letting each minigame unconditionally free the shared
+objects on exit, because Restaurant and Coloring now construct the same kind of
+puppet and one owner cannot safely assume no other live instance exists.

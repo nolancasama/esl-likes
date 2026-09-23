@@ -9,7 +9,71 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — the Coloring polish pass
+## Latest pass (2026-09-23) — the child's robots visit the Restaurant
+
+Two changes: the paper puppet stopped sinking into the floor, and saved Coloring
+robots now turn up as Restaurant customers. Order
+`.ai/wo-restaurant-robot-customers.json` (Codex via the router, Sol high,
+SUCCESS). Claude fixed the feet slice directly before dispatching, reviewed the
+diff, added the missing tests and owned the browser pass.
+
+- **Sinking feet, fixed at the root.** `paperPuppet.js` had `const FEET = 0.875`
+  while the definition's lowest point had grown to `silhouetteBounds().maxY` =
+  0.947, burying every puppet 0.126 world units. `FEET` is now derived, so a
+  later change to the robot's proportions moves the ground with it. Measured
+  lowest paint after the fix: −0.0067 (a newborn-pose tilt), was −0.133.
+- **Robot customers.** Pure `robotCasting.js` reserves one of the first three
+  arrivals when `savedRobots()` is non-empty and gives every other arrival a
+  0.25 chance; `robotCustomer.js` wraps a fresh puppet built from the saved
+  artwork in a THREE.Group carrying `playAnimation` / `updateAnimation` /
+  `disposeCharacter` — the same duck type `characters.create()` returns.
+- **No fork.** `index.js` changes are additive: the casting decision at
+  `createCustomer`, `customer.seatedY` / `groundY` / `bubbleOffsetY` /
+  `dialogueOffsetY`, and a `disposeSharedPaperAssets()` after teardown's
+  existing dispose loop. `robotCustomerWiring.test.mjs` asserts the state
+  machine grew no robot branch.
+- **Edge-on.** The adapter eases a rendered yaw toward the heading Restaurant
+  sets and holds it 0.44 rad clear of ±π/2. Independently swept by the
+  controller: the sheet never drops below **42.6%** of its width, under both a
+  slow sweep and the instant heading snaps the game actually produces.
+- **Shared paper assets** are now freed only when the live-puppet count is zero.
+
+### Validation
+
+`npm test` **643/643** (was 611; +4 feet, +14 Codex, +14 controller).
+`npm run build` OK (the large-chunk advisory is pre-existing).
+
+### Browser pass — controller-owned, DONE
+
+Harness `.tmp/accept-robot-customers.mjs` (session scratchpad, **UNTRUSTED** —
+no known-bad run). It paints two robots through the real Coloring loop, walks
+out through the door turnaround, enters the Restaurant and captures
+`.tmp/robot-*.png`. **Observed:** robot customers appear built from the child's
+real artwork and visibly differ from each other; humans still appear; a robot
+sits correctly with its legs hidden by the table; the speech bubble anchors
+above it and the food question answers normally ("I like ramen."); a standing
+robot mid-entrance has its feet on the floor with its shadow at its base.
+
+### Known visual limitation
+
+Customers walk **away** from the camera to their tables, so a robot shows the
+blank cream back of its sheet for the whole entrance and only reveals the
+child's artwork once it turns at the table. Correct paper behaviour and the
+rotation the owner asked for, but the entrance undersells the drawing. The
+Coloring room solves the same problem by flipping the sheet instead of turning
+it (`setHeading`'s mirror). Not changed here — the brief explicitly wanted real
+Y-axis rotation.
+
+### Not exercised in the browser
+
+Serving a robot the correct dish, the celebrate animation, the patience/rival
+ownership bubble and the leaving hop. All are the shared customer path and are
+covered by unit tests, but none was seen rendered. Robot share on Easy
+(`total: 5`) measures **40%** across 20k simulated shifts — humans stay the
+majority, but it is higher than the brief's "20–30%" because the guaranteed slot
+lands in a short shift. `EXTRA_ROBOT_CHANCE` is the dial.
+
+## Previous pass (2026-09-23) — the Coloring polish pass
 
 The frozen contract is `.ai/coloring-polish-spec.md`. This source pass keeps
 the existing loop and favourite-only power rule, but changes who decides when a

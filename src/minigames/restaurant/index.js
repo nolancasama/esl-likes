@@ -51,6 +51,10 @@ import {
 } from './rivalProgression.js';
 import { createBeltTempo } from './beltTempo.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
+import { savedRobots } from '../coloring/coloringSession.js';
+import { disposeSharedPaperAssets } from '../coloring/paperPuppet.js';
+import { chooseGuaranteedRobotSlot, isRobotSlot, pickRobotRecord } from './robotCasting.js';
+import { createRobotCustomerCharacter } from './robotCustomer.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
   PATIENCE_LOW,
@@ -324,6 +328,9 @@ export function createRestaurant(ctx) {
   let pendingRound = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
+  let robotRecords = [];
+  let guaranteedRobotSlot = null;
+  let lastRobotRecordIndex = -1;
   let focusReleasedAgo = Infinity;
   let speechCooldown = 0;
   let noticeRemaining = 0;
@@ -1146,19 +1153,43 @@ export function createRestaurant(ctx) {
     return position;
   }
 
+  function setupRobotCasting(total, { refreshRecords = false } = {}) {
+    if (refreshRecords) robotRecords = savedRobots();
+    guaranteedRobotSlot = chooseGuaranteedRobotSlot({
+      savedCount: robotRecords.length,
+      shiftLength: total,
+    });
+    lastRobotRecordIndex = -1;
+  }
+
   function createCustomer(index, tableIndex, food) {
     const configured = DIFFICULTY[difficulty];
     const table = TABLES[tableIndex];
-    const appearance = appearanceFor(index);
-    const character = characters.create(appearance);
+    const robot = isRobotSlot({
+      index,
+      guaranteedSlot: guaranteedRobotSlot,
+      savedCount: robotRecords.length,
+    });
+    let character;
+    if (robot) {
+      const picked = pickRobotRecord({
+        records: robotRecords,
+        lastIndex: lastRobotRecordIndex,
+      });
+      lastRobotRecordIndex = picked.index;
+      character = createRobotCustomerCharacter({ artwork: picked.record.artwork });
+    } else {
+      character = characters.create(appearanceFor(index));
+      character.scale.setScalar(0.72);
+    }
     character.position.set(0, 0, 6.7);
     character.rotation.y = Math.PI;
-    character.scale.setScalar(0.72);
     character.playAnimation?.('walk');
     world.add(character);
 
     const clickTarget = new THREE.Mesh(customerVisuals.hitGeometry, customerVisuals.hitMaterial);
-    clickTarget.position.set(0, 1.05, 0);
+    clickTarget.position.set(0, character.hitTargetY ?? 1.05, 0);
+    clickTarget.scale.setScalar(character.hitTargetScale ?? 1);
     character.add(clickTarget);
 
     const ownership = new THREE.Sprite(customerVisuals.playerBubbleMaterial);
@@ -1192,6 +1223,10 @@ export function createRestaurant(ctx) {
       patienceMax: roundPatience ?? configured.patience,
       patience: roundPatience ?? configured.patience,
       character,
+      groundY: character.groundY ?? 0,
+      seatedY: character.seatedY ?? 0.34,
+      bubbleOffsetY: character.bubbleOffsetY ?? 2.25,
+      dialogueOffsetY: character.dialogueOffsetY ?? 1.65,
       clickTarget,
       ownership,
       patienceFill,
@@ -1271,7 +1306,7 @@ export function createRestaurant(ctx) {
     dialogueCustomer = customer;
     dialogueRemaining = 2.5;
     customer.ownership.visible = false;
-    dialogue.show({ text, anchor: customer.character, offsetY: 1.65 });
+    dialogue.show({ text, anchor: customer.character, offsetY: customer.dialogueOffsetY });
   }
 
   function refreshOwnership(customer) {
@@ -1291,7 +1326,7 @@ export function createRestaurant(ctx) {
       : customerVisuals.rivalBubbleMaterial;
     customer.character.getWorldPosition(bubblePosition);
     customer.ownership.position.copy(bubblePosition);
-    customer.ownership.position.y += 2.25;
+    customer.ownership.position.y += customer.bubbleOffsetY;
     customer.ownership.quaternion.copy(camera.quaternion);
     customer.patienceFill.material = customerVisuals.patienceMaterials[bubble.patienceLevel];
     // The parent's scale is (2, 1), so halve the width into bubble units.
@@ -1570,7 +1605,12 @@ export function createRestaurant(ctx) {
       audio.playSfx('retry');
       dialogueCustomer = customer;
       dialogueRemaining = 1.8;
-      dialogue.show({ text: STRINGS.wrongDish, anchor: customer.character, offsetY: 1.65, speak: false });
+      dialogue.show({
+        text: STRINGS.wrongDish,
+        anchor: customer.character,
+        offsetY: customer.dialogueOffsetY,
+        speak: false,
+      });
       return;
     }
 
@@ -1607,7 +1647,12 @@ export function createRestaurant(ctx) {
     audio.playSfx('accept');
     dialogueCustomer = customer;
     dialogueRemaining = 1.8;
-    dialogue.show({ text: STRINGS.delivered, anchor: customer.character, offsetY: 1.65, speak: false });
+    dialogue.show({
+      text: STRINGS.delivered,
+      anchor: customer.character,
+      offsetY: customer.dialogueOffsetY,
+      speak: false,
+    });
     setNotice(temperatureLabel, 1.8);
     if (firstTry) {
       combo += 1;
@@ -1647,7 +1692,12 @@ export function createRestaurant(ctx) {
     customer.character.playAnimation?.('walk');
     dialogueCustomer = customer;
     dialogueRemaining = 1.8;
-    dialogue.show({ text: STRINGS.patientLeave, anchor: customer.character, offsetY: 1.65, speak: false });
+    dialogue.show({
+      text: STRINGS.patientLeave,
+      anchor: customer.character,
+      offsetY: customer.dialogueOffsetY,
+      speak: false,
+    });
     audio.playSfx('retry');
     updateChallengeScore();
   }
@@ -2441,14 +2491,14 @@ export function createRestaurant(ctx) {
       if (customer.walkStage === 1 && moveCustomerToward(customer, customer.table.seatX, customer.table.seatZ, serviceDt)) {
         customer.state = 'seated';
         claimRegistry?.markSeated(customer.id);
-        customer.character.position.y = 0.34;
+        customer.character.position.y = customer.seatedY;
         customer.character.rotation.y = 0;
         customer.character.playAnimation?.('idle');
       }
       return;
     }
     if (customer.state !== 'leaving') return;
-    customer.character.position.y = 0;
+    customer.character.position.y = customer.groundY;
     if (customer.walkStage === 0 && moveCustomerToward(customer, aisleX, aisleZ, serviceDt)) customer.walkStage = 1;
     if (customer.walkStage === 1 && moveCustomerToward(customer, 0, 6.85, serviceDt)) {
       customer.state = customer.outcome === 'delivered' ? 'delivered' : 'left';
@@ -3572,6 +3622,7 @@ export function createRestaurant(ctx) {
     claimRegistry = createCustomerClaimRegistry();
     competitionScore = createCompetitionScore();
     shiftTotal = total;
+    setupRobotCasting(shiftTotal);
     roundPatience = patience;
     serviceDirector = createRestaurantDirector({
       level: difficulty,
@@ -3963,6 +4014,7 @@ export function createRestaurant(ctx) {
     serviceElapsed = 0;
     const configured = DIFFICULTY[difficulty];
     shiftTotal = configured.total;
+    setupRobotCasting(shiftTotal, { refreshRecords: true });
     const rivalEnabled = Boolean(RIVAL_LEVELS[difficulty]?.enabled);
     claimRegistry = rivalEnabled ? createCustomerClaimRegistry() : null;
     rushTrigger = createRushTrigger({ enabled: rivalEnabled });
@@ -4241,6 +4293,7 @@ export function createRestaurant(ctx) {
     rematchChoiceActive = false;
     rivalExit.character = null;
     for (const customer of customers) customer.character.disposeCharacter?.();
+    disposeSharedPaperAssets();
     customers.length = 0;
     dishes.length = 0;
     records.length = 0;
@@ -4255,6 +4308,9 @@ export function createRestaurant(ctx) {
     questionCustomer = null;
     dialogueCustomer = null;
     serviceDirector = null;
+    robotRecords = [];
+    guaranteedRobotSlot = null;
+    lastRobotRecordIndex = -1;
     claimRegistry = null;
     rushTrigger = null;
     competitionScore = null;
