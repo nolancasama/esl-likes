@@ -1,8 +1,12 @@
-import test, { afterEach } from 'node:test';
+import test, { afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  __setCreationStorage,
+  clearSavedCreations,
   clearColoringSession,
+  creationPersistenceStatus,
+  hydrateCreations,
   saveCompletedCreation,
   savedCreations,
 } from './coloringSession.js';
@@ -40,12 +44,68 @@ function canvas(pixels) {
   return new FakeCanvas(ownerDocument, pixels);
 }
 
+class MemoryCreationStorage {
+  constructor(rows = []) {
+    this.rows = rows.slice();
+  }
+
+  async readRows() {
+    return this.rows.slice();
+  }
+
+  async putRow(row) {
+    const index = this.rows.findIndex((saved) => saved.id === row.id);
+    if (index < 0) this.rows.push(row);
+    else this.rows[index] = row;
+    return row.artworkBlob.size;
+  }
+
+  async clearRows() {
+    this.rows.length = 0;
+  }
+
+  async toBlob(artwork) {
+    return new Blob([JSON.stringify(artwork.pixels)], { type: 'image/png' });
+  }
+
+  async toCanvas(blob) {
+    return canvas(JSON.parse(await blob.text()));
+  }
+}
+
+function durableRow(id, order, pixels, subjectId = 'robot') {
+  return {
+    id,
+    version: 1,
+    subjectId,
+    createdAt: Math.floor(order / 1000),
+    order,
+    artworkBlob: new Blob([JSON.stringify(pixels)], { type: 'image/png' }),
+    crowd: { start: order, idlePause: order + 0.25, stateTime: order + 0.5 },
+  };
+}
+
+async function waitFor(check) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.fail('Timed out waiting for queued creation storage work.');
+}
+
 const variation = (start) => ({
   id: start + 10,
   start,
   idlePause: 1.25 + start,
   stateTime: 0.4 + start,
   points: [{ x: start, z: start }],
+});
+
+let fakeStorage;
+
+beforeEach(() => {
+  fakeStorage = new MemoryCreationStorage();
+  __setCreationStorage(fakeStorage);
 });
 
 afterEach(() => clearColoringSession());
@@ -125,4 +185,131 @@ test('savedCreations exposes every subject without consuming or reordering recor
     'robot', 'future-subject', undefined,
   ]);
   assert.deepEqual(savedCreations().map((record) => record.artwork.pixels), [[1], [2], [3]]);
+});
+
+test('save and read stay synchronous while durable metadata is queued', async () => {
+  const record = saveCompletedCreation({
+    subjectId: 'future-test-creature',
+    artwork: canvas([4, 8, 15, 16]),
+    crowd: variation(3),
+  });
+
+  assert.equal(savedCreations()[0], record);
+  assert.equal(typeof record.id, 'string');
+  assert.equal(record.version, 1);
+  assert.equal(record.subjectId, 'future-test-creature');
+  assert.equal(typeof record.createdAt, 'number');
+  assert.equal(typeof record.order, 'number');
+  await waitFor(() => fakeStorage.rows.length === 1);
+  assert.equal(fakeStorage.rows[0].subjectId, 'future-test-creature');
+});
+
+test('fake storage round-trip preserves subject and independent artwork', async () => {
+  saveCompletedCreation({
+    subjectId: 'future-test-creature',
+    artwork: canvas([23, 42]),
+    crowd: variation(4),
+  });
+  await waitFor(() => fakeStorage.rows.length === 1);
+
+  clearColoringSession();
+  __setCreationStorage(fakeStorage);
+  await hydrateCreations();
+
+  const [restored] = savedCreations();
+  assert.equal(restored.subjectId, 'future-test-creature');
+  assert.deepEqual(restored.artwork.pixels, [23, 42]);
+  assert.notEqual(restored.artwork, fakeStorage.rows[0].artworkBlob);
+});
+
+test('hydration restores deterministic order and does not duplicate on a second call', async () => {
+  fakeStorage.rows = [
+    durableRow('D', 4000, [4]),
+    durableRow('B', 2000, [2]),
+    durableRow('A', 1000, [1]),
+    durableRow('C', 3000, [3]),
+  ];
+
+  const firstHydration = hydrateCreations();
+  const secondHydration = hydrateCreations();
+  assert.equal(firstHydration, secondHydration);
+  await firstHydration;
+
+  assert.deepEqual(savedCreations().map((record) => record.id), ['A', 'B', 'C', 'D']);
+  await hydrateCreations();
+  assert.deepEqual(savedCreations().map((record) => record.id), ['A', 'B', 'C', 'D']);
+});
+
+test('a creation completed during hydration survives the merge', async () => {
+  let releaseRead;
+  const delayedStorage = new MemoryCreationStorage([durableRow('A', 1000, [1])]);
+  delayedStorage.readRows = () => new Promise((resolve) => {
+    releaseRead = () => resolve(delayedStorage.rows.slice());
+  });
+  __setCreationStorage(delayedStorage);
+
+  const hydration = hydrateCreations();
+  const newborn = saveCompletedCreation({ artwork: canvas([9]), crowd: variation(9) });
+  releaseRead();
+  await hydration;
+
+  assert.ok(savedCreations().some((record) => record.id === 'A'));
+  assert.ok(savedCreations().some((record) => record.id === newborn.id));
+});
+
+test('one corrupt durable row does not prevent its neighbours restoring', async () => {
+  fakeStorage.rows = [
+    durableRow('A', 1000, [1]),
+    { id: 'broken', version: 1, artworkBlob: 'not-a-blob' },
+    durableRow('C', 3000, [3]),
+  ];
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args);
+  try {
+    await hydrateCreations();
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.deepEqual(savedCreations().map((record) => record.id), ['A', 'C']);
+  assert.equal(warnings.length, 1);
+});
+
+test('total storage failure leaves synchronous creations usable', async () => {
+  const failure = new Error('storage offline');
+  const rejectingStorage = Object.fromEntries([
+    'readRows', 'putRow', 'clearRows', 'toBlob', 'toCanvas',
+  ].map((name) => [name, async () => { throw failure; }]));
+  __setCreationStorage(rejectingStorage);
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args);
+  try {
+    const saved = saveCompletedCreation({ artwork: canvas([7]), crowd: variation(7) });
+    assert.equal(savedCreations()[0], saved);
+    await hydrateCreations();
+    await waitFor(() => warnings.length === 2);
+    assert.equal(savedCreations()[0], saved);
+    assert.equal(creationPersistenceStatus().available, false);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('clearSavedCreations empties memory and durable rows', async () => {
+  saveCompletedRobot(canvas([5]), variation(5));
+  await waitFor(() => fakeStorage.rows.length === 1);
+
+  await clearSavedCreations();
+
+  assert.deepEqual(savedCreations(), []);
+  assert.deepEqual(fakeStorage.rows, []);
+  assert.deepEqual(creationPersistenceStatus(), {
+    hydrated: false,
+    available: true,
+    lastError: null,
+    bytes: 0,
+    count: 0,
+  });
 });

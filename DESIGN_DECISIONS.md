@@ -2668,3 +2668,54 @@ screenshot of a mostly-white snowman. A test computes the rendered facing at
 every visitor spot for every subject; correct orientation scores -0.98 to -1.0
 and the reverse scores +0.98 to +1.0, so the assertion discriminates rather than
 passing by construction.
+
+## 2026-09-23 — A finished creation outlives the tab it was painted in
+
+**Creations persist in IndexedDB, keyed to the browser, not to an account.**
+A child who paints a robot on Monday finds it alive on Tuesday, on the same
+classroom machine. Rejected: cloud saving and accounts, which would put a login
+between a seven-year-old and their own drawing; and `localStorage`, whose ~5 MB
+string budget cannot hold even a dozen PNGs (measured: ~17 KB each, so ~170 KB
+for ten and ~340 KB for twenty — comfortable in IndexedDB, not in a string
+store).
+
+**The store stayed synchronous and the database hid behind it.** `savedCreations()`
+still returns an array, not a promise, and `saveCompletedCreation()` still returns
+the record on the same tick. The durable write is queued and fire-and-forget, so
+the come-alive animation never waits on a disk. Rejected: making the store async,
+which would have pushed `await` into the Coloring, Restaurant and Zoo call sites
+and made a database failure able to stall gameplay. Restaurant and Zoo contain no
+persistence code at all; they read the same central memory API they always did.
+
+**Persistence failure is a warning, never a message to the child.** A blocked or
+full database leaves the creation in memory: it still comes alive, still walks
+into the Restaurant and the Zoo this session, and only the console knows. Rejected:
+any student-facing error, and any automatic deletion of older creations to make
+room — a game for children does not tell them their drawing could not be filed,
+and it certainly does not throw one away.
+
+**The startup wait for saved artwork is capped at 1.5 seconds.** Target hardware
+includes school Chromebooks with damaged or blocked browser storage, where an
+uncapped wait is a permanently blank screen. If the cap wins, the game opens and
+hydration finishes in the background. That is exactly why hydration merges by
+record id instead of replacing the list: a creation finished while the database
+was still loading must not be erased by rows that arrive afterwards. Rejected:
+waiting indefinitely, and cancelling hydration when the timer wins.
+
+**Subject identity is opaque to the database.** A record stores `subjectId` as a
+string and the persistence layer never validates it or substitutes a default, so
+a subject added later persists with no change to the storage code. Rejected: the
+plan's `subjectId || 'robot'` fallback, which hard-codes today's roster into the
+one layer that should outlive it; the caller already applies `DEFAULT_SUBJECT_ID`
+when it rebuilds the puppet.
+
+**Only reconstruction fields are stored.** The crowd member is reduced to
+`start`, `idlePause` and `stateTime`, as it already was in memory. Rejected:
+spreading the whole live crowd member into the row, which would have carried a
+runtime `points` array and a session-local `id` into permanent storage.
+
+**Ordinary leaving never deletes anything.** `clearColoringSession()` stays
+memory-only, so Back, hub return, replay and browser close cannot erase a child's
+work; `clearSavedCreations()` exists for a deliberate wipe and is wired to no UI
+in this phase. Rejected: a student-facing Delete All, which in a shared classroom
+browser is a button one child presses to erase another child's drawings.

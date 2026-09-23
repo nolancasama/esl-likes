@@ -1,0 +1,76 @@
+{
+  "task": "Make completed Coloring creations survive a browser refresh on the same device, by backing the existing in-memory creation store with IndexedDB. The public API of coloringSession.js must stay synchronous and its current callers (Coloring, Restaurant, Zoo) must not change at all.",
+
+  "context": [
+    "esl-likes is a 3D ESL game for Japanese elementary classrooms. In the Coloring minigame a child paints a subject (robot, snowman, gingerbread, hero, ninja); when it is finished it comes alive and roams the room. src/minigames/coloring/coloringSession.js is the shared store of finished creations. Today it is plain module state: creations survive leaving and re-entering the minigame, and are gone on reload.",
+    "Restaurant (src/minigames/restaurant/index.js) and Zoo (src/minigames/zoo/index.js) already read savedCreations() to cast the child's creations as customers and park visitors. They must keep working untouched.",
+    "Read DESIGN_DECISIONS.md before starting and append an entry for this pass (date, what, why, rejected alternative), as the project requires.",
+    "Tests run under `node --test` with no DOM, no canvas and no IndexedDB. That constraint drives the storage-seam design below - follow it rather than inventing a fake IndexedDB."
+  ],
+
+  "requirements": [
+    "savedCreations() stays synchronous and keeps returning a plain array snapshot. saveCompletedCreation() stays synchronous and returns the record immediately.",
+    "A completed creation enters the in-memory list immediately; the durable write is fire-and-forget on a module-owned queue. Gameplay never awaits IndexedDB - the come-alive animation must not wait on a write.",
+    "Add a new module src/minigames/coloring/creationStorage.js holding ALL browser-only durable code: IndexedDB open/read/put/clear, canvas->PNG Blob, PNG Blob->canvas. coloringSession.js imports a factory from it and owns only records, ids, ordering, validation and merging.",
+    "The storage seam is one object: { readRows(): Promise<rawRow[]>, putRow(row): Promise<number bytes>, clearRows(): Promise<void>, toBlob(canvas): Promise<Blob>, toCanvas(blob): Promise<canvas> }. coloringSession.js creates the real IndexedDB one lazily and exposes a test-only setter `__setCreationStorage(storage)` (documented as test-only, never called by game code) so Node tests can substitute an in-memory fake. Row validation, normalisation, ordering and merging live in coloringSession.js so they are testable with that fake.",
+    "IndexedDB: DB_NAME 'esl-likes', DB_VERSION 1, STORE_NAME 'coloring-creations', keyPath 'id', RECORD_VERSION 1. Native IndexedDB only - no new dependency.",
+    "Runtime record: { id, version, subjectId, createdAt, order, artwork: canvas, crowd: { start, idlePause, stateTime } }, frozen as today. Durable row is the same with artworkBlob: Blob in place of artwork.",
+    "Stable id via crypto.randomUUID() when available, else `creation-${Date.now().toString(36)}-${random}`. Deterministic order via a monotonic counter: `Date.now() * 1000 + nthWithinThisMillisecond`, so two creations saved in the same millisecond keep their order. Also store createdAt: Date.now().",
+    "Export `hydrateCreations()`: runs at most once (shared promise), reads every durable row, restores each one independently, and MERGES BY id into the in-memory list rather than replacing it - a creation the child finished while hydration was still in flight must survive. Sort the merged list by order (falling back to createdAt, then id) so creation order is stable across reloads.",
+    "One corrupt or undecodable row must be skipped with a console.warn, leaving every other row restored. Reject a row with no string id or no Blob artwork.",
+    "Total IndexedDB failure (unavailable, blocked, quota, corrupt db) must not break the game: the creation still lives in memory, still comes alive, is still visible to Restaurant and Zoo for this session, a warning is logged, and no error UI is shown to the child.",
+    "A quota failure on write keeps the in-memory creation, logs a warning, and continues. Do not delete older creations and do not implement any automatic cleanup.",
+    "Export `clearSavedCreations()` (async): drains the write queue, empties memory and clears the object store. It is not wired to any UI in this phase.",
+    "Export `creationPersistenceStatus()` returning { hydrated, available, lastError, bytes, count } for debugging/acceptance only. Track approximate durable bytes from artworkBlob.size.",
+    "Wire hydration into src/main.js exactly once: import hydrateCreations, race it against a 1500 ms cap (CREATION_HYDRATE_HEAD_START_MS), and gate the first replaceController(makeHub) on Promise.all([charactersReady, creationsReady]). If the timer wins, the app starts anyway and hydration keeps running in the background - do not cancel it. Comment the cap the way CHARACTER_HEAD_START_MS above it is commented (school Chromebooks; a blocked database must never mean a blank screen).",
+    "Surface persistence status in Coloring's existing debugSnapshot() (src/minigames/coloring/index.js) as one extra field `persistence: creationPersistenceStatus()`. That is the ONLY permitted edit to that file - it is what the browser acceptance run reads.",
+    "Add focused tests to src/minigames/coloring/coloringSession.test.mjs (or a sibling *.test.mjs) using an injected in-memory fake storage: synchronous save+read; id/version/subjectId/createdAt/order metadata present; an unknown future subjectId ('future-test-creature') stores and restores unchanged; round-trip through the fake storage preserves artwork identity; A,B,C,D hydrate back as A,B,C,D; hydrating twice does not duplicate; a record saved DURING hydration survives the merge; a corrupt row between two valid ones yields the two valid ones; a storage that rejects on every call leaves the memory record intact and the game usable; clearSavedCreations() empties both memory and the store.",
+    "Every existing test in src/minigames/coloring/coloringSession.test.mjs must still pass unmodified except where a new field is legitimately added - do not weaken or delete an existing assertion to make new code fit."
+  ],
+
+  "constraints": [
+    "DO NOT default subjectId to 'robot' anywhere in the persistence layer. subjectId is an opaque string; a record saved without one keeps `undefined`, and the caller (coloring/index.js) already applies DEFAULT_SUBJECT_ID at restore. An existing test asserts the undefined passes through - keep it true. Persistence must never need editing when a new subject is added.",
+    "DO NOT spread the whole crowd member into the record. Keep exactly { start, idlePause, stateTime }. The live crowd member also carries `id` and a `points` array of runtime objects; existing tests assert those are absent, and they are not structured-cloneable state we want in the database.",
+    "Do not modify src/minigames/restaurant/**, src/minigames/zoo/**, src/systems/paperCharacter.js, src/systems/creationCasting.js, paperPuppet, or any subject definition. Restaurant and Zoo must contain no IndexedDB code whatsoever - they read the central memory API as they do now.",
+    "Do not move persistence logic into createColoring(). The existing save call site (index.js ~line 1224) and restore loop restoreSavedRobots() (~line 1516) are correct and must not be restructured.",
+    "clearColoringSession() stays memory-only and must NOT clear durable storage. Ordinary Back, hub return, minigame restart, Restaurant rematch, Zoo replay and browser close must never delete a child's saved creations. Document that on the function.",
+    "dispose() / the pagehide handler in main.js must not clear durable storage, and must not be where the durable write begins - the write begins when the creation is completed.",
+    "Lossless PNG only. No JPEG, no base64 data URLs, no object-URL leaks (revoke in a finally).",
+    "Keep the existing copyCanvas() behaviour: the runtime artwork is detached from the live painting surface at save time, before the next round can reset it.",
+    "Out of scope entirely: cloud sync, accounts, cross-device sync, a gallery, creation deletion or editing UI, new Coloring subjects, Zoo or Restaurant redesign, paper animation work, lazy-loading complexity.",
+    "Do not instantiate any three.js object during hydration. Hydration loads record metadata and artwork canvases only; minigames build visuals when they need them.",
+    "Match the surrounding code style: this project writes short explanatory comments about WHY, not what. Follow the existing tone in coloringSession.js and main.js.",
+    "Edit source with structured file tools, not shell here-strings or sed."
+  ],
+
+  "startingPoints": [
+    "src/minigames/coloring/coloringSession.js",
+    "src/minigames/coloring/coloringSession.test.mjs",
+    "src/main.js",
+    "src/minigames/coloring/index.js",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "This worker's sandbox cannot start the Vite preview server, and refresh survival can only be proven in a real browser. The controller runs the Playwright coloring playthrough plus a reload check and owns the verdict.",
+    "checks": [
+      "Paint and finish two visibly different creations, note count and artwork fingerprints",
+      "Return to hub, reload the page, re-enter Coloring: same count, same subjects, same fingerprints, no duplicates",
+      "Finish a third creation after hydration, reload again: all three remain",
+      "Finish a creation then immediately press Back, then reload: the creation is still there"
+    ]
+  },
+
+  "category": "state-persistence",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

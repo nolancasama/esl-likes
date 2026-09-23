@@ -21,6 +21,7 @@ import { createColoring } from './minigames/coloring/index.js';
 import { createDrinkStand } from './minigames/drinkStand/index.js';
 import { createSports } from './minigames/sports/index.js';
 import { createZoo } from './minigames/zoo/index.js';
+import { hydrateCreations } from './minigames/coloring/coloringSession.js';
 
 document.title = UI.appTitle;
 
@@ -81,6 +82,15 @@ const CHARACTER_HEAD_START_MS = 2500;
 const charactersReady = Promise.race([
   characters.preload(),
   new Promise((resolve) => setTimeout(resolve, CHARACTER_HEAD_START_MS)),
+]);
+
+// Saved artwork gets a short head start so creations are present in the first
+// hub visit. The wait is capped: on school Chromebooks a blocked database must
+// never mean a blank screen, and hydration continues after the timer wins.
+const CREATION_HYDRATE_HEAD_START_MS = 1500;
+const creationsReady = Promise.race([
+  hydrateCreations(),
+  new Promise((resolve) => setTimeout(resolve, CREATION_HYDRATE_HEAD_START_MS)),
 ]);
 
 const minigames = new Map([
@@ -262,7 +272,7 @@ window.addEventListener('resize', resize);
 window.addEventListener('pagehide', dispose, { once: true });
 
 resize();
-charactersReady.then(() => replaceController(makeHub)).then(() => {
+Promise.all([charactersReady, creationsReady]).then(() => replaceController(makeHub)).then(() => {
   cameraRig.update(1);
   animationFrame = requestAnimationFrame(frame);
 });

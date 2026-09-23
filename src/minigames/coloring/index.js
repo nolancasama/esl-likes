@@ -9,7 +9,7 @@ import { createCoverage, sessionStars } from './coverage.js';
 import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 import { createCrowd } from './robotCrowd.js';
-import { saveCompletedCreation, savedCreations } from './coloringSession.js';
+import { creationPersistenceStatus, saveCompletedCreation, savedCreations } from './coloringSession.js';
 import { DEFAULT_SUBJECT_ID, pickNextSubject, subjectById } from './subjectRegistry.js';
 
 const LESSON = LESSON_BY_ID.coloring;
@@ -1445,6 +1445,7 @@ export function createColoring(ctx) {
   function debugSnapshot() {
     return {
       phase,
+      persistence: creationPersistenceStatus(),
       robotsCompleted: livingRobots.length,
       // The newborn during the cinematic, before it joins livingRobots. Without
       // it the hand-off from the authored landing to roaming is the one moment

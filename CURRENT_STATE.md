@@ -9,7 +9,75 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — creations cross into both other games
+## Latest pass (2026-09-23) — a finished creation survives the browser closing
+
+Phase 5, persistence. **Committed and pushed** to `main` at the owner's request,
+so it is live on GitHub Pages. `npm test` 678/678, `npm run build` and the new
+`persistence` playthrough 21/21 all pass.
+
+Order `.ai/wo-creation-persistence.json`, Codex via the router (Sol medium,
+SUCCESS). Claude wrote the acceptance harness and ran it; Codex's sandbox cannot
+start the preview.
+
+- **Creations are stored in IndexedDB** (`esl-likes` / `coloring-creations`,
+  keyPath `id`, record version 1) as lossless PNG blobs. New module
+  `src/minigames/coloring/creationStorage.js` holds every browser-only piece:
+  the database, `canvas -> PNG Blob` and `Blob -> canvas`.
+- **`coloringSession.js` stayed synchronous.** `savedCreations()` still returns
+  an array and `saveCompletedCreation()` still returns on the same tick; the
+  durable write is a fire-and-forget module-owned queue. Coloring, Restaurant
+  and Zoo call sites are completely unchanged and contain no database code.
+- **`main.js` hydrates once at startup**, capped at 1500 ms and gated with
+  `Promise.all([charactersReady, creationsReady])`. If the cap wins, the game
+  opens anyway and hydration finishes in the background.
+- **Hydration merges by record id**, never replaces — a creation finished while
+  the database is still loading cannot be erased by rows arriving after it.
+- Storage cost measured at **~17 KB per creation** (~167 KB for ten, ~335 KB for
+  twenty).
+
+### The thing worth protecting
+
+`clearColoringSession()` is still memory-only, so Back, hub return, replay and
+browser close can never delete a child's saved work. Only `clearSavedCreations()`
+touches the database, and it is wired to no UI.
+
+### Acceptance actually performed
+
+`npm run build && node scripts/playthrough-run.mjs persistence` — a new harness
+using a **persistent** Chromium profile, so it can close the browser entirely
+and reopen it. Verified: two creations survive a page reload and a full browser
+restart with pixel-identical artwork (`puppet.fingerprint(24)` compared before
+and after), a third made after hydration joins them, pressing Back immediately
+after finishing does not lose the write, and no duplicates appear. Confirmed in
+a screenshot, not only in counters.
+
+The harness was trust-tested before being believed: known-good 21/21, and with
+hydration deliberately neutered 15/21, failing exactly the six restore checks
+while the write checks still passed.
+
+### Three deliberate departures from the supplied plan
+
+- The plan's `crowd: {...crowd}` spread was **rejected**: the live crowd member
+  carries a runtime `points` array and a session `id`, and existing tests assert
+  both stay out of the record.
+- The plan's `subjectId || 'robot'` fallback was **rejected** as contradicting
+  its own "never hard-code subject IDs"; persistence keeps `subjectId` opaque
+  and the caller applies `DEFAULT_SUBJECT_ID`.
+- The plan's test list was largely unrunnable under `node --test` (no DOM, no
+  canvas, no IndexedDB), so an injectable storage seam (`__setCreationStorage`,
+  test-only) was added and all the logic tests run against an in-memory fake.
+
+### Known limitations
+
+- `creationPersistenceStatus().count` reports **durably stored** creations, not
+  the in-memory count — useful for acceptance, but the name is ambiguous.
+- A failed database open is cached for the session, so a transient failure keeps
+  persistence off until reload. Real causes (private mode, blocked storage) are
+  not transient, and `DB_VERSION` never upgrades, so `onblocked` is unreachable.
+- A row whose `version` is not 1 is skipped with a warning, not migrated. That
+  is the single intended migration point when a version 2 arrives.
+
+## Previous pass (2026-09-23) — creations cross into both other games
 
 Phase 3. **Committed and pushed** to `main` at the owner's request. `npm test`
 671/671 and `npm run build` passed at the end of the pass, before the commit.

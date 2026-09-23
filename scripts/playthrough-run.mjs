@@ -15,6 +15,9 @@ const SCENARIOS = Object.freeze({
   zoo: 'scripts/playthrough-zoo.mjs',
   coloring: 'scripts/playthrough-coloring.mjs',
   sports: 'scripts/playthrough-sports.mjs',
+  // Refresh and browser-reopen survival for finished creations. Runs its own
+  // persistent Chromium profile rather than the usual throwaway context.
+  persistence: 'scripts/playthrough-persistence.mjs',
   // Runner self-tests (known-good / known-bad), not game checks:
   //   npm run build && npm run playthrough -- selftest-pass   -> exit 0
   //   npm run build && npm run playthrough -- selftest-fail   -> exit 1
