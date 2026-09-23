@@ -1,3 +1,5 @@
+import { restaurantPresentation, zooPresentation } from '../subjectPresentation.js';
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -6,9 +8,15 @@ function deepFreeze(value) {
 
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const LIVE_SCALE = 1;
 
 const gingerbread = {
   id: 'gingerbread', category: 'character', zooSpecies: null,
+  crossGame: { restaurantCustomer: true, zooVisitor: true },
+  presentation: {
+    restaurant: restaurantPresentation(LIVE_SCALE),
+    zoo: zooPresentation(LIVE_SCALE),
+  },
   pieces: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
   pivots: { body: { x: 0.5, y: 0.5 }, leftArm: { x: 0.34, y: 0.4 }, rightArm: { x: 0.66, y: 0.4 }, leftLeg: { x: 0.42, y: 0.67 }, rightLeg: { x: 0.58, y: 0.67 } },
   parents: { body: null, leftArm: 'body', rightArm: 'body', leftLeg: 'body', rightLeg: 'body' },
@@ -39,7 +47,7 @@ const gingerbread = {
     hop: { root: { hopHeightScale: 1.22, tilt: 0.2 }, rotations: { leftArm: { lagAir: -0.82 }, rightArm: { lagAir: 0.82 }, leftLeg: { air: -0.22 }, rightLeg: { air: 0.22 } }, blink: true },
     celebrate: { root: { hopHeightScale: 1.35, tilt: 0.18 }, rotations: { leftArm: { lagAir: -1.05 }, rightArm: { lagAir: 1.05 }, leftLeg: { air: -0.28 }, rightLeg: { air: 0.28 } }, rotationScale: 1.12, blink: false },
   },
-  liveScale: 1,
+  liveScale: LIVE_SCALE,
 };
 
 export default deepFreeze(gingerbread);

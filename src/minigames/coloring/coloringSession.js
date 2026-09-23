@@ -45,11 +45,6 @@ export function savedCreations() {
   return creations.slice();
 }
 
-/** Robot-only compatibility view used by Restaurant. Missing ids are legacy robots. */
-export function savedRobots() {
-  return creations.filter((record) => record.subjectId == null || record.subjectId === 'robot');
-}
-
 /** Called only when the whole running game session ends, never on minigame exit. */
 export function clearColoringSession() {
   creations.length = 0;

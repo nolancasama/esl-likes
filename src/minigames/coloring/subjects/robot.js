@@ -1,3 +1,5 @@
+import { restaurantPresentation, zooPresentation } from '../subjectPresentation.js';
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -8,11 +10,17 @@ const rect = (x, y, width, height, radius = 0.03) => (
   { kind: 'rect', x, y, width, height, radius }
 );
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const LIVE_SCALE = 1;
 
 const robot = {
   id: 'robot',
   category: 'character',
   zooSpecies: null,
+  crossGame: { restaurantCustomer: true, zooVisitor: true },
+  presentation: {
+    restaurant: restaurantPresentation(LIVE_SCALE),
+    zoo: zooPresentation(LIVE_SCALE),
+  },
   pieces: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
   pivots: {
     body: { x: 0.5, y: 0.5 },
@@ -110,7 +118,7 @@ const robot = {
     },
     glow: { piece: 'body', cx: 0.5, cy: 0.065, r: 0.036 },
   },
-  liveScale: 1,
+  liveScale: LIVE_SCALE,
 };
 
 export default deepFreeze(robot);

@@ -5,7 +5,6 @@ import {
   clearColoringSession,
   saveCompletedCreation,
   savedCreations,
-  savedRobots,
 } from './coloringSession.js';
 
 const saveCompletedRobot = (artwork, crowd) => saveCompletedCreation({
@@ -71,9 +70,9 @@ test('saving detaches artwork from the live painting canvas immediately', () => 
 test('saved records survive a controller-style leave and later read', () => {
   saveCompletedRobot(canvas([1, 2, 3]), variation(0));
 
-  const firstVisit = savedRobots();
+  const firstVisit = savedCreations();
   firstVisit.length = 0;
-  const secondVisit = savedRobots();
+  const secondVisit = savedCreations();
 
   assert.equal(secondVisit.length, 1,
     'clearing a controller-owned livingRobots array must not clear the session');
@@ -90,7 +89,7 @@ test('saved records survive a controller-style leave and later read', () => {
 test('different finished robots retain different independent artwork', () => {
   const a = saveCompletedRobot(canvas([10, 20, 30]), variation(0));
   const b = saveCompletedRobot(canvas([30, 20, 10]), variation(1));
-  const restored = savedRobots();
+  const restored = savedCreations();
 
   assert.notEqual(a.artwork, b.artwork);
   assert.notEqual(restored[0].artwork, restored[1].artwork);
@@ -110,14 +109,14 @@ test('clearing the whole session drops records without disposing stored canvases
 
   clearColoringSession();
 
-  assert.equal(savedRobots().length, 0);
+  assert.equal(savedCreations().length, 0);
   assert.equal(source.disposed, false);
   assert.equal(record.artwork.disposed, false);
   assert.equal(record.artwork.width, 4);
   assert.deepEqual(record.artwork.pixels, [8, 6, 7, 5]);
 });
 
-test('savedCreations exposes every subject while savedRobots is a compatibility filter', () => {
+test('savedCreations exposes every subject without consuming or reordering records', () => {
   saveCompletedRobot(canvas([1]), variation(0));
   saveCompletedCreation({ subjectId: 'future-subject', artwork: canvas([2]), crowd: variation(1) });
   saveCompletedCreation({ artwork: canvas([3]), crowd: variation(2) });
@@ -125,5 +124,5 @@ test('savedCreations exposes every subject while savedRobots is a compatibility 
   assert.deepEqual(savedCreations().map((record) => record.subjectId), [
     'robot', 'future-subject', undefined,
   ]);
-  assert.deepEqual(savedRobots().map((record) => record.artwork.pixels), [[1], [3]]);
+  assert.deepEqual(savedCreations().map((record) => record.artwork.pixels), [[1], [2], [3]]);
 });

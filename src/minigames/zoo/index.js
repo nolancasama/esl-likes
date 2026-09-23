@@ -14,6 +14,11 @@ import {
 import { createZooWorld } from './world.js';
 import { AREAS, TERRITORIES } from './territories.js';
 import { DEV_TOOLS_ENABLED } from '../../dev/devMode.js';
+import { savedCreations } from '../coloring/coloringSession.js';
+import { DEFAULT_SUBJECT_ID, subjectById } from '../coloring/subjectRegistry.js';
+import { disposeSharedPaperAssets } from '../coloring/paperPuppet.js';
+import { chooseCreationSlots, pickCreation } from '../../systems/creationCasting.js';
+import { createPaperCharacter } from '../../systems/paperCharacter.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
@@ -247,11 +252,42 @@ export function createZoo(ctx) {
     const configured = DIFFICULTY[level];
     const spots = shuffled(VISITOR_SPOTS);
     const models = shuffled(NPC_MODELS);
+
+    // The child's own creations come to the zoo as VISITORS — never as animals.
+    // They are pushed into `visitors` and nothing else, so they can never reach
+    // `zooWorld.habitats` and can never satisfy a photo request.
+    const creationRecords = savedCreations().filter((record) => (
+      subjectById(record.subjectId ?? DEFAULT_SUBJECT_ID)?.crossGame.zooVisitor
+    ));
+    const paperSlots = new Set(chooseCreationSlots({
+      slots: configured.count,
+      eligibleCount: creationRecords.length,
+    }));
+    const usedCreations = new Set();
+    let lastCreationIndex = -1;
+
     for (let index = 0; index < configured.count; index += 1) {
       const spot = spots[index % spots.length];
-      const character = characters.create({ model: models[index % models.length] });
-      character.position.set(spot.x, 0.08, spot.z);
-      character.scale.setScalar(0.78);
+      let character;
+      if (paperSlots.has(index)) {
+        const picked = pickCreation({
+          records: creationRecords,
+          used: usedCreations,
+          lastIndex: lastCreationIndex,
+        });
+        usedCreations.add(picked.index);
+        lastCreationIndex = picked.index;
+        const subject = subjectById(picked.record.subjectId ?? DEFAULT_SUBJECT_ID);
+        character = createPaperCharacter({
+          subject,
+          artwork: picked.record.artwork,
+          presentation: subject.presentation.zoo,
+        });
+      } else {
+        character = characters.create({ model: models[index % models.length] });
+        character.scale.setScalar(0.78);
+      }
+      character.position.set(spot.x, character.groundY ?? 0.08, spot.z);
       faceToward(character, 0, 19);
       character.visible = false;
       zooWorld.group.add(character);
@@ -450,7 +486,7 @@ export function createZoo(ctx) {
     faceToward(visitor.character, player.position.x, player.position.z);
     faceToward(player, visitor.character.position.x, visitor.character.position.z);
     dialogueVisitor = visitor;
-    dialogue.show({ text: answerFor(LESSON, visitor.wanted), anchor: visitor.character, offsetY: 1.9 });
+    dialogue.show({ text: answerFor(LESSON, visitor.wanted), anchor: visitor.character, offsetY: visitor.character.dialogueOffsetY ?? 1.9 });
     audio.playSfx('accept');
     setInstruction(STRINGS.explore);
     setTwoShot(visitor.character);
@@ -761,7 +797,7 @@ export function createZoo(ctx) {
     faceToward(player, visitor.character.position.x, visitor.character.position.z);
     setTwoShot(visitor.character);
     if (carriedPhoto.animal !== visitor.wanted) {
-      dialogue.show({ text: STRINGS.wrongPhoto, anchor: visitor.character, offsetY: 1.9, speak: false });
+      dialogue.show({ text: STRINGS.wrongPhoto, anchor: visitor.character, offsetY: visitor.character.dialogueOffsetY ?? 1.9, speak: false });
       showNotice(STRINGS.wrongPhoto);
       audio.playSfx('retry');
       // SPEC: one photograph is one delivery attempt, so a wrong photo is used up.
@@ -777,7 +813,7 @@ export function createZoo(ctx) {
     visitor.served = true;
     visitor.leaveRemaining = 1.9;
     servedCount += 1;
-    dialogue.show({ text: STRINGS.thankYou, anchor: visitor.character, offsetY: 1.9, speak: false });
+    dialogue.show({ text: STRINGS.thankYou, anchor: visitor.character, offsetY: visitor.character.dialogueOffsetY ?? 1.9, speak: false });
     visitor.character.playAnimation?.('emote-yes');
     player.playAnimation?.('emote-yes');
     showNotice(STRINGS.thankYou);
@@ -1153,6 +1189,7 @@ export function createZoo(ctx) {
     player?.disposeCharacter?.();
     keeper?.disposeCharacter?.();
     for (const visitor of visitors) visitor.character.disposeCharacter?.();
+    disposeSharedPaperAssets();
     visitors.length = 0;
     records.length = 0;
     replayQueue.length = 0;

@@ -1,3 +1,5 @@
+import { restaurantPresentation, zooPresentation } from '../subjectPresentation.js';
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -6,9 +8,15 @@ function deepFreeze(value) {
 
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const LIVE_SCALE = 1;
 
 const hero = {
   id: 'hero', category: 'character', zooSpecies: null,
+  crossGame: { restaurantCustomer: true, zooVisitor: true },
+  presentation: {
+    restaurant: restaurantPresentation(LIVE_SCALE),
+    zoo: zooPresentation(LIVE_SCALE),
+  },
   pieces: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg', 'cape'],
   pivots: { body: { x: 0.5, y: 0.5 }, leftArm: { x: 0.34, y: 0.38 }, rightArm: { x: 0.66, y: 0.38 }, leftLeg: { x: 0.42, y: 0.68 }, rightLeg: { x: 0.58, y: 0.68 }, cape: { x: 0.5, y: 0.32 } },
   parents: { body: null, leftArm: 'body', rightArm: 'body', leftLeg: 'body', rightLeg: 'body', cape: 'body' },
@@ -38,7 +46,7 @@ const hero = {
     hop: { root: { hopHeightScale: 0.95, tilt: 0.14 }, rotations: { leftArm: { base: -0.22, lagAir: -0.62 }, rightArm: { base: 0.22, lagAir: 0.62 }, leftLeg: { air: -0.16 }, rightLeg: { air: 0.16 }, cape: { base: -0.04, lagAir: -0.42 } }, blink: true },
     celebrate: { root: { hopHeightScale: 1.08, tilt: 0.1 }, rotations: { leftArm: { lagAir: -0.95 }, rightArm: { lagAir: 0.95 }, leftLeg: { air: -0.2 }, rightLeg: { air: 0.2 }, cape: { lagAir: -0.55 } }, blink: false },
   },
-  liveScale: 1,
+  liveScale: LIVE_SCALE,
 };
 
 export default deepFreeze(hero);

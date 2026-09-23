@@ -1,3 +1,5 @@
+import { restaurantPresentation, zooPresentation } from '../subjectPresentation.js';
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -6,9 +8,15 @@ function deepFreeze(value) {
 
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const LIVE_SCALE = 1;
 
 const ninja = {
   id: 'ninja', category: 'character', zooSpecies: null,
+  crossGame: { restaurantCustomer: true, zooVisitor: true },
+  presentation: {
+    restaurant: restaurantPresentation(LIVE_SCALE),
+    zoo: zooPresentation(LIVE_SCALE),
+  },
   pieces: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
   pivots: { body: { x: 0.5, y: 0.5 }, leftArm: { x: 0.34, y: 0.39 }, rightArm: { x: 0.66, y: 0.39 }, leftLeg: { x: 0.42, y: 0.68 }, rightLeg: { x: 0.58, y: 0.68 } },
   parents: { body: null, leftArm: 'body', rightArm: 'body', leftLeg: 'body', rightLeg: 'body' },
@@ -40,7 +48,7 @@ const ninja = {
     hop: { root: { hopHeightScale: 0.72, tilt: 0.1 }, rotations: { leftArm: { base: -0.12, lagAir: -0.42 }, rightArm: { base: 0.12, lagAir: 0.42 }, leftLeg: { air: -0.13 }, rightLeg: { air: 0.13 } }, blink: true },
     celebrate: { root: { hopHeightScale: 0.88, tilt: 0.12 }, rotations: { leftArm: { lagAir: -0.7 }, rightArm: { lagAir: 0.7 }, leftLeg: { air: -0.18 }, rightLeg: { air: 0.18 } }, blink: false },
   },
-  liveScale: 1,
+  liveScale: LIVE_SCALE,
 };
 
 export default deepFreeze(ninja);

@@ -1,0 +1,71 @@
+{
+  "task": "Phase 3, slice A. Generalise the Restaurant's robot-only paper customer into ONE shared paper-character adapter plus ONE shared casting helper, both usable by any minigame, and let all five saved Coloring subjects visit the Restaurant instead of only the robot.",
+
+  "context": [
+    "IMPORTANT CORRECTION TO THE PLAN THIS COMES FROM: there are no paper ANIMALS. Penguin, chicken, cat and dog were authored last pass, rejected on sight and removed. The registry holds exactly five subjects - robot, snowman, gingerbread, hero, ninja - and all five are humanoid. Nothing here should reference paper animals or a Zoo animal integration; neither exists.",
+    "src/minigames/restaurant/robotCustomer.js is the shipped, working adapter for exactly one subject. It wraps a fresh paper puppet in a THREE.Group carrying playAnimation / updateAnimation / disposeCharacter - the same duck type src/systems/characters.js create() returns - and holds a rendered yaw EDGE_GUARD = 0.44 rad clear of +-PI/2 so the flat sheet never becomes invisible. That yaw logic is proven (the sheet never drops below 42.6% of its width, verified by sweep) and must be preserved exactly, not reinvented.",
+    "src/minigames/restaurant/robotCasting.js is the shipped casting logic: a guaranteed slot reserved uniformly from the first three arrivals plus EXTRA_ROBOT_CHANCE = 0.25 for every other slot, and pickRobotRecord avoiding an immediate repeat.",
+    "src/minigames/restaurant/index.js already reads per-customer presentation from the character object: customer.groundY, customer.seatedY, customer.bubbleOffsetY and customer.dialogueOffsetY, plus character.hitTargetY and character.hitTargetScale for the click box. Those seams exist and must keep working - do not add new ones and do not put subject names in index.js.",
+    "coloringSession.js exports savedCreations() (all records, each { subjectId, artwork, crowd }) and savedRobots() (the robot-only compatibility view). Records are read-only and must never be consumed or mutated.",
+    "Subjects live in src/minigames/coloring/subjects/*.js and are deeply frozen. They currently carry liveScale but no cross-game metadata.",
+    "A second slice will add paper VISITORS to the Zoo against whatever this slice freezes, so the adapter and the casting helper must be genuinely game-neutral, not Restaurant-shaped."
+  ],
+
+  "requirements": [
+    "NEW src/systems/paperCharacter.js - the one paper-character adapter, shared by every minigame. Export createPaperCharacter({ subject, artwork, textureSize, presentation }) returning a THREE.Group with playAnimation(name, options), updateAnimation(dt) and disposeCharacter(), plus the presentation values the host reads off the character. Move the yaw guard, the eased rendered yaw and EDGE_GUARD across UNCHANGED in behaviour.",
+    "ANIMATION MAPPING stays name-based and generic: 'walk' -> the subject's hop, 'idle' -> idle, 'emote-yes' -> celebrate then back to idle, 'static' -> idle with the clock held, anything else -> idle. Personality comes from the subject, so a snowman wobbles and a ninja crouches with no per-subject code in the adapter.",
+    "NEW cross-game subject metadata on every subject: crossGame: { restaurantCustomer: true, zooVisitor: true } for all five. Eligibility must be read from this, never inferred from category - a later subject may be a character and still not belong in a restaurant.",
+    "NEW per-subject presentation metadata so index.js keeps no magic numbers: presentation: { restaurant: { scale, groundY, seatedY, bubbleOffsetY, dialogueOffsetY, hitTargetY, hitTargetScale } }. Derive each subject's numbers the way the robot's were derived - the robot's scale comes from matching a 0.72-scaled human's height (characters.js TARGET_HEIGHT 1.95), not from a typed constant - and keep the robot's shipped values identical so nothing about the robot changes. A taller or shorter silhouette must sit at the table without sinking, floating or clipping.",
+    "NEW src/systems/creationCasting.js - the one casting helper, pure, no three.js, seedable. Export something equivalent to chooseCreationSlots({ slots, eligibleCount, guaranteed = 1, earlyWindow = 3, extraChance = 0.25, random }) returning which slot indices are paper, and pickCreation({ records, random, used, lastIndex }) which prefers a record not yet used this session before repeating one and never returns lastIndex twice running. The guarantee must be an explicitly reserved slot, never a probability roll, and must be impossible to lose to randomness. With eligibleCount 0 nothing is ever paper.",
+    "The Restaurant uses the shared helper and the shared adapter, and draws from savedCreations() filtered by crossGame.restaurantCustomer - so all five subjects may now visit, not just the robot. Behaviour with zero eligible creations must be byte-for-byte the all-human Restaurant of today.",
+    "DELETE src/minigames/restaurant/robotCustomer.js and src/minigames/restaurant/robotCasting.js once their behaviour lives in the shared modules, and move or rewrite their tests to cover the shared modules instead. Do not leave five adapters, two casting helpers, or a robot special case behind.",
+    "savedRobots() may now be unused. If nothing imports it, remove it and its test; if something still does, leave it. Do not keep a dead compatibility view for its own sake.",
+    "Each cross-game appearance builds a FRESH puppet from the saved artwork and disposes it on exit. Saved records are never consumed, mutated or reordered."
+  ],
+
+  "constraints": [
+    "Do NOT touch the Zoo in this slice. It is the next one.",
+    "Do NOT fork Restaurant gameplay. The customer state machine, orders, patience, rival claims, serving and scoring are untouched; the only thing that differs about a paper customer is what customer.character is. There is already a test asserting the state machine has no robot branch - it must keep passing, and it should now assert no subject branch of any kind.",
+    "Do not change food preference, and do not let the subject or the child's favourite colour influence it.",
+    "Do not billboard a paper customer at the camera. Brief edge-on turning is intentional and wanted; the guard exists only so the sheet never disappears.",
+    "Do not change the robot's appearance, scale, seating, bubbles or motion in any way. It is shipped and the owner has seen it.",
+    "Do not change the shared paper asset lifecycle logic in paperPuppet.js - the live-puppet count already makes disposal safe across minigames. Verify it covers a Restaurant puppet and say so; do not rewrite it.",
+    "Restaurant must not import coloring/index.js. Low-level modules only.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism - do not try another escaped variant.",
+    "Append a dated DESIGN_DECISIONS.md entry: one shared paper-character adapter rather than one per game, cross-game eligibility as subject metadata rather than an inferred category, and presentation metadata per subject rather than numbers in index.js - each with what, why and the rejected alternative."
+  ],
+
+  "startingPoints": [
+    "src/minigames/restaurant/robotCustomer.js",
+    "src/minigames/restaurant/robotCasting.js",
+    "src/minigames/restaurant/index.js (createCustomer, setupRobotCasting, updateCustomerWalk, refreshOwnership, teardown)",
+    "src/minigames/restaurant/robotCustomerWiring.test.mjs (the no-branch invariants)",
+    "src/minigames/coloring/subjects/*.js and subjectRegistry.js",
+    "src/minigames/coloring/coloringSession.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/systems/characters.js (TARGET_HEIGHT, and the character duck type to match)"
+  ],
+
+  "tests": [
+    "creationCasting: zero eligible creations means no paper slot ever, under every seed; one eligible means the reserved slot is always paper and a whole session can never come out all-human; the reserved slot falls in the early window but is not always slot 0 across seeds; the extra chance is exercised independently; humans stay the majority over many seeded sessions.",
+    "pickCreation prefers an unused record before repeating one, never returns the same record twice running when alternatives exist, and never mutates or consumes the record list.",
+    "paperCharacter: the adapter exposes position, rotation, scale, visible, add, getWorldPosition, playAnimation, updateAnimation and disposeCharacter for EVERY one of the five subjects; the animation mapping holds; replaying the current name does not restart the cycle; the rendered yaw never sits within EDGE_GUARD of +-PI/2 while rotation.y sweeps a full turn, for every subject; disposeCharacter frees the puppet's own textures and materials but not the shared quad; the saved artwork is never mutated.",
+    "Every subject carries crossGame and a restaurant presentation block, and the robot's presentation values are exactly the ones it shipped with.",
+    "A regression assertion that the Restaurant's customer path contains no branch on subject id, and that with zero eligible creations customer creation is the human path it is today."
+  ],
+
+  "validation": ["npm test", "npm run build"],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "note": "The controller paints several different subjects in Coloring, enters the Restaurant and judges how each one enters, seats, turns and reads at the table. Do not attempt a browser run and do not claim one."
+  },
+
+  "category": "game-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large",
+  "composition": "atomic"
+}

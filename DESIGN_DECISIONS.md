@@ -2615,3 +2615,56 @@ generic star and a cape behind the body; the ninja uses only a generic hood and
 sash outfit. Rejected: franchise costumes, logos, signature silhouettes,
 colour schemes and weapons, which would undermine originality and the
 child-friendly tone.
+
+## 2026-09-23 — Paper characters cross games through one contract
+
+**One shared paper-character adapter serves every minigame.** It turns any
+authored subject and saved artwork into the same character duck type as the 3D
+cast, while retaining the proven yaw guard and generic animation-name mapping.
+This keeps rendering, animation transitions and disposal identical wherever a
+creation appears. Rejected: one adapter per game or per subject, because those
+copies would drift and would move subject personality out of declarative data.
+
+**Cross-game eligibility is explicit subject metadata.** Every current subject
+declares `crossGame.restaurantCustomer` and `crossGame.zooVisitor`; a host reads
+the relevant flag and does not infer permission from `category`. This lets a
+future character opt out of the Restaurant without changing casting policy.
+Rejected: treating every character-category subject as eligible, because visual
+taxonomy is not a promise about where a creation belongs.
+
+**Each subject owns its host presentation metadata.** Restaurant scale is
+derived from the shared character target height and the subject's authored live
+scale, with ground, seated, bubble, dialogue and hit-target values travelling
+with the subject. This keeps differently sized silhouettes grounded and seated
+without subject names or measurements in Restaurant gameplay. Rejected:
+subject switches or presentation literals in `restaurant/index.js`, because
+every new subject would otherwise require a gameplay edit.
+
+## 2026-09-23 — Creations visit the Zoo as guests, never as exhibits
+
+**A paper creation in the Zoo is a visitor, and the separation is structural.**
+Paper characters are built inside `buildCharacters` and pushed into `visitors`
+and nothing else; photo framing reads only `zooWorld.habitats`, which the Zoo
+controller never writes to. So a child asked "What animal do you like?" cannot
+satisfy it by photographing their own ninja — not because a check forbids it,
+but because the ninja is never in the collection the camera looks at. Tests
+assert both halves against the source, where a stray push would show up.
+Rejected: a runtime "is this photographable" flag, which is a rule that can be
+forgotten at one call site.
+
+**Zoo visitors are normalised to human visitor height, like Restaurant
+customers.** `zooPresentation(liveScale)` divides out a subject's `liveScale`
+against the Zoo's own 0.78 human scale. A creation's `liveScale` is what makes
+the sizes differ in the Coloring room, where differing is the point; a visitor
+standing in a queue to be spoken to should read as one of the crowd. Rejected:
+carrying `liveScale` through, which would have a snowman looming over the
+people beside it.
+
+**The facing of a flat visitor is asserted, not eyeballed.** The Zoo aims every
+visitor at the park entrance with `faceToward(character, 0, 19)`. For a sheet
+with a front and a back, a reversed sign there would stand the child's creation
+in the park showing blank cream paper — which looks entirely plausible in a
+screenshot of a mostly-white snowman. A test computes the rendered facing at
+every visitor spot for every subject; correct orientation scores -0.98 to -1.0
+and the reverse scores +0.98 to +1.0, so the assertion discriminates rather than
+passing by construction.

@@ -9,7 +9,54 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — four more pictures, chosen at random
+## Latest pass (2026-09-23) — creations cross into both other games
+
+Phase 3. **Committed and pushed** to `main` at the owner's request. `npm test`
+671/671 and `npm run build` passed at the end of the pass, before the commit.
+
+Slice A (order `.ai/wo-paper-characters-restaurant.json`, Codex via the router,
+Sol high, SUCCESS) generalised the robot-only Restaurant adapter. Slice B (the
+Zoo) was done directly by Claude, because Codex quota was nearly spent.
+
+- **One shared adapter.** `src/systems/paperCharacter.js` replaces
+  `restaurant/robotCustomer.js`; `src/systems/creationCasting.js` replaces
+  `restaurant/robotCasting.js`. Both are game-neutral and now serve Restaurant
+  and Zoo. `savedRobots()` is gone — everything filters `savedCreations()` by
+  `crossGame` metadata instead.
+- **All five subjects visit the Restaurant**, not just the robot. Verified in
+  the browser: a ninja seated among three humans at correct height.
+- **Paper visitors in the Zoo.** Built in `buildCharacters`, pushed only into
+  `visitors`. Confirmed in the browser: a paper visitor stands at a spot and the
+  talk prompt targets it.
+- **Presentation is per subject**, not magic numbers in a controller:
+  `subjectPresentation.js` derives Restaurant and Zoo blocks from `liveScale`,
+  normalising both to the host game's human height.
+
+### The thing worth protecting
+
+A creation can never be photographed to satisfy "What animal do you like?" —
+paper visitors never enter `zooWorld.habitats`, which the Zoo controller only
+reads. Asserted against the source, plus a facing test proving a paper visitor
+shows its artwork (not its blank back) at every visitor spot.
+
+### Two corrections made during this pass
+
+- The plan assumed "paper animals in Zoo from Phase 2". **There is no Phase 2**
+  — the animals were cut. Items about photographable paper penguins were
+  dropped as unimplementable; the guard half was kept.
+- Claude wrongly reported that the Zoo never ticks visitor animations, from a
+  truncated read, and added a duplicate `updateAnimation` call. The Zoo **does**
+  already tick them, at the end of the visitor loop. The duplicate was removed
+  before testing; no double-speed animation shipped.
+
+### Not verified in the browser
+
+The full Zoo visitor lifecycle with a paper visitor — asking, photo delivery,
+the celebration and the dialogue two-shot framing. The walk harness kept missing
+the visitor, and chasing it further was not proportionate; the facing, casting
+and role separation are all covered deterministically instead.
+
+## Previous pass (2026-09-23) — four more pictures, chosen at random
 
 Slices 2 and 3 of the Coloring subject plan. Order
 `.ai/wo-coloring-eight-subjects.json` (Codex via the router, Sol medium,

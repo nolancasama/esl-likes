@@ -1,20 +1,12 @@
 import * as THREE from 'three';
 
-import { createPaperPuppet } from '../coloring/paperPuppet.js';
-import { PUPPET_HEIGHT, STATES } from '../coloring/robotPuppet.js';
-import robot from '../coloring/subjects/robot.js';
+import { createPaperPuppet } from '../minigames/coloring/paperPuppet.js';
+import { STATES } from '../minigames/coloring/robotPuppet.js';
 
 /** Keep a flat puppet this far from either edge-on heading. */
 export const EDGE_GUARD = 0.44;
 
 const YAW_TIME_CONSTANT = 0.25;
-const HUMAN_CUSTOMER_SCALE = 0.72;
-// Character assets are normalised to 1.95 world units before Restaurant scale.
-const HUMAN_CUSTOMER_HEIGHT = 1.95 * HUMAN_CUSTOMER_SCALE;
-export const ROBOT_CUSTOMER_SCALE = HUMAN_CUSTOMER_HEIGHT / PUPPET_HEIGHT;
-export const ROBOT_SEATED_Y = 0.35;
-
-const HIT_TARGET_SCALE = HUMAN_CUSTOMER_SCALE / ROBOT_CUSTOMER_SCALE;
 const HALF_PI = Math.PI / 2;
 const TWO_PI = Math.PI * 2;
 
@@ -61,31 +53,33 @@ function readableStep(yaw, destination, previous) {
 }
 
 /**
- * Adapts a fresh Coloring paper puppet to Restaurant's character contract.
- * Restaurant owns the outer group's heading; the inner group smooths the
- * visible sheet independently while still arriving at that heading.
+ * Adapts a fresh Coloring paper puppet to the shared character contract.
+ * The host owns the outer group's heading; the inner group smooths the visible
+ * sheet independently while still arriving at that heading.
  */
-export function createRobotCustomerCharacter({ artwork, textureSize } = {}) {
-  const puppet = createPaperPuppet({ subject: robot, paint: artwork, textureSize });
+export function createPaperCharacter({
+  subject,
+  artwork,
+  textureSize,
+  presentation = {},
+} = {}) {
+  const puppet = createPaperPuppet({ subject, paint: artwork, textureSize });
   const character = new THREE.Group();
-  character.name = 'restaurant-robot-customer';
+  character.name = `paper-character-${subject.id}`;
   character.add(puppet.group);
-  character.scale.setScalar(ROBOT_CUSTOMER_SCALE);
+  character.scale.setScalar(presentation.scale ?? 1);
 
-  character.groundY = 0;
-  character.seatedY = ROBOT_SEATED_Y;
-  character.bubbleOffsetY = 2.10;
-  character.dialogueOffsetY = 1.65;
-  character.hitTargetY = 1.05 * HIT_TARGET_SCALE;
-  character.hitTargetScale = HIT_TARGET_SCALE;
-  character.userData.isRobotCustomer = true;
+  for (const [name, value] of Object.entries(presentation)) {
+    if (name !== 'scale') character[name] = value;
+  }
+  character.userData.isPaperCharacter = true;
 
   let animationName = 'idle';
   let renderedYaw = 0;
   let yawInitialized = false;
   let disposed = false;
 
-  character.playAnimation = (name) => {
+  character.playAnimation = (name, _options) => {
     const nextName = ['walk', 'idle', 'emote-yes', 'static'].includes(name) ? name : 'idle';
     if (nextName === animationName) return true;
 

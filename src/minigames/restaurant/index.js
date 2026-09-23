@@ -51,10 +51,11 @@ import {
 } from './rivalProgression.js';
 import { createBeltTempo } from './beltTempo.js';
 import { createTypewriter, parseFurigana } from './typewriter.js';
-import { savedRobots } from '../coloring/coloringSession.js';
+import { savedCreations } from '../coloring/coloringSession.js';
 import { disposeSharedPaperAssets } from '../coloring/paperPuppet.js';
-import { chooseGuaranteedRobotSlot, isRobotSlot, pickRobotRecord } from './robotCasting.js';
-import { createRobotCustomerCharacter } from './robotCustomer.js';
+import { DEFAULT_SUBJECT_ID, subjectById } from '../coloring/subjectRegistry.js';
+import { chooseCreationSlots, pickCreation } from '../../systems/creationCasting.js';
+import { createPaperCharacter } from '../../systems/paperCharacter.js';
 import {
   OWNERSHIP_BUBBLE_TEXT,
   PATIENCE_LOW,
@@ -328,9 +329,10 @@ export function createRestaurant(ctx) {
   let pendingRound = null;
   let directorPhase = 'warmup';
   let shiftTotal = 0;
-  let robotRecords = [];
-  let guaranteedRobotSlot = null;
-  let lastRobotRecordIndex = -1;
+  let creationRecords = [];
+  let paperSlots = new Set();
+  let usedCreationIndices = new Set();
+  let lastCreationRecordIndex = -1;
   let focusReleasedAgo = Infinity;
   let speechCooldown = 0;
   let noticeRemaining = 0;
@@ -1153,31 +1155,38 @@ export function createRestaurant(ctx) {
     return position;
   }
 
-  function setupRobotCasting(total, { refreshRecords = false } = {}) {
-    if (refreshRecords) robotRecords = savedRobots();
-    guaranteedRobotSlot = chooseGuaranteedRobotSlot({
-      savedCount: robotRecords.length,
-      shiftLength: total,
-    });
-    lastRobotRecordIndex = -1;
+  function setupCreationCasting(total, { refreshRecords = false } = {}) {
+    if (refreshRecords) {
+      creationRecords = savedCreations().filter((record) => (
+        subjectById(record.subjectId ?? DEFAULT_SUBJECT_ID)?.crossGame.restaurantCustomer
+      ));
+      usedCreationIndices = new Set();
+      lastCreationRecordIndex = -1;
+    }
+    paperSlots = new Set(chooseCreationSlots({
+      slots: total,
+      eligibleCount: creationRecords.length,
+    }));
   }
 
   function createCustomer(index, tableIndex, food) {
     const configured = DIFFICULTY[difficulty];
     const table = TABLES[tableIndex];
-    const robot = isRobotSlot({
-      index,
-      guaranteedSlot: guaranteedRobotSlot,
-      savedCount: robotRecords.length,
-    });
     let character;
-    if (robot) {
-      const picked = pickRobotRecord({
-        records: robotRecords,
-        lastIndex: lastRobotRecordIndex,
+    if (paperSlots.has(index)) {
+      const picked = pickCreation({
+        records: creationRecords,
+        used: usedCreationIndices,
+        lastIndex: lastCreationRecordIndex,
       });
-      lastRobotRecordIndex = picked.index;
-      character = createRobotCustomerCharacter({ artwork: picked.record.artwork });
+      usedCreationIndices.add(picked.index);
+      lastCreationRecordIndex = picked.index;
+      const subject = subjectById(picked.record.subjectId ?? DEFAULT_SUBJECT_ID);
+      character = createPaperCharacter({
+        subject,
+        artwork: picked.record.artwork,
+        presentation: subject.presentation.restaurant,
+      });
     } else {
       character = characters.create(appearanceFor(index));
       character.scale.setScalar(0.72);
@@ -3622,7 +3631,7 @@ export function createRestaurant(ctx) {
     claimRegistry = createCustomerClaimRegistry();
     competitionScore = createCompetitionScore();
     shiftTotal = total;
-    setupRobotCasting(shiftTotal);
+    setupCreationCasting(shiftTotal);
     roundPatience = patience;
     serviceDirector = createRestaurantDirector({
       level: difficulty,
@@ -4014,7 +4023,7 @@ export function createRestaurant(ctx) {
     serviceElapsed = 0;
     const configured = DIFFICULTY[difficulty];
     shiftTotal = configured.total;
-    setupRobotCasting(shiftTotal, { refreshRecords: true });
+    setupCreationCasting(shiftTotal, { refreshRecords: true });
     const rivalEnabled = Boolean(RIVAL_LEVELS[difficulty]?.enabled);
     claimRegistry = rivalEnabled ? createCustomerClaimRegistry() : null;
     rushTrigger = createRushTrigger({ enabled: rivalEnabled });
@@ -4308,9 +4317,10 @@ export function createRestaurant(ctx) {
     questionCustomer = null;
     dialogueCustomer = null;
     serviceDirector = null;
-    robotRecords = [];
-    guaranteedRobotSlot = null;
-    lastRobotRecordIndex = -1;
+    creationRecords = [];
+    paperSlots = new Set();
+    usedCreationIndices = new Set();
+    lastCreationRecordIndex = -1;
     claimRegistry = null;
     rushTrigger = null;
     competitionScore = null;

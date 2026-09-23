@@ -1,3 +1,5 @@
+import { restaurantPresentation, zooPresentation } from '../subjectPresentation.js';
+
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const child of Object.values(value)) deepFreeze(child);
@@ -6,9 +8,15 @@ function deepFreeze(value) {
 
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
+const LIVE_SCALE = 1.08;
 
 const snowman = {
   id: 'snowman', category: 'character', zooSpecies: null,
+  crossGame: { restaurantCustomer: true, zooVisitor: true },
+  presentation: {
+    restaurant: restaurantPresentation(LIVE_SCALE),
+    zoo: zooPresentation(LIVE_SCALE),
+  },
   pieces: ['body', 'leftArm', 'rightArm'],
   pivots: { body: { x: 0.5, y: 0.55 }, leftArm: { x: 0.31, y: 0.43 }, rightArm: { x: 0.69, y: 0.43 } },
   parents: { body: null, leftArm: 'body', rightArm: 'body' },
@@ -38,7 +46,7 @@ const snowman = {
     hop: { root: { hopHeightScale: 0.48, tilt: 0.18 }, rotations: { leftArm: { lagAir: -0.28 }, rightArm: { lagAir: 0.28 } }, blink: true },
     celebrate: { root: { hopHeightScale: 0.66, tilt: 0.22 }, rotations: { leftArm: { lagAir: -0.5 }, rightArm: { lagAir: 0.5 } }, blink: false },
   },
-  liveScale: 1.08,
+  liveScale: LIVE_SCALE,
 };
 
 export default deepFreeze(snowman);

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { insideSilhouette, silhouetteBounds } from './robotDefinition.js';
+import { PUPPET_HEIGHT } from './robotPuppet.js';
 import robot from './subjects/robot.js';
+import { TARGET_HEIGHT } from '../../systems/characters.js';
 import {
   DEFAULT_SUBJECT_ID,
   SUBJECTS,
@@ -55,7 +57,7 @@ function assertConnected(subject) {
   assert.equal(visited.size, cells.filter(Boolean).length, `${subject.id} is not one connected silhouette`);
 }
 
-test('all nine subjects are registered and robot stays the default', () => {
+test('all five subjects are registered and robot stays the default', () => {
   assert.equal(DEFAULT_SUBJECT_ID, 'robot');
   assert.deepEqual(SUBJECTS.map(({ id }) => id), Object.keys(expectedPieces));
   assert.equal(subjectById('robot'), robot);
@@ -98,6 +100,48 @@ test('subjects have the requested categories, zoo species and glow policy', () =
       }
     }
   }
+});
+
+test('every subject declares cross-game eligibility and Restaurant presentation', () => {
+  for (const subject of SUBJECTS) {
+    assert.deepEqual(subject.crossGame, {
+      restaurantCustomer: true,
+      zooVisitor: true,
+    });
+    assert.deepEqual(
+      Object.keys(subject.presentation.restaurant).sort(),
+      [
+        'bubbleOffsetY',
+        'dialogueOffsetY',
+        'groundY',
+        'hitTargetScale',
+        'hitTargetY',
+        'scale',
+        'seatedY',
+      ],
+    );
+    for (const value of Object.values(subject.presentation.restaurant)) {
+      assert.ok(Number.isFinite(value), `${subject.id} has non-finite presentation metadata`);
+    }
+    assert.ok(subject.presentation.restaurant.scale > 0);
+    assert.ok(subject.presentation.restaurant.hitTargetScale > 0);
+    assert.ok(Math.abs(
+      subject.presentation.restaurant.scale * PUPPET_HEIGHT * subject.liveScale
+        - TARGET_HEIGHT * 0.72,
+    ) < 1e-12, `${subject.id} is not normalized to Restaurant customer height`);
+  }
+
+  const scale = TARGET_HEIGHT * 0.72 / PUPPET_HEIGHT;
+  const hitTargetScale = 0.72 / scale;
+  assert.deepEqual(robot.presentation.restaurant, {
+    scale,
+    groundY: 0,
+    seatedY: 0.35,
+    bubbleOffsetY: 2.10,
+    dialogueOffsetY: 1.65,
+    hitTargetY: 1.05 * hitTargetScale,
+    hitTargetScale,
+  });
 });
 
 test('every subject is connected, centered and stands near the page baseline', () => {
