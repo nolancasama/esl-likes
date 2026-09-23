@@ -27,7 +27,7 @@ if (selectedSections && [...selectedSections].some((name) => !knownSections.has(
   throw new Error(`Unknown --only section. Choose from: ${[...knownSections].join(', ')}`);
 }
 const SAVE_KEY = 'esl-likes-save-v1';
-const ANIMALS = ['tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe'];
+const ANIMALS = ['cat', 'chicken', 'dog', 'horse', 'pig', 'raccoon', 'sheep', 'wolf'];
 const MOVE_SPEED = 13.5;
 const DEFAULT_SEED = 0x5eed1234;
 const FORCE_WALK_SHORT = process.env.ZOO_FORCE_WALK_SHORT === '1';
@@ -491,18 +491,18 @@ async function enterZoo(h, label = 'zoo') {
   return entered;
 }
 
-// Match the exact sentences, never a guessed plural: "I like deer." has no -s
+// Match the exact sentences, never a guessed plural: sheep and wolves differ.
 // and defeats an `<animal>s?` pattern, which silently produced a null animal and
 // sent the harness chasing an animal that does not exist.
 const SENTENCE_TO_ID = {
-  'I like tigers.': 'tiger',
-  'I like horses.': 'horse',
-  'I like dogs.': 'dog',
-  'I like deer.': 'deer',
   'I like cats.': 'cat',
-  'I like penguins.': 'penguin',
   'I like chickens.': 'chicken',
-  'I like giraffes.': 'giraffe',
+  'I like dogs.': 'dog',
+  'I like horses.': 'horse',
+  'I like pigs.': 'pig',
+  'I like raccoons.': 'raccoon',
+  'I like sheep.': 'sheep',
+  'I like wolves.': 'wolf',
 };
 const animalFromSentence = (sentence) => SENTENCE_TO_ID[(sentence || '').trim()] ?? null;
 const waitingVisitor = (s) => s?.debug?.visitors?.findIndex(
@@ -647,8 +647,8 @@ async function faceAnimal(h, animalId) {
 /**
  * How far back to stand from a given animal.
  *
- * There is no single right distance: a giraffe fills the viewfinder from ten
- * units away and a chicken is a speck at three. The game scores a photo on the
+ * There is no single right distance: a horse fills the viewfinder from farther
+ * away while a chicken is a speck at three units. The game scores a photo on the
  * subject's apparent size, so this inverts that — it solves for the distance at
  * which the animal covers about a third of the frame, from the photo bounds the
  * debug snapshot reports.
@@ -952,13 +952,13 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   s = await h.waitFor((u) => u.talk || u.fallback.length >= 3, 15000, 'turnaround');
   s = s ? await openFallback(h, 3) : s;
   const values = s?.fallback.map((f) => f.value) ?? [];
-  check('turnaround offers every animal sentence', values.length === ANIMALS.length && values.includes('tiger'),
+  check('turnaround offers every animal sentence', values.length === ANIMALS.length && values.includes('wolf'),
     s?.fallback.map((f) => f.text).join(' | '), Boolean(s));
   await page.screenshot({ path: `${OUT}-05-turnaround.png` });
   // Never throw here: a missing turnaround used to abort the whole run and take
   // session B's evidence with it. Record it and carry on.
   const turnaroundClicked = await clickIfPresent(
-    page, '.lesson-hud__fallback[data-value="tiger"]', { timeoutMs: 8000 },
+    page, '.lesson-hud__fallback[data-value="wolf"]', { timeoutMs: 8000 },
   );
   check('turnaround answer can be selected', turnaroundClicked, '', Boolean(s));
   if (!turnaroundClicked) await page.screenshot({ path: `${OUT}-fail-turnaround.png` }).catch(() => {});
@@ -967,9 +967,9 @@ await runSection('listening', !process.env.ONLY_B && sectionEnabled('listening')
   check('finishes back to the hub', Boolean(s), '', Boolean(s));
   await h.sleep(1200);
   s = await h.ui();
-  check('hub greets with the animal the child chose', s.greeting?.includes('tiger'), s.greeting, Boolean(s?.greeting));
+  check('hub greets with the animal the child chose', s.greeting?.includes('wolf'), s.greeting, Boolean(s?.greeting));
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
-  check('stamp and answer persisted', saved?.stamps?.zoo === true && saved?.answers?.animal === 'tiger',
+  check('stamp and answer persisted', saved?.stamps?.zoo === true && saved?.answers?.animal === 'wolf',
     JSON.stringify({ stamps: saved?.stamps, answers: saved?.answers }), hubReached);
   check('listening + one replay = 3 stars', saved?.bestStars?.zoo === 3, JSON.stringify(saved?.bestStars), hubReached);
   const photo = saved?.zooPhotos?.zoo ?? saved?.zooPhotos?.animal ?? null;

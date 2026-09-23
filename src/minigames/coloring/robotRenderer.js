@@ -33,9 +33,9 @@ const BLANK = '#fffdf8';
 const OUTLINE = 0.017;
 const DETAIL = 0.008;
 
-function pathShape(ctx, shape, size) {
-  ctx.beginPath();
+function appendShapePath(ctx, shape, size) {
   if (shape.kind === 'circle') {
+    ctx.moveTo((shape.cx + shape.r) * size, shape.cy * size);
     ctx.arc(shape.cx * size, shape.cy * size, shape.r * size, 0, Math.PI * 2);
     return;
   }
@@ -46,6 +46,11 @@ function pathShape(ctx, shape, size) {
   const r = Math.min((shape.radius ?? 0) * size, w / 2, h / 2);
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
   else ctx.rect(x, y, w, h);
+}
+
+function pathShape(ctx, shape, size) {
+  ctx.beginPath();
+  appendShapePath(ctx, shape, size);
 }
 
 /**
@@ -60,19 +65,7 @@ export function pathSilhouette(ctx, { subject, size = PICTURE_SIZE, only = null 
     : drawOrder(subject);
   ctx.beginPath();
   for (const entry of entries) {
-    const shape = entry.shape;
-    if (shape.kind === 'circle') {
-      ctx.moveTo((shape.cx + shape.r) * size, shape.cy * size);
-      ctx.arc(shape.cx * size, shape.cy * size, shape.r * size, 0, Math.PI * 2);
-      continue;
-    }
-    const x = shape.x * size;
-    const y = shape.y * size;
-    const w = shape.width * size;
-    const h = shape.height * size;
-    const r = Math.min((shape.radius ?? 0) * size, w / 2, h / 2);
-    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
-    else ctx.rect(x, y, w, h);
+    appendShapePath(ctx, entry.shape, size);
   }
 }
 
@@ -105,9 +98,18 @@ export function drawLineArt(ctx, { subject, size = PICTURE_SIZE, only = null, bl
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.lineWidth = OUTLINE * size;
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
+    ctx.save();
+    const occluders = entries.slice(index + 1).filter((later) => later.occludesOutline);
+    if (occluders.length) {
+      ctx.beginPath();
+      ctx.rect(0, 0, size, size);
+      for (const occluder of occluders) appendShapePath(ctx, occluder.shape, size);
+      ctx.clip('evenodd');
+    }
     pathShape(ctx, entry.shape, size);
     ctx.stroke();
+    ctx.restore();
   }
 
   ctx.lineWidth = DETAIL * size;

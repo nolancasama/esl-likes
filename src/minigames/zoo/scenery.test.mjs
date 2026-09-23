@@ -7,11 +7,10 @@ import {
   ENVIRONMENT_MODEL_BY_KEY,
   EXPECTED_PLACEMENT_COUNTS,
   INSTANCED_GROUPS,
+  RUNTIME_ENVIRONMENT_MODELS,
   SCENERY_GROUPS,
 } from './scenery.js';
-import { bounds, landmarks } from './layout.js';
-
-const ANCHORS = new Set(['ticketBooth', ...landmarks.map((landmark) => landmark.id)]);
+import { bounds } from './layout.js';
 
 test('every group names a model the park actually loads', () => {
   for (const group of SCENERY_GROUPS) {
@@ -27,17 +26,9 @@ test('model keys are unique', () => {
   assert.equal(new Set(keys).size, keys.length, 'duplicate model key');
 });
 
-test('the planted palette stays short, even though the editor offers more', () => {
-  // Models the park actually plants. The editor's palette is deliberately
-  // wider than this — a model can be available to place without being placed —
-  // but the set the park dresses itself from is a design decision and should
-  // not drift without one.
-  const planted = [...new Set(SCENERY_GROUPS.map((group) => group.asset))].sort();
-  assert.deepEqual(planted, [
-    'bush', 'cafe-chair', 'cafe-table', 'common-tree', 'crate',
-    'farm-barn', 'farm-well', 'grass', 'grass-wispy', 'long-fence',
-    'low-fence', 'pine', 'planter', 'rock', 'water-tower',
-  ]);
+test('the live park has no imported environment models', () => {
+  assert.deepEqual(SCENERY_GROUPS, []);
+  assert.deepEqual(RUNTIME_ENVIRONMENT_MODELS, []);
 });
 
 test('group names are unique — they appear in mesh names and scene stats', () => {
@@ -78,57 +69,10 @@ test('world-anchored placements stand inside the park', () => {
   }
 });
 
-test('an anchored group names a landmark that exists', () => {
-  for (const group of SCENERY_GROUPS) {
-    if (!group.anchor) continue;
-    assert.ok(ANCHORS.has(group.anchor), `${group.name} anchors to unknown "${group.anchor}"`);
-  }
-});
-
-test('every group declares how it is drawn', () => {
-  for (const group of SCENERY_GROUPS) {
-    assert.ok(['clone', 'instanced'].includes(group.draw), `${group.name} draw=${group.draw}`);
-    assert.equal(typeof group.occluder, 'boolean', `${group.name} occluder`);
-    assert.ok(group.placements.length > 0, `${group.name} places nothing`);
-  }
-});
-
 test('the clone and instanced views partition the groups', () => {
   assert.equal(CLONE_GROUPS.length + INSTANCED_GROUPS.length, SCENERY_GROUPS.length);
   assert.ok(CLONE_GROUPS.every((group) => group.draw === 'clone'));
   assert.ok(INSTANCED_GROUPS.every((group) => group.draw === 'instanced'));
-});
-
-test('the tall occluders are the ones an animal can hide behind', () => {
-  // Trees, pines, rocks, crates and the farm buildings block the camera; grass
-  // and low props do not. A group changing sides changes how hard an animal is
-  // to photograph, so it should have to be done deliberately.
-  const occluders = SCENERY_GROUPS.filter((group) => group.occluder).map((group) => group.name).sort();
-  assert.deepEqual(occluders, [
-    'cove-rock',
-    'farm-barn',
-    'farm-crates',
-    'farm-water-tower',
-    'farm-well',
-    'grassland-rock',
-    'grassland-tree',
-    'ticket-crate',
-    'woodland-pine',
-    'woodland-rock',
-    'woodland-tree',
-  ]);
-});
-
-test('the park is still dressed from one short plant palette', () => {
-  // What matters is which plants are PLANTED, not how many the editor offers.
-  // Every plant still comes from the one pack, and the park still uses six of
-  // them: two grasses, a bush, a broadleaf tree, a pine and a rock.
-  const planted = new Set(SCENERY_GROUPS.map((group) => group.asset));
-  const plants = ENVIRONMENT_MODELS
-    .filter((model) => model.folder === 'quaternius-nature' && planted.has(model.key))
-    .map((model) => model.key)
-    .sort();
-  assert.deepEqual(plants, ['bush', 'common-tree', 'grass', 'grass-wispy', 'pine', 'rock']);
 });
 
 test('every palette model is one file that actually ships', () => {
@@ -141,6 +85,5 @@ test('every palette model is one file that actually ships', () => {
 
 test('the data is frozen so nothing can edit the park at runtime', () => {
   assert.ok(Object.isFrozen(SCENERY_GROUPS));
-  assert.ok(Object.isFrozen(SCENERY_GROUPS[0].placements));
-  assert.ok(Object.isFrozen(SCENERY_GROUPS[0].placements[0]));
+  assert.ok(Object.isFrozen(EXPECTED_PLACEMENT_COUNTS));
 });

@@ -17,8 +17,8 @@ Every vocabulary item defines its exact spoken and displayed answer sentence —
 never `"I like " + label`. Singular and plural cannot be inferred safely from a
 label:
 
-    curry     -> "I like curry."        elephant -> "I like elephants."
-    hamburger -> "I like hamburgers."   penguin  -> "I like penguins."
+    curry     -> "I like curry."        sheep    -> "I like sheep."
+    hamburger -> "I like hamburgers."   wolf     -> "I like wolves."
 
 Vocabulary lives in `src/config/lesson.js`, one object per item.
 
@@ -1033,8 +1033,7 @@ First-try share under one half caps the result at two stars.
 
 The exploratory finale, and the largest space — but navigable, not sprawling.
 
-Animals (thirteen): elephant, giraffe, penguin, tiger, deer, alpaca, horse,
-fox, wolf, stag, bull, cow, donkey.
+Animals (eight): cat, chicken, dog, horse, pig, raccoon, sheep, wolf.
 
 ### Campus (revised 2026-09-13 — replaces the single ring of habitats)
 
@@ -1048,12 +1047,11 @@ landscaping, signage and themed areas. The child should rarely be truly lost.
 - **Central fountain** where the main paths meet: the landmark a child learns to
   return to.
 - **Four themed regions**, visibly different, dressed from reusable kits:
-  - *Savanna* — elephant, giraffe, tiger (as the transition toward the forest):
-    warm dry ground, broad sparse trees, rocks, a tall giraffe feeder, a mud pool.
-  - *Forest trail* — deer, fox, wolf, stag: dense pines, bushes, logs, darker fencing.
-  - *Farm* — horse, alpaca, cow, bull, donkey: wooden paddocks, a red barn, hay, troughs.
-  - *Penguin Cove* — penguin: a pool, pale rocks, a rail or small bridge; well away
-    from the giraffe.
+  - *Grassland* — horse, sheep, dog: warm open ground, broad sparse trees,
+    rocks and a watering hollow.
+  - *Woodland* — wolf, raccoon, cat: dense pines, bushes and logs.
+  - *Farm* — chicken: a red barn, hay and troughs.
+  - *Cove* — pig: a pool, pale rocks and a small bridge.
 - **Paths** form an irregular figure-eight through the fountain with one or two
   cross-paths. Broad, curving, forgiving; no long dead ends (a habitat's viewing
   spot may be a short spur).

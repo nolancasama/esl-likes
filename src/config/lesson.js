@@ -34,17 +34,17 @@ const VOCABULARY = Object.freeze({
     say('baseball', 'I like baseball.'),
     say('volleyball', 'I like volleyball.'),
   ]),
-  // The eight animals that actually roam the park. Answers are written out
-  // rather than pluralised generically: "I like deer." has no -s.
+  // The eight animals that actually roam the park. Answers are written out:
+  // sheep has no plural suffix and wolf changes to wolves.
   animal: Object.freeze([
-    say('tiger', 'I like tigers.'),
-    say('horse', 'I like horses.'),
-    say('dog', 'I like dogs.'),
-    say('deer', 'I like deer.'),
     say('cat', 'I like cats.'),
-    say('penguin', 'I like penguins.'),
     say('chicken', 'I like chickens.'),
-    say('giraffe', 'I like giraffes.'),
+    say('dog', 'I like dogs.'),
+    say('horse', 'I like horses.'),
+    say('pig', 'I like pigs.'),
+    say('raccoon', 'I like raccoons.'),
+    say('sheep', 'I like sheep.'),
+    say('wolf', 'I like wolves.'),
   ]),
 });
 
@@ -238,14 +238,14 @@ export const UI = Object.freeze({
     yourFavourite: 'きみの すきな どうぶつも おしえてね！',
     complete: 'スタンプを ゲット！',
     animalNames: {
-      tiger: 'トラ',
-      horse: 'うま',
-      dog: 'いぬ',
-      deer: 'しか',
       cat: 'ねこ',
-      penguin: 'ペンギン',
       chicken: 'にわとり',
-      giraffe: 'キリン',
+      dog: 'いぬ',
+      horse: 'うま',
+      pig: 'ぶた',
+      raccoon: 'あらいぐま',
+      sheep: 'ひつじ',
+      wolf: 'おおかみ',
     },
   },
   restaurant: {

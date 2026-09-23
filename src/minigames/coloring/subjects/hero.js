@@ -28,7 +28,7 @@ const hero = {
     { id: 'leftLeg', piece: 'leftLeg', order: 12, shape: rect(0.34, 0.65, 0.16, 0.3, 0.07) },
     { id: 'rightLeg', piece: 'rightLeg', order: 13, shape: rect(0.5, 0.65, 0.16, 0.3, 0.07) },
     { id: 'torso', piece: 'body', order: 20, shape: rect(0.32, 0.29, 0.36, 0.46, 0.11) },
-    { id: 'head', piece: 'body', order: 21, shape: circle(0.5, 0.18, 0.15) },
+    { id: 'head', piece: 'body', order: 21, occludesOutline: true, shape: circle(0.5, 0.18, 0.15) },
   ],
   details: {
     eyes: [{ cx: 0.445, cy: 0.17, r: 0.024 }, { cx: 0.555, cy: 0.17, r: 0.024 }], pupilRatio: 0.46,

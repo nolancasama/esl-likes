@@ -1,53 +1,47 @@
 # Animal park models
 
-Supplied by the project owner from their own downloads, September 2026. Three
-files cover the park's eight animals: two models and one generated clip bundle.
+The eight animal models in `cube-world/` come from Quaternius' **Cube World**
+pack. The project owner downloaded them on 2026-09-23 in the source archive
+`drive-download-20260923T103858Z-1-001.zip`. They were exported by
+`Khronos glTF Blender I/O v1.7.33`.
 
-**`Animals.glb`** — "Animals FREE" by ithappy, exported from the Unity package
-to glTF. Scene root children: `tiger`, `horse.001`, `dog.001`, `deer`,
-`kitty.001`, `pinguin.001`, `chicken.001`. The animal park instantiates all
-seven. **It contains no animation clips at all** — see the clip bundle below.
+Quaternius packs are released under CC0. **No license file accompanied this
+particular download**, so the owner should confirm the source page for the
+exact attribution that should ship with the project.
 
-**`animal-clips.json`** — generated, do not hand-edit. Idle/Walk/Run for all
-eight animals, built by `npm run build:animal-clips` from the owner's original
-packs in Downloads (`Unity_2021_Animals_FREE_v2.3.unitypackage` and
-`stylooanimalassetpack.zip`). The seven ITHappy animals' clips are lifted from
-the pack's FBX meshes, whose bone names match this glb's once GLTFLoader has
-sanitized them. The giraffe's walk is retargeted from the styloo cow, which
-shares its rig; its idle is the model's own `iddle`. See DESIGN_DECISIONS.md,
-2026-09-20.
+Each `.gltf` is self-contained: its mesh, skin, animation data, and PNG texture
+are embedded in the file. Runtime loading needs no sidecar binary or texture.
+The models face local +Z at rotation zero, matching the Zoo roaming convention.
 
-Two things the loader must do: drop nothing, but **remap track names** — all
-seven animals here share bone names, so GLTFLoader renames the duplicates
-(`Root`, `Root_1`, `Root_2`, …) and a clip binds to the tiger only unless the
-suffix is resolved. `retargetClip` in `src/minigames/zoo/animalClips.js` does
-this.
+## Animation clips
 
-**`giraffe.glb`** — from the **Styloo animal asset pack**,
-<https://styloo.itch.io/> (the pack's read-me asks only that you consider a
-donation; it ships fbx and glb, and we use the glb as advised). Originally
-`glb/girafe.glb`; renamed to the English spelling used by the lesson. It carries
-one clip, the misspelled `iddle`; its walk is borrowed from the same pack's cow.
+- `Cat.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Chicken.gltf`: Attack, Death, Idle, Idle_Peck, Run
+- `Dog.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Horse.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Pig.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Raccoon.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Sheep.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
+- `Wolf.gltf`: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk
 
-## Removed with the enclosures
+**The chicken has no Walk clip.** The runtime resolves animation names by an
+exact case-insensitive match and uses Run for the walk role whenever Walk is
+missing. Keep that rule general rather than branching on the chicken.
 
-`elephant.glb`, `alpaca.gltf` and `obj/` (Bull, Cow, Donkey, Fox, Horse_White,
-Stag, Wolf) were deleted in the 2026-09-20 animal-park pass. Those eight species
-are no longer in the lesson, nothing referenced the files, and they were 2.3 MB
-of dead weight in the bundle. They are in git history if they are ever wanted,
-and the original packs (`animalz.zip`, Downloads) still have them. The horse now
-comes from the rigged `Animals.glb` node rather than the static `Horse_White.obj`,
-because a static mesh cannot walk.
+## Things that will bite
 
-## Two things that will bite
+**Do not import `Chick.gltf`.** Chick and chicken are too similar for reliable
+speech matching and for the intended photo-matching age group. The frozen Zoo
+roster uses only `Chicken.gltf`.
 
-**Scales are not consistent between files.** Raw heights are deer 1.97, horse
-1.86, giraffe 1.45, tiger 1.28, pinguin 1.28 — a giraffe shorter than a deer.
-Every animal is scaled to a `targetHeight` so the relative sizes read correctly;
-do not assume one world scale fits all eight. Placement is derived from each
-model's bounding box rather than hand-written constants, so this stays true if a
-model is replaced.
+**Do not assume one model scale.** Every species has an authored `targetHeight`
+and is normalised from its own bounding box. The source files use inconsistent
+dimensions, so a universal scale will make the relative sizes wrong.
 
-**Bone names repeat across `Animals.glb`,** so GLTFLoader renames the duplicates
-and only the first animal in the file keeps the names its clips use. Clips are
-remapped onto each model at load time; see the clip bundle note above.
+**Do not add a 180-degree roaming correction.** These models face +Z. If one
+model is replaced and genuinely differs, give only that model a `yawOffset` in
+`ANIMAL_MODELS`; changing the roaming heading makes every correctly authored
+model walk backwards.
+
+**Animation names are a contract, not list positions.** Extra clips and their
+order vary, and the chicken omits Walk. Resolve Idle, Walk, and Run by name.

@@ -107,8 +107,8 @@ const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 /** Roaming waypoints read the same colour they are drawn in the debug view. */
 const ANIMAL_COLOURS = Object.freeze({
-  tiger: 0xf5952b, horse: 0xc98b5a, dog: 0xd9d2c5, deer: 0xb5763f,
-  cat: 0xe0a458, penguin: 0x33415c, chicken: 0xe8e2d0, giraffe: 0xe4b363,
+  cat: 0xe0a458, chicken: 0xe8e2d0, dog: 0xd9d2c5, horse: 0xc98b5a,
+  pig: 0xf2a7b5, raccoon: 0x6f7780, sheep: 0xe9e2cf, wolf: 0x65717d,
 });
 
 export function createZooEditorAdapter({ zooWorld }) {

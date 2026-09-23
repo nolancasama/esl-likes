@@ -26,7 +26,7 @@ const snowman = {
     { id: 'leftArm', piece: 'leftArm', order: 10, shape: rect(0.07, 0.5, 0.35, 0.07, 0.035) },
     { id: 'rightArm', piece: 'rightArm', order: 11, shape: rect(0.58, 0.5, 0.35, 0.07, 0.035) },
     { id: 'bottomSnowball', piece: 'body', order: 20, shape: circle(0.5, 0.67, 0.29) },
-    { id: 'head', piece: 'body', order: 21, shape: circle(0.5, 0.28, 0.22) },
+    { id: 'head', piece: 'body', order: 21, occludesOutline: true, shape: circle(0.5, 0.28, 0.22) },
   ],
   // The whole face sits in the clear upper half of the head. Two balls put the
   // seam, the scarf and the arms all in one narrow band around y 0.42-0.55, and

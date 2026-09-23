@@ -27,7 +27,7 @@ const gingerbread = {
     { id: 'leftLeg', piece: 'leftLeg', order: 12, shape: rect(0.32, 0.64, 0.18, 0.31, 0.09) },
     { id: 'rightLeg', piece: 'rightLeg', order: 13, shape: rect(0.5, 0.64, 0.18, 0.31, 0.09) },
     { id: 'torso', piece: 'body', order: 20, shape: rect(0.31, 0.31, 0.38, 0.43, 0.15) },
-    { id: 'head', piece: 'body', order: 21, shape: circle(0.5, 0.2, 0.18) },
+    { id: 'head', piece: 'body', order: 21, occludesOutline: true, shape: circle(0.5, 0.2, 0.18) },
   ],
   details: {
     eyes: [{ cx: 0.44, cy: 0.17, r: 0.025 }, { cx: 0.56, cy: 0.17, r: 0.025 }], pupilRatio: 0.5,

@@ -108,7 +108,7 @@ export function createRoamingAnimal(animalId, { rng = Math.random, start = null 
 
   function beginWalk() {
     // A speed of zero means this animal never walks. It idles where it spawned
-    // for the whole session, which is what the giraffe does.
+    // for the whole session if a future territory deliberately uses speed 0.
     if (animal.speed <= 0) {
       animal.timer = IDLE_SECONDS.max;
       return;

@@ -117,6 +117,37 @@ test('there is exactly one call to finish, and it is the turnaround', () => {
   assert.ok(source.includes('finishCalled'), 'nothing guards finish() against a second call');
 });
 
+test('the final turnaround frames only the newest creation without moving the player', () => {
+  const begin = between('function beginTurnaround()', 'function completeTurnaround(');
+  const withCreation = begin.slice(begin.indexOf('if (newest) {'), begin.indexOf('} else {'));
+  const withoutCreation = begin.slice(begin.indexOf('} else {'));
+  assert.doesNotMatch(begin, /player\.position/, 'the turnaround teleports the player away from the door');
+  assert.match(withCreation, /newest\.puppet\.stopRoaming\(\)\.setState\(STATES\.IDLE\)/);
+  assert.match(withCreation, /player\.visible = false/);
+  assert.match(withCreation, /newest\.puppet\.setHeading\(0\)/);
+  assert.match(withCreation,
+    /dialogue\.show\(\{ text: LESSON\.question, anchor: newest\.puppet\.group, offsetY: 2\.1 \}\)/);
+  assert.match(withoutCreation, /player\.visible = true/,
+    'the no-creation fallback can inherit a hidden player');
+});
+
+test('the page-forward button is taken away for the closing question', () => {
+  // The room overlay stays up through the turnaround, so つぎ ▶ does not hide
+  // itself. Left visible it offers the child a way out of being asked
+  // something, which is the one moment the game is actually teaching.
+  const begin = between('function beginTurnaround()', 'function completeTurnaround(');
+  assert.match(begin, /nextButton\.hidden = true/);
+  const reveal = between('function revealRoom()', 'function debugSnapshot()');
+  assert.match(reveal, /nextButton\.hidden = false/,
+    'the button never comes back for the next round');
+});
+
+test('finishing keeps the player hidden through the celebration beat', () => {
+  const complete = between('function completeTurnaround(', '// --- teardown');
+  assert.doesNotMatch(complete, /player\.visible\s*=\s*true/);
+  assert.match(complete, /finishRemaining = 1\.1/);
+});
+
 test('stars come from the robot count, and no per-round score survives', () => {
   assert.ok(source.includes('sessionStars(livingRobots.length)'));
   assert.ok(!source.includes('scoreRound'), 'the deleted per-round scorer is still referenced');

@@ -1,0 +1,68 @@
+{
+  "task": "Finish the animal park's voxel restyle: drop the last imported model (the Quaternius rock) and replace every rock in the park with procedurally generated blocky rocks, and delete the plaza benches and lamp posts. After this pass a student session loads no environment model files at all.",
+
+  "context": [
+    "This continues the pass that just replaced the park's dressing with blocky procedural trees. src/minigames/zoo/blockyTree.js already holds the tree variants, the seeded scatter (`createParkScatter`) and the placement exclusion rules (`isScatterPointAllowed`). Follow that module's established shape rather than inventing a second pattern.",
+    "The owner has REVERSED the earlier instruction to keep the imported rock. Every rock is now generated. The Quaternius rock model must no longer be placed or loaded.",
+    "The plaza benches (`zoo-plaza-bench`, two of them, around y 0.58-1.02 near z 27) and the four lamp posts (a dark cylinder plus a white sphere globe, at [-4.2,34.2], [4.2,34.2], [-5.2,25.7], [5.2,25.7]) are built inline in world.js and are also going.",
+    "Read DESIGN_DECISIONS.md and append to the entry this pass already added, or add a short follow-up entry."
+  ],
+
+  "requirements": [
+    "Delete the three remaining imported scenery groups — grassland-rock, woodland-rock and cove-rock — and the rock entries from EXPECTED_PLACEMENT_COUNTS. SCENERY_GROUPS should end up empty of placed imported models; if that leaves it an empty array, keep the export and its documentation comment intact so the scene editor still works.",
+    "Delete the imported-rock half of the park scatter and replace it with generated rocks, keeping the same counts per area that the rock scatter already uses and the same seeded rng so the park stays reproducible.",
+    "Add procedural blocky rocks alongside the trees in blockyTree.js (or a sibling module if that file is getting long — your call, but do not split the scatter logic across two places). Three or four variants built only from the shared box geometry: a low flat slab, a small two-block boulder, a taller angular chunk, and optionally a tiny pebble cluster. Randomise scale and yaw, and tilt them slightly so they do not all sit axis-aligned. They must read as voxel rocks that match the trees — grey/stone shades, flat shaded, a couple of shared materials at most.",
+    "Generated rocks keep the existing clustering behaviour: sometimes two or three together, sometimes alone.",
+    "Generated rocks are NOT photo occluders. They are low ground clutter; the imported rock groups they replace were marked as occluders, and sixty small occluders would both slow the framing sampler and make animals harder to photograph for no visual gain. Trees remain the occluders.",
+    "Generated rocks are NOT colliders, exactly like the trees, so navigation cannot regress.",
+    "Rocks obey the same exclusion rules as the trees through the existing `isScatterPointAllowed`: nothing at z >= 22, nothing within 2.5 units of a territory waypoint, nothing within 2 units of a collider or landmark, nothing in the cove pool, everything inside the park bounds.",
+    "Remove the two `zoo-plaza-bench` groups and the four lamp posts (cylinder post plus sphere globe) from world.js entirely, along with any material or geometry that becomes unused as a result.",
+    "After the removals, the runtime must fetch NO environment model files in a student session. Make the environment load path a clean no-op when nothing is placed rather than leaving it fetching an empty list or logging a warning. Keep ENVIRONMENT_MODELS exported in full so the scene editor palette is unchanged, and keep the editor able to place from it.",
+    "Update every test that asserts the rock groups, the rock scatter, the benches, the lamp posts or the environment load behaviour. Add coverage that the generated rock scatter is deterministic for a fixed seed and that it obeys the same exclusions as the trees.",
+    "Keep everything else in the park exactly as it is: the blocky trees, the flat ground, the region tint discs, the ticket booth, the fountain, the barn, the water tower, the cove bridge and pool, the giant forest tree, and all navigation and collision data."
+  ],
+
+  "constraints": [
+    "Do not touch src/minigames/coloring/**, src/minigames/restaurant/** or src/config/lesson.js.",
+    "Do not change the Zoo game loop, roaming, the animal roster, the visitor flow, scoring, the camera/photo mechanic, or any lesson content.",
+    "Do not modify layout.js — pathNodes, pathEdges, colliders, landmarks, regions and bounds all stay.",
+    "Do not add any new asset file, and do not import any model. Rocks are generated in code.",
+    "Do not delete public/assets/zoo/environment/** — the scene editor palette still references those files and the owner may place them by hand later.",
+    "Do not create per-object materials or geometries for the scatter; reuse the shared box geometry and a tiny shared material palette, and keep the rocks instanced the way the trees are.",
+    "Do not add terrain height anywhere. The ground stays one flat plane.",
+    "Match the surrounding code style and comment density, and do not leave comments describing rocks, benches or lamps that no longer exist.",
+    "Edit source with structured file tools, not shell here-strings or sed."
+  ],
+
+  "startingPoints": [
+    "src/minigames/zoo/blockyTree.js",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/scenery.js",
+    "src/minigames/zoo/scenery.test.mjs",
+    "src/minigames/zoo/blockyTree.test.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "Purely visual: whether the generated rocks read as stone rather than grey cubes, and whether the plaza still looks furnished enough without benches or lamps, can only be judged from the rendered park.",
+    "checks": [
+      "No imported rock remains and no environment asset is fetched",
+      "Generated rocks read as rocks, in varied sizes and clusters, matching the blocky trees",
+      "The entrance plaza has no benches and no lamp posts and still looks intentional",
+      "Animals still roam and can still be framed and photographed"
+    ]
+  },
+
+  "category": "world-art",
+  "complexity": "easy",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "medium"
+}

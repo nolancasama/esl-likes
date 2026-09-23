@@ -82,19 +82,9 @@ To check the runner itself (known-good and known-bad):
 ## Assets and credits
 
 - **Characters** — Kenney *Blocky Characters* (CC0). <https://kenney.nl>
-- **Fox, wolf, stag, bull, cow, donkey, white horse, alpaca** — Quaternius
-  low-poly animals (CC0). <https://www.patreon.com/quaternius>
-- **Elephant** — generated with a Blender script by the project owner.
-- **Tiger, deer, penguin** — ithappy *Animals FREE*, from the Unity Asset Store.
-- **Giraffe** — Styloo, <https://styloo.itch.io/>.
+- **Zoo animals** — Quaternius *Cube World* (CC0). The project owner's download
+  did not include a licence file, so confirm the source page for exact
+  attribution before redistribution.
 
-  Those last two packs are included here at the project owner's decision. Note
-  for anyone reusing this repository: the Unity Asset Store EULA permits using
-  assets inside an application but not redistributing the asset files
-  themselves, and the Styloo pack states no licence at all. If you fork this,
-  replace `Animals.glb` and `giraffe.glb` with your own models or CC0
-  equivalents — the game already falls back to a placeholder for any model it
-  cannot load.
-
-See `public/assets/animals/README.md` for per-file provenance and the two model
-quirks worth knowing (mixed scales, and an elephant whose origin is centred).
+See `public/assets/animals/README.md` for per-file provenance, embedded clips,
+and the model-loading quirks worth knowing.

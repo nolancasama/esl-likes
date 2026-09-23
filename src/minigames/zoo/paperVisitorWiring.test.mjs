@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { chooseCreationSlots } from '../../systems/creationCasting.js';
 import { SUBJECTS } from '../coloring/subjectRegistry.js';
+import { ANIMAL_IDS, zooPhotoSpecies } from './territories.js';
 
 /**
  * A creation that visits the zoo is a VISITOR, never an exhibit.
@@ -67,6 +68,19 @@ test('every subject carries a Zoo presentation, normalised to a human visitor', 
   }
 });
 
+test('Coloring subjects can only name a photo species from the current Zoo roster', () => {
+  for (const subject of SUBJECTS) {
+    assert.equal(subject.zooSpecies, null, `${subject.id} unexpectedly names a Zoo species`);
+    assert.equal(zooPhotoSpecies(subject), null, `${subject.id} became a photo target`);
+  }
+  for (const species of ANIMAL_IDS) {
+    assert.equal(zooPhotoSpecies({ zooSpecies: species }), species);
+  }
+  assert.equal(zooPhotoSpecies({ zooSpecies: 'dragon' }), null);
+  assert.equal(zooPhotoSpecies({ id: 'cat', zooSpecies: null }), null,
+    'a matching subject id must not bypass explicit Zoo metadata');
+});
+
 // --- the guarantee, over a whole zoo session --------------------------------
 
 function seeded(seed) {
@@ -97,4 +111,3 @@ test('one painted creation means every zoo session shows one, and humans remain'
   }
   assert.ok(allPaper / 300 < 0.1, 'paper visitors crowd out the human ones too often');
 });
-

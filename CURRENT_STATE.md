@@ -9,7 +9,52 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — a polish pass across three games
+## Latest pass (2026-09-23) — new animals, and a park built from boxes
+
+**Committed and pushed** to `main` at the owner's request, so it is live.
+`npm test` 693/693, `npm run build`, the `preview` playthrough 16/16 and the
+`polish-visuals` pass 7/7.
+
+Four delegated orders (all Codex via the router, all SUCCESS) plus controller
+fixes: `.ai/wo-cube-world-animals.json`, `.ai/wo-turnaround-and-occlusion.json`,
+`.ai/wo-zoo-blocky-park.json`, `.ai/wo-zoo-generated-rocks.json`.
+
+- **The Zoo's animals are Quaternius Cube World**, chosen by the owner and found
+  in Downloads. Roster is now cat, chicken, dog, horse, pig, raccoon, sheep,
+  wolf. Tiger, giraffe, deer and penguin are gone — the pack has no exotic
+  animals, so the park reads as farm-and-woodland now. Each `.gltf` is
+  self-contained and carries its own clips, so `animalClips.js`, the 1.25 MB
+  `animal-clips.json` and `scripts/build-animal-clips.mjs` were all deleted.
+  **The chicken has no Walk clip**; `walk` falls back to `Run` as a general rule.
+- **The park is procedural.** Every imported decorative model is gone; trees and
+  rocks are generated from boxes with seeded placement. A student session fetches
+  no environment model at all. Visible paths, the watering hollow, the plaza
+  benches and the lamp posts are all removed. Navigation data is untouched.
+- **Coloring's closing question shows only the creation** — no avatar teleport,
+  no avatar at all, and つぎ ▶ is hidden for that beat.
+- **Heads occlude the body outline** on ninja, snowman, gingerbread and hero.
+
+### Verified in the browser
+
+All eight animals load and resolve idle/walk/run. Scatter exclusions hold across
+four seeds (nearest tree to any waypoint ≥ 2.6 units). The turnaround, the head
+occlusion, the Restaurant hint and the easel preview were all confirmed from
+screenshots.
+
+### Not verified
+
+Foot-skating: the per-animal `clipSpeed` values are starting points for the new
+walk cycles and have not been judged in motion. The full Zoo request → find →
+photograph loop with the new animals was not run end to end; the `zoo`
+playthrough is long and known-flaky (see the harness-pitfalls note).
+
+### Rejected twice, on looking
+
+The first snowman render put its smile on the head/body seam. The first
+generated rocks were warm beige near-cubes that read as crates and sat on the
+white sheep's colour. Both were re-tuned and re-rendered.
+
+## Previous pass (2026-09-23) — a polish pass across three games
 
 **Committed and pushed** to `main` at the owner's request, so it is live on
 GitHub Pages. `npm test` 689/689, `npm run build`, the `preview` playthrough
@@ -165,7 +210,7 @@ shows its artwork (not its blank back) at every visitor spot.
 ### Two corrections made during this pass
 
 - The plan assumed "paper animals in Zoo from Phase 2". **There is no Phase 2**
-  — the animals were cut. Items about photographable paper penguins were
+  — the animals were cut. Items about photographable paper animals were
   dropped as unimplementable; the guard half was kept.
 - Claude wrongly reported that the Zoo never ticks visitor animations, from a
   truncated read, and added a duplicate `updateAnimation` call. The Zoo **does**
@@ -199,9 +244,9 @@ another pass. Slice 3 (selection and wording) was done directly.
 
 ### Why the animals were cut
 
-Penguin, chicken, cat and dog were authored, rendered and rejected. Built from
+Four animal subjects were authored, rendered and rejected. Built from
 the robot's template — a circle head on a capsule body with two symmetric limbs
-— the penguin read as a bear, the chicken as two large circles, and the side-on
+— one read as a bear, another as two large circles, and the side-on
 cat and dog as jumbles. The cause is the silhouette vocabulary: it is only
 rectangles and circles, so there is no way to make a pointed ear, a comb, a beak
 or a tail, and cat ears came out as a cartoon mouse's. **Anyone retrying the
@@ -278,7 +323,7 @@ shell-level control.
 
 ### Next
 
-Slice 2: the eight subject definitions (penguin, chicken, cat, dog, snowman,
+Slice 2: the subject definitions (four rejected animal drafts, snowman,
 gingerbread, hero, ninja) as pure data against this contract. Slice 3: random
 subject selection, the generic POWER wording (ロボットパワー still says "robot"),
 and the browser review of all nine.
@@ -814,31 +859,17 @@ pushed** — the owner asked for testing first.
 The fenced zoo let a sign do the finding and a pen do the framing. It is now one
 continuous park where eight animals walk around and have to be looked for.
 
-- **Eight animals, all animated**: tiger, horse, dog, deer, cat, penguin,
-  chicken, giraffe. Removed with their vocabulary, models and pens: elephant,
-  alpaca, fox, wolf, stag, bull, cow, donkey. The horse moved from a static OBJ
-  to the rigged `Animals.glb` node, because a static mesh cannot walk.
-- **The clips did not exist and had to be built.** `Animals.glb` ships seven
-  rigged skins and **zero** clips. `scripts/build-animal-clips.mjs`
-  (`npm run build:animal-clips`) lifts idle/walk/run out of the ITHappy pack's
-  source FBX — the `.unitypackage` is a gzip tar, so **no Unity was needed** —
-  and writes `assets/animals/animal-clips.json` (1.2 MB raw, 310 KB gzipped).
-  The models are untouched; clips attach at runtime.
-- **Two traps worth remembering.** (1) GLTFLoader renames duplicate node names,
-  and all seven animals share bone names, so a clip binds to the tiger alone and
-  silently animates nothing for the other six — `retargetClip` resolves the
-  `_1`/`_2` suffixes. (2) Tracks targeting `<Mesh>_rig` carry armature root
-  motion and must be dropped or animals drift off their own position.
-- **The giraffe's walk is borrowed from the styloo cow**, which uses a
-  byte-for-byte identical 48-node Rigify rig. Rotation tracks only, so the
-  giraffe keeps its own neck and legs. Verified by rendering six phases.
+- **Eight animals, all animated**: cat, chicken, dog, horse, pig, raccoon,
+  sheep and wolf. Each uses one self-contained Quaternius Cube World glTF.
+- **Clips live in each model.** Runtime animation resolves exact names without
+  an external bundle. Walk falls back to Run when absent, which covers the
+  chicken without a species-specific branch.
 - **Everything that pointed the way is gone**: the `YOU ARE HERE` board, four
   junction signposts, `REGION_SIGNAGE`, `JUNCTION_SIGNPOSTS`, the sign canvases,
   `getSignageData`, all thirteen circular pens with their fence posts, rails and
   **habitat fence colliders**, and the eight `*-viewpoint` path spokes. Nothing
   replaced them — no arrows, targets, minimap dots or waypoints. Also removed:
-  the giraffe feeding post (a pen fixture that read as a blank sign and blocked
-  a third of the giraffe's routes).
+  a former feeding post that read as a blank sign and blocked roaming routes.
 - **Roaming**: `territories.js` (authored waypoints, 14–17 units across) and
   `roaming.js` (a pure idle/walk state machine with seeded RNG). Animals idle
   2–6 s, pick a reachable waypoint, turn, walk, idle again. They never flee, and
@@ -866,9 +897,8 @@ are judged by looking, never by reasoning about the maths.**
   screen-right in world is `(-cos y, sin y)`, a *smaller* yaw. Now `-=`. The
   harness's own aiming had to be flipped to match, or it converged on the exact
   opposite bearing (`dot: -0.99`).
-- **The giraffe stands still** (speed 0). The cow-retargeted walk moves its legs
-  correctly but with a cow's gait; the owner judged still better than strange.
-  The clip stays in the bundle, unused.
+- **Every animal roams.** The horse uses the former grassland landmark slot and
+  now walks with its model's own cycle.
 - **One plant palette, led by grass.** Already all Quaternius Nature, but wide:
   two pines, dead tree, ferns, flowering bushes, two rocks, pebbles. Now six —
   two grasses, bush, broadleaf, pine, rock — with grass roughly doubled and the
@@ -882,8 +912,7 @@ are judged by looking, never by reasoning about the maths.**
 `npm test` **420/420**. `npm run build` OK. Zoo playthrough **113/113** in one
 clean run (seed 1592594996) after the corrections — listening 30/30,
 antiShortcut 18/18, animals 62/62, suite 3/3. Search times from the plaza: horse
-4.3 s, chicken 7.1 s, giraffe 10.2 s, penguin 14.2 s, deer 14.6 s, cat 15.5 s,
-dog 17.4 s, tiger 25.1 s — the harness walks straight at an animal it can
+The harness walks straight at an animal it can
 already locate, so a child who must look will take longer. Claude viewed the
 park: no signs, no pens, animals facing the way they walk, one plant palette.
 
@@ -1072,7 +1101,7 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 - Drink Stand: rush + dwell revision, hold-to-fill at six stations.
 - Zoo: campus from pure `layout.js`, CC0 dressing, Japanese region signposts +
   YOU ARE HERE board, no entrance gate and no per-pen signs, animals stand still
-  facing their viewpoint (alpaca/giraffe idle clips), zoomed viewfinder that
+  facing their viewpoint, zoomed viewfinder that
   avoids photo occluders.
 - Playthroughs: `npm run build`, then `npm run playthrough:<scenario>`
   (restaurant, drink-stand, coloring, sports, zoo); the runner owns the preview.
@@ -1100,7 +1129,7 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
 - **113 checks** per run now, not 144: the thirteen habitats became eight
   animals, and the signage checks became checks that the signage is gone.
 - `approachAnimal` derives its standing distance from each animal's reported
-  photo bounds (giraffe ~9.9 units, chicken ~2.3) and steps to 0.7x and 0.5x on
+  photo bounds and steps to 0.7x and 0.5x on
   a failure; `faceAnimal` re-reads the moving target and taps the turn key for
   the time the remaining error needs. Holding the key until a predicate flipped
   span the player through whole revolutions.
@@ -1133,8 +1162,8 @@ known-bad run), and the tub-over-delivery Space priority ships unchanged.
   Stylized Nature MegaKit; KayKit Restaurant Bits (1024 px atlas not loaded).
 - **Quaternius Farm Buildings: CC0 not confirmed** (no licence file) — published;
   confirm on quaternius.com or remove the folder (procedural barn fallback).
-- Own work: `elephant.glb`. `Animals.glb` (ithappy) and `giraffe.glb` (Styloo)
-  published at the owner's explicit decision; forks should replace them.
+- Zoo animals: Quaternius Cube World. The download had no accompanying licence
+  file; confirm the source page for exact attribution.
 - Provenance: `public/assets/zoo/environment/README.md`.
 
 ## Next Steps

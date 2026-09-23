@@ -86,6 +86,22 @@ test('every subject satisfies the shared frozen data contract', () => {
   }
 });
 
+test('only the four overlapping circular heads occlude earlier outlines', () => {
+  const expected = new Map([
+    ['ninja', 'hood'],
+    ['snowman', 'head'],
+    ['gingerbread', 'head'],
+    ['hero', 'head'],
+  ]);
+  for (const [subjectId, shapeId] of expected) {
+    const shape = subjectById(subjectId).shapes.find(({ id }) => id === shapeId);
+    assert.equal(shape?.shape.kind, 'circle', `${subjectId}/${shapeId} is no longer circular`);
+    assert.equal(shape?.occludesOutline, true, `${subjectId}/${shapeId} does not hide the body seam`);
+  }
+  assert.ok(robot.shapes.every(({ occludesOutline }) => occludesOutline !== true),
+    'the established robot appearance must not use outline occlusion');
+});
+
 test('subjects have the requested categories, zoo species and glow policy', () => {
   for (const subject of SUBJECTS) {
     if (animalIds.has(subject.id)) {

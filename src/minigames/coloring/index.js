@@ -1362,6 +1362,7 @@ export function createColoring(ctx) {
     setRoomAction(null);
     // The sheet is blank; a fresh drawing drifts onto it shortly, and the child
     // may interrupt that at any point.
+    if (nextButton) nextButton.hidden = false;
     previewSubject = subjectAfter(activeSubject);
     setEaselArt('blank');
     holdRemaining = ROOM_HOLD;
@@ -1397,20 +1398,21 @@ export function createColoring(ctx) {
     if (!active || phase !== 'room') return;
     phase = 'turnaround';
     setRoomAction(null);
+    // The room overlay stays up for the closing question, so the page-forward
+    // button has to be taken away by hand: offering "next picture" while the
+    // creation is asking the child something reads as a way out of answering.
+    if (nextButton) nextButton.hidden = true;
     const newest = livingRobots.at(-1);
     if (newest) {
       newest.puppet.stopRoaming().setState(STATES.IDLE);
-      // The child stands beside it rather than between it and the camera.
-      const target = newest.puppet.group.position;
-      player.position.set(target.x + 1.5, 0, target.z + 1.3);
-      player.rotation.y = Math.atan2(target.x - player.position.x, target.z - player.position.z);
-      player.playAnimation?.('idle');
-      newest.puppet.setHeading(Math.atan2(player.position.x - target.x, player.position.z - target.z));
+      player.visible = false;
+      newest.puppet.setHeading(0);
       cameraRig
         .setTarget(newest.puppet.group)
         .setPreset('closeup', { offset: [0, 2.2, 3.6], lookOffset: [0, 1, 0], damping: 4 });
       dialogue.show({ text: LESSON.question, anchor: newest.puppet.group, offsetY: 2.1 });
     } else {
+      player.visible = true;
       dialogue.show({ text: LESSON.question, anchor: player, offsetY: 1.8 });
     }
     roomInstruction.textContent = STRINGS.turnaround;

@@ -1,0 +1,77 @@
+{
+  "task": "Restyle the animal park's dressing to match the blocky voxel animals and people: strip out the imported realistic greenery and props, remove the visible beige paths and the one decorative ground dip, and refill the park with procedurally generated blocky trees plus a much wider scatter of the existing rock model. Gameplay, roaming, collision and the photo mechanic must be untouched.",
+
+  "context": [
+    "esl-likes is a 3D ESL game for Japanese elementary classrooms. The Zoo ('どうぶつパーク') asks 'What animal do you like?': a visitor names an animal, the child searches the park for it and photographs it.",
+    "The park's animals and people are now blocky voxel models (Quaternius Cube World). The dressing is still Quaternius Nature / Kenney / KayKit imported models, which read as a different, more detailed art style. That mismatch is the whole point of this pass.",
+    "src/minigames/zoo/scenery.js is pure placement data (ENVIRONMENT_MODELS, SCENERY_GROUPS, EXPECTED_PLACEMENT_COUNTS). src/minigames/zoo/world.js turns it into meshes and also builds several things procedurally already — the ticket booth, the fountain, the cove bridge and pool, the giant forest tree, and a `barnFallback` box barn used when the imported barn OBJ fails.",
+    "src/minigames/zoo/layout.js holds pathNodes, pathEdges, colliders, landmarks and regions. It is the navigation and collision truth and is NOT art.",
+    "Read DESIGN_DECISIONS.md first and append an entry for this pass. The scene placement editor under src/dev/scene-editor/ reads SCENERY_GROUPS and ENVIRONMENT_MODELS, so keep both exported and well-formed."
+  ],
+
+  "requirements": [
+    "REMOVE FROM THE WORLD: every SCENERY_GROUP whose asset is an imported decorative model, EXCEPT the three rock groups. That means deleting the entrance-planters, cafe-tables, cafe-chairs, ticket-crate, all grass and wispy-grass groups, all bush groups, grassland-tree, woodland-tree, woodland-pine, farm-paddock-fence, farm-crates, cove-railing, farm-barn, farm-well and farm-water-tower. Keep grassland-rock, woodland-rock and cove-rock.",
+    "REMOVE THE VISIBLE PATHS: stop building the `zoo-path-<from>-<to>` slabs and the `zoo-path-node-<id>` joints in world.js. pathNodes, pathEdges and every collider in layout.js stay exactly as they are — navigation, landmark lookup and the harness still use them. Only the meshes go.",
+    "REMOVE THE ONE PIECE OF FAKE TERRAIN: delete the `zoo-watering-hollow` mud disc. It is the only thing reading as a dip in an otherwise level park.",
+    "KEEP THE REGION TINT PATCHES. The flat `zoo-region-<id>` discs sit at y 0.015, add no height, and are how a child tells grassland from woodland from farm from cove while searching. They stay, and the ground still reads as one level plane.",
+    "REPLACE THE TWO LOST LANDMARK BUILDINGS with blocky procedural ones, because both have colliders in layout.js that must not become invisible walls. Promote the existing `barnFallback` to the permanent barn: build it unconditionally, rename it to something that is no longer 'fallback', and delete the `replacesFallback === 'barn'` swap path that removed it when the OBJ loaded. Add a simple blocky water tower at the `waterTower` landmark — box legs plus a box tank — sized from its collider radius the way the barn is sized from its collider half-extents. The well had no collider and is simply gone.",
+    "ADD A PROCEDURAL BLOCKY TREE GENERATOR. Put it in its own module (src/minigames/zoo/blockyTree.js) since world.js is already ~950 lines. Four variants built from boxes only, flat shaded, matching the voxel look: a tall narrow one, a short wide one, a two-tier one, and a chunky round-ish one made of offset boxes. Each takes a seeded rng and returns a THREE.Group with a box trunk and one to three canopy boxes, with randomised height, width and a small yaw. Reuse the existing shared box geometry and the makeMaterial helper rather than creating a material per tree, and keep the whole park's trees to a handful of shared materials.",
+    "SCATTER trees and rocks with a SEEDED rng so the park is reproducible — reuse the existing `createRng` from roaming.js and derive it from the world seed already passed to createZooWorld. Same seed must give the same park.",
+    "PLACEMENT EXCLUSIONS, all of them mandatory: nothing at z >= 22 (that is the entrance plaza, the player spawn at z 33.8 and every visitor spot between z 24.3 and 30.0); nothing within 2.5 units of any territory waypoint in territories.js, so an animal is never permanently hidden and its waypoints stay clear; nothing within 2 units of any collider or landmark in layout.js; nothing inside the cove pool rectangle described by the poolEdge colliders; everything inside the park bounds from layout.js. Reject and resample rather than clamping a rejected point.",
+    "DENSITY: aim for roughly 70-90 trees and 50-70 rocks across the park, weighted so woodland is denser than grassland and the farm and cove stay open. Rocks should sometimes come in small clusters of two or three rather than always standing alone, with varied yaw and scale. These numbers are a starting point for visual tuning, not a contract — say so in the final report.",
+    "TREES ARE NOT COLLIDERS, matching how the park's existing scattered trees already behave: the player and the animals walk through scatter, and only the authored colliders in layout.js block. Do not add colliders for scattered trees or rocks — that is how this pass would create trapped navigation.",
+    "Trees ARE photo occluders (`markPhotoOccluder`) like the trees they replace, so they can hide an animal from the camera. The 2.5-unit waypoint clearance is what keeps that fair. If the photo-framing checks show animals becoming unphotographable, reduce density rather than dropping the occluder flag.",
+    "RESTYLE THE GIANT FOREST TREE, the woodland landmark, using the new blocky tree generator at a large scale so the one landmark tree matches the scatter instead of being the last smooth sphere-leaf tree in the park. Keep its position and its existing collider.",
+    "DO NOT LOAD WHAT NOTHING PLACES. After the removals, a student session must only fetch the environment models still referenced by a SCENERY_GROUP — in practice just the rock. Keep the full ENVIRONMENT_MODELS list exported so the scene editor's palette is unchanged, but make sure the runtime load path is driven by what is actually placed.",
+    "Update EXPECTED_PLACEMENT_COUNTS in scenery.js to match the groups that remain, and update every scenery/layout/world test that encodes the removed groups or the path meshes. These are deliberate changes; list them in the final report rather than deleting coverage.",
+    "TESTS: the scatter is deterministic for a fixed seed; no scattered object violates any of the exclusion rules above (assert against the real waypoint, collider and pool data, not a copy); every remaining scenery group's asset exists in ENVIRONMENT_MODELS; the park still builds with no path meshes and no watering hollow; the barn and water tower still exist at their landmarks. Keep the existing territory, roaming, scoring and photo tests passing."
+  ],
+
+  "constraints": [
+    "Do not touch src/minigames/coloring/**, src/minigames/restaurant/** or src/config/lesson.js.",
+    "Do not change the Zoo game loop, the animal roster, roaming, the visitor request flow, the camera/photo mechanic, scoring, or any Japanese or English lesson content. This is a dressing pass.",
+    "Do not modify pathNodes, pathEdges, colliders, landmarks, regions or bounds in layout.js. Navigation and collision must behave exactly as they do today.",
+    "Do not change territories.js. Waypoints are read for exclusion only.",
+    "Do not replace or restyle the rock model — the owner explicitly wants the existing Quaternius rock kept and reused.",
+    "Do not import any new model file, and do not add any new asset to public/assets/. Trees are generated in code.",
+    "Do not introduce per-object materials or per-object geometries for the scatter; the park already runs on shared geometry and instancing, and a Chromebook is the target hardware. Prefer instancing or shared geometry for the trees as the existing groups do.",
+    "Do not add terrain height, tiers, mounds or dips anywhere. The ground is one level plane.",
+    "Do not leave a collider whose visible object was deleted, and do not delete a collider to match a deleted object.",
+    "Match the surrounding code style: these Zoo modules are unusually well commented and explain WHY. Do not leave comments describing scenery that no longer exists.",
+    "Edit source with structured file tools, not shell here-strings or sed. If a shell-based edit fails once on quoting or escaping, switch to the structured editor."
+  ],
+
+  "startingPoints": [
+    "src/minigames/zoo/scenery.js",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/layout.js",
+    "src/minigames/zoo/territories.js",
+    "src/minigames/zoo/roaming.js",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "This worker's sandbox cannot start the Vite preview server, and this pass is entirely about how the park looks. Whether the trees read as blocky, whether the park feels open rather than cluttered, and whether an animal is still easy enough to find and photograph can only be judged from the rendered game. The controller runs it and owns the verdict.",
+    "checks": [
+      "The park loads with no console errors and no missing-asset warnings",
+      "No beige path strips, no ground dip, no smooth realistic greenery remains",
+      "Blocky trees appear in clearly varied heights and widths, and rocks are scattered and clustered",
+      "The ground reads as one flat plane with the area tints still legible",
+      "Animals still roam, are still findable, and can still be framed and photographed",
+      "The entrance and visitor area is clear of scatter"
+    ]
+  },
+
+  "category": "world-art",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

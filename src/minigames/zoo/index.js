@@ -12,7 +12,7 @@ import {
   pathNodes,
 } from './layout.js';
 import { createZooWorld } from './world.js';
-import { AREAS, TERRITORIES } from './territories.js';
+import { AREAS, TERRITORIES, zooPhotoSpecies } from './territories.js';
 import { DEV_TOOLS_ENABLED } from '../../dev/devMode.js';
 import { savedCreations } from '../coloring/coloringSession.js';
 import { DEFAULT_SUBJECT_ID, subjectById } from '../coloring/subjectRegistry.js';
@@ -344,10 +344,10 @@ export function createZoo(ctx) {
    *
    * Only the big-bodied animals push, and they push softly: a hard collider on
    * something that walks toward you is how a child gets shoved into scenery or
-   * pinned against the pool. Standing shoulder to shoulder with a giraffe is
+   * pinned against the pool. Standing shoulder to shoulder with a horse is
    * fine; standing inside it is not.
    */
-  const PUSH_RADIUS = Object.freeze({ giraffe: 1.5, horse: 1.3, deer: 1.2, tiger: 1.2, dog: 0.9 });
+  const PUSH_RADIUS = Object.freeze({ horse: 1.3, wolf: 1.1, sheep: 1.0, pig: 1.0, dog: 0.9 });
   function separateFromAnimals(dt) {
     if (!zooWorld) return;
     for (const subject of zooWorld.habitats) {
@@ -406,7 +406,7 @@ export function createZoo(ctx) {
       player.playAnimation?.('idle');
     }
     // The avatar is hidden while aiming. A distant, high, wide camera shot the
-    // slim animals (penguin, chicken, cat) too small to frame from a distance.
+    // slim animals (chicken and cat) too small to frame from a distance.
     if (camera.fov !== VIEWFINDER_FOV) {
       followFov = camera.fov;
       camera.fov = VIEWFINDER_FOV;
@@ -659,6 +659,8 @@ export function createZoo(ctx) {
     let best = null;
     let blockedBest = null;
     for (const habitat of zooWorld.habitats) {
+      const species = zooPhotoSpecies(habitat);
+      if (!species) continue;
       habitat.photoTarget.getWorldPosition(worldCenter);
       projectedCenter.copy(worldCenter).project(camera);
       worldEdge.copy(worldCenter).addScaledVector(cameraUp, habitat.photoHalfHeight ?? habitat.photoRadius);
@@ -691,7 +693,7 @@ export function createZoo(ctx) {
       // animal, however well the invisible silhouette would have been framed.
       const blocked = zooWorld.countBlockedSamples(habitat, camera);
       const visibleFraction = 1 - blocked / zooWorld.visibilitySampleCount;
-      const candidate = { habitat, framing, frame, score, visibleFraction, blocked };
+      const candidate = { habitat, species, framing, frame, score, visibleFraction, blocked };
       if (visibleFraction >= .6) best = candidate;
       else if (!blockedBest || score > blockedBest.score) blockedBest = candidate;
     }
@@ -761,7 +763,7 @@ export function createZoo(ctx) {
     const subject = (shutterReady && framedSubject)
       || (performance.now() - lastGoodAt <= 600 ? lastGoodSubject : null);
     if (!subject) return;
-    const id = subject.habitat.id;
+    const id = subject.species;
     const dataUrl = snapshotDataUrl(id);
     carriedPhoto = { animal: id, framing: subject.framing, dataUrl };
     zooPhoto = dataUrl;
@@ -917,6 +919,7 @@ export function createZoo(ctx) {
     if (!zooWorld) return;
     editorLoading = true;
     try {
+      await zooWorld.loadEnvironment({ editor: true });
       const [{ createSceneEditor }, { createZooEditorAdapter }] = await Promise.all([
         import('../../dev/scene-editor/SceneEditor.js'),
         import('./zooEditorAdapter.js'),
@@ -984,7 +987,6 @@ export function createZoo(ctx) {
       // Live roaming state. There is no fixed habitat position any more, so
       // anything that wants to find an animal has to read where it is now.
       animals: zooWorld?.getAnimalDebug?.() ?? [],
-      clips: zooWorld?.getClipState?.() ?? { status: 'idle', animals: [] },
       areas: AREAS,
       territories: TERRITORIES.map((territory) => ({
         id: territory.id,

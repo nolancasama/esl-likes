@@ -1,0 +1,74 @@
+{
+  "task": "Two independent Coloring changes. (B) The final turnaround must stop teleporting the child's avatar back beside the creation — show only the creation asking the question. (C) A head drawn over a body must hide the body outline underneath it, so overlapping shapes stop showing lines through the head.",
+
+  "context": [
+    "esl-likes is a 3D ESL game for Japanese elementary classrooms. In Coloring the child paints a paper subject, it comes alive and roams the room, and on the way out a final 'turnaround' asks the child their own favourite colour.",
+    "A separate slice of this pass has just replaced the Zoo's animals. Do NOT touch src/minigames/zoo/**, src/config/lesson.js, src/systems/speechMatch.js or public/assets/**.",
+    "Read DESIGN_DECISIONS.md first and append one entry per slice (date, what, why, rejected alternative).",
+    "The five Coloring subjects are robot, snowman, gingerbread, hero and ninja, in src/minigames/coloring/subjects/. The renderer is src/minigames/coloring/robotRenderer.js and is shared by three consumers: the flat Coloring page, the room easel, and each 3D paper puppet's per-piece textures."
+  ],
+
+  "requirements": [
+    "SLICE B — In `beginTurnaround()` (src/minigames/coloring/index.js, around line 1396), DELETE the three lines that reposition and re-aim the avatar: `player.position.set(...)`, the `player.rotation.y = Math.atan2(...)` that follows it, and the `player.playAnimation?.('idle')`. The child's avatar keeps whatever position it reached at the door. Do not substitute any other teleport.",
+    "SLICE B — Set `player.visible = false` when there is a newest creation, so the shot contains only the paper creation. The player remains logically present for speech and input; it is only not rendered.",
+    "SLICE B — The creation must face the camera rather than the now-hidden avatar. Replace the current `newest.puppet.setHeading(Math.atan2(player.position.x - target.x, ...))` with `newest.puppet.setHeading(0)`. The closeup preset places the camera at +Z relative to the puppet and a paper puppet's front normal is +Z, so heading 0 looks straight down the lens. Verify that rather than assuming it, and if it comes out reversed derive the heading from the actual camera direction instead of hard-coding a different constant.",
+    "SLICE B — Keep everything else in the turnaround as it is: `stopRoaming().setState(STATES.IDLE)`, the `cameraRig.setTarget(...).setPreset('closeup', ...)` call, the `dialogue.show({ text: LESSON.question, anchor: newest.puppet.group, offsetY: 2.1 })`, the instruction text and the `promptAnswer(...)` wiring. Do not duplicate the question string; `LESSON.question` is already 'What color do you like?'.",
+    "SLICE B — The avatar must STAY hidden through `completeTurnaround()` and the 1.1s celebration beat that follows, so the last thing the child sees is the creation. Do not set `player.visible = true` anywhere in that path. Restoring it during controller teardown/exit is fine for lifecycle hygiene, but must not produce a visible frame.",
+    "SLICE B — The `else` branch (no living creation) keeps its current behaviour and must leave the avatar visible, since there is nothing else to look at. Make sure the visibility flag cannot leak between the two branches on re-entry.",
+    "SLICE C — Add an `occludesOutline: true` flag to the shape metadata of the head that sits over a body in each subject that actually overlaps: ninja `hood`, snowman `head`, gingerbread `head`, hero `head`. All four are circles drawn over a torso or body shape and all four currently show the body's outline through the head. Leave the ROBOT unchanged — its head is a rectangle whose current look is established and correct.",
+    "SLICE C — In robotRenderer.js, split path building from path beginning: add an `appendShapePath(ctx, shape, size)` that only issues the path commands (using `moveTo` before `arc` for circles so a sub-path does not connect to the previous one), and reduce `pathShape` to `ctx.beginPath()` followed by `appendShapePath`. Existing callers of `pathShape` must behave exactly as before.",
+    "SLICE C — In `drawLineArt`, when stroking each entry's outline, clip out any LATER entry in the same list that is flagged `occludesOutline`. Build the clip as an outer rectangle covering the canvas plus each occluder's path, and clip with the 'evenodd' rule so the occluder interiors become holes. Wrap each entry's stroke in `ctx.save()` / `ctx.restore()`. Compute the occluders from the SAME filtered `entries` list the function is already iterating, so the `only` (per-puppet-piece) path keeps working and a shape in a different piece's texture is unaffected.",
+    "SLICE C — The head keeps its own outline. Occlusion removes only lines belonging to shapes drawn BEHIND the head, never the head's own border.",
+    "SLICE C — The child's paint must not be touched. Do not draw any opaque fill over the artwork; only the line-art stroking changes. The blank-body fill, the paint layer and the detail marks (eyes, nose, mouth, buttons) keep their current behaviour.",
+    "TESTS — Slice B: assert from the controller source that `beginTurnaround` no longer writes `player.position`; that it sets `player.visible = false` when a creation exists; that the newest puppet stops roaming, is set to heading 0 and is the dialogue anchor; and that `completeTurnaround` does not restore player visibility. Follow the existing source-reading test pattern in loop.test.mjs where the controller cannot be imported, and update any existing assertion that encodes the old teleport.",
+    "TESTS — Slice C: assert the four flagged shapes carry `occludesOutline === true` and that the robot does not; and prove the renderer behaviour with a synthetic subject of two overlapping shapes where the later one is flagged — using a recording fake 2D context in the existing test style, assert that a clip with 'evenodd' is applied while stroking the earlier shape and that the later shape is still stroked itself. Do not write a pixel-diff framework.",
+    "Every existing test must pass; 685 pass today. Do not weaken an existing assertion — if one genuinely encodes the old turnaround, change it deliberately and say so in the final report."
+  ],
+
+  "constraints": [
+    "Do not touch src/minigames/zoo/**, src/config/lesson.js, src/systems/speechMatch.js, public/assets/** or package.json. Another slice owns those and its changes are already in the working tree.",
+    "Do not regress anything added recently: the truthful easel preview and `previewSubject`, the つぎ ▶ subject cycling, the two-circle snowman, the snowman's 1.25x cross-game size, Coloring persistence and saved artwork, paper creations appearing as Restaurant customers and Zoo visitors, the favourite-colour POWER logic, or the manual できた！ finish.",
+    "Do not paint white or any opaque patch over the child's artwork to achieve the occlusion. That would erase the colour they chose for the head.",
+    "Do not make the occlusion a ninja-only or snowman-only branch in the renderer. It is driven entirely by shape metadata.",
+    "Do not change the robot's shapes, its head, or its established appearance.",
+    "Do not redesign the camera rig, the closeup preset, the dialogue system or promptAnswer.",
+    "Match the surrounding code style: short comments about WHY, not what.",
+    "Edit source with structured file tools, not shell here-strings or sed. If a shell-based edit fails once on quoting or escaping, switch to the structured editor.",
+    "The two slices are independent; do not let one spread into the other's files."
+  ],
+
+  "startingPoints": [
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/robotRenderer.js",
+    "src/minigames/coloring/subjects/ninja.js",
+    "src/minigames/coloring/subjects/snowman.js",
+    "src/minigames/coloring/subjects/gingerbread.js",
+    "src/minigames/coloring/subjects/hero.js",
+    "src/minigames/coloring/loop.test.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "This worker's sandbox cannot start the Vite preview server. Both slices are judged by looking: whether the avatar is absent and the creation faces the lens during the final question, and whether the head now reads as solid on all four subjects without damaging the paint.",
+    "checks": [
+      "Walking to the door shows only the creation, facing the camera, asking the question — no avatar appears mid-room",
+      "The avatar stays absent through the celebration beat after the answer is accepted",
+      "Ninja, snowman, gingerbread and hero all show no body outline through the head, on the flat page and on the living 3D puppet",
+      "The child's painted colour is still visible on the head, not covered by white",
+      "The robot is unchanged"
+    ]
+  },
+
+  "category": "gameplay-visual-polish",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

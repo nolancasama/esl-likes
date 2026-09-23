@@ -1,0 +1,79 @@
+{
+  "task": "Replace the animal park's entire animal set with Quaternius 'Cube World' models, which the controller has already imported into public/assets/animals/cube-world/. The new roster is frozen (see below) and every species-dependent place in the repo must follow it. The new models carry their own animation clips, so the whole external clip bundle and its build script are deleted.",
+
+  "context": [
+    "esl-likes is a 3D ESL game for Japanese elementary classrooms. The Zoo minigame ('どうぶつパーク') asks 'What animal do you like?': a visitor names an animal, the child finds it roaming the park and photographs it.",
+    "The controller has ALREADY done the discovery and asset import. Do not go looking in Downloads, do not extract anything, do not choose a roster. public/assets/animals/cube-world/ already contains exactly Cat.gltf, Chicken.gltf, Dog.gltf, Horse.gltf, Pig.gltf, Raccoon.gltf, Sheep.gltf and Wolf.gltf. Each is self-contained: buffers are embedded base64 and the texture atlas is embedded as a bufferView, so there are no .bin or .png side files to wire up.",
+    "Every one of these models is rigged and ships its own clips. Seven of the eight have: Death, Headbutt, Idle, Idle_Eating, Jump_Loop, Jump_Start, Run, Walk. Chicken.gltf is the exception and has: Attack, Death, Idle, Idle_Peck, Run — it has NO Walk clip.",
+    "Model orientation was measured from the source data: on every model the Tail node sits at negative Z, so these face +Z, which is already this project's convention (`subject.animal.rotation.y = roamer.facing` works as-is). No yawOffset is expected. Verify it rather than assume it, but do not pre-emptively add offsets.",
+    "Read public/assets/animals/README.md and DESIGN_DECISIONS.md first. The README documents the OLD pack and must be rewritten for this one. Append a DESIGN_DECISIONS entry for this pass."
+  ],
+
+  "requirements": [
+    "ROSTER (frozen, exactly these eight ids): cat, chicken, dog, horse, pig, raccoon, sheep, wolf. The pack's Chick.gltf is deliberately NOT used and must not be imported — 'chick' and 'chicken' are near-identical for speech matching and for a photo-matching game aimed at this age group.",
+    "world.js ANIMAL_MODELS becomes one file per animal, no `node` field: cat -> 'cube-world/Cat.gltf' targetHeight 0.8; chicken -> 'cube-world/Chicken.gltf' 1.05; dog -> 'cube-world/Dog.gltf' 1.15; horse -> 'cube-world/Horse.gltf' 2.2; pig -> 'cube-world/Pig.gltf' 1.1; raccoon -> 'cube-world/Raccoon.gltf' 0.8; sheep -> 'cube-world/Sheep.gltf' 1.25; wolf -> 'cube-world/Wolf.gltf' 1.35. Keep the existing bounding-box normalisation (`scale = config.targetHeight / rawSize.y`) exactly as it is.",
+    "ANIMATION: take clips from each model's own `gltf.animations` and delete the external bundle. Add a small name resolver (case-insensitive exact match) producing the animator's existing `{ idle, walk, run }` contract: idle <- 'Idle'; walk <- 'Walk', falling back to 'Run' when no Walk exists; run <- 'Run'. That fallback is what makes the chicken work, and it must be a general rule, not a chicken-specific branch. Leave `createAnimalAnimator`'s public contract unchanged — it already tolerates a missing clip.",
+    "DELETE, once the new models are proven to load and animate: src/minigames/zoo/animalClips.js, public/assets/animals/animal-clips.json, scripts/build-animal-clips.mjs, the `build:animal-clips` script in package.json, public/assets/animals/Animals.glb, public/assets/animals/giraffe.glb, and any test that only exercised the deleted clip bundle. Grep for CLIPS_ASSET, parseAnimalClips, retargetClip, ANIMAL_CLIP_ROLES and CLIP_ANIMAL_IDS and remove every reference. Do not leave the old and new pipelines coexisting.",
+    "TERRITORIES: keep all eight existing waypoint sets and their areas exactly as authored — they are known clear of scenery and a test walks them through canOccupy. Re-label the slots to the new species, in this order: the 'giraffe' grassland slot becomes horse (speed 1.8, clipSpeed 2.0 — it now has a real walk cycle, so it is no longer the speed-0 standing landmark); the 'horse' grassland slot becomes sheep (1.2, 1.4); the 'deer' grassland slot becomes dog (2.0, 1.8); the 'tiger' woodland slot becomes wolf (1.8, 1.7); the 'dog' woodland slot becomes raccoon (1.6, 1.5); the 'cat' woodland slot stays cat (1.6, 1.1); the 'chicken' farm slot stays chicken (0.95, 0.7); the 'penguin' cove slot becomes pig (1.0, 1.0). Update the surrounding comments, which currently describe a giraffe landmark and a penguin circling the pool — neither exists any more.",
+    "clipSpeed values above are starting points for the NEW walk cycles and are expected to need visual tuning for foot-skating; say so in the final report rather than treating them as verified.",
+    "ANIMAL_RADIUS in territories.js: cat 0.45, chicken 0.4, dog 0.6, horse 0.85, pig 0.6, raccoon 0.5, sheep 0.6, wolf 0.7. No obsolete keys.",
+    "PUSH_RADIUS in zoo/index.js: only the large animals need one — horse 1.3, wolf 1.1, sheep 1.0, pig 1.0, dog 0.9. Remove giraffe/deer/tiger and any other dead key.",
+    "scoring.js must stop duplicating the roster: import ANIMAL_IDS from './territories.js' and derive ANIMALS from it, so pickAnimal() automatically follows the Zoo roster and the next asset swap cannot desynchronise them.",
+    "lesson.js Zoo vocabulary — each answer written out, no generated plurals: cat 'I like cats.'; chicken 'I like chickens.'; dog 'I like dogs.'; horse 'I like horses.'; pig 'I like pigs.'; raccoon 'I like raccoons.'; sheep 'I like sheep.'; wolf 'I like wolves.'. Note that sheep has no plural 's' and wolf pluralises irregularly to wolves — check how the existing answer matcher handles plurals and homophones and make sure both of these are declared explicitly the way the existing short-name entries are.",
+    "lesson.js UI.zoo.animalNames must match the roster exactly: cat 'ねこ', chicken 'にわとり', dog 'いぬ', horse 'うま', pig 'ぶた', raccoon 'あらいぐま', sheep 'ひつじ', wolf 'おおかみ'. Remove tiger/deer/penguin/giraffe.",
+    "Rewrite public/assets/animals/README.md for this pack: Quaternius 'Cube World', downloaded by the project owner 2026-09-23 (source archive drive-download-20260923T103858Z-1-001.zip), glTF exported by 'Khronos glTF Blender I/O v1.7.33'. Record that Quaternius packs are released CC0 but that NO license file accompanied this particular download, so the owner should confirm the source page for exact attribution. Record the per-animal clip list, the chicken's missing Walk, the +Z facing, and that each .gltf is self-contained. Keep the existing README's habit of warning about what will bite.",
+    "Search the whole repo for every retired species id — tiger, deer, penguin, giraffe — and remove or update every occurrence, including tests, playthrough harnesses under scripts/, comments and fixtures. Leave no stale assumption.",
+    "CROSS-GAME SAFETY: a Coloring subject may only act as a Zoo photo target when its `zooSpecies` is in the current roster. Every current Coloring subject has `zooSpecies: null`, so nothing should qualify today — assert that rather than assume it, and make the check derive from ANIMAL_IDS so a future paper animal cannot satisfy a request for an unrelated species. Never delete or invalidate a child's saved creation.",
+    "TESTS: every configured model file exists on disk and parses; every configured animal resolves an idle clip and a walk clip (the chicken's walk resolving to its Run); ANIMAL_IDS, scoring's ANIMALS, the lesson vocabulary ids and UI.zoo.animalNames keys are all the same set; every waypoint still passes canOccupy with the new ANIMAL_RADIUS; targetHeights are all positive and produce a sane scale. Keep the existing territory/scoring/photo tests passing with the new roster.",
+    "Every existing test must pass. Where a test genuinely encodes the retired roster, update it deliberately and list it in the final report rather than deleting the coverage."
+  ],
+
+  "constraints": [
+    "Do NOT touch src/minigames/coloring/**, src/minigames/restaurant/**, src/systems/paperCharacter.js or src/systems/creationCasting.js. A separate slice of this pass is working in Coloring.",
+    "Do not add an FBX or OBJ runtime loader. The pack's glTF is already imported and is the only format to use.",
+    "Do not re-import, re-extract or re-download anything. Do not add Chick.gltf.",
+    "Do not redesign the Zoo map, the roaming maths, the photo framing or the camera. Keep the dynamic photo bounds (`Box3().setFromObject`) and `subject.photoRadius` / `subject.photoHalfHeight` as they are — the new proportions are exactly why they are computed rather than hard-coded.",
+    "Do not compensate for model authoring orientation inside the roaming maths. If a model genuinely faces the wrong way, add a per-model `yawOffset` in ANIMAL_MODELS instead.",
+    "Do not use one universal animal scale; each species keeps its own targetHeight.",
+    "Do not regress: the Zoo entrance visitors facing the arriving player, paper Zoo visitors, the photo/camera flow, Zoo scoring, or anything in Coloring or the Restaurant.",
+    "Match the surrounding code style: short comments about WHY. The Zoo modules are unusually well commented — keep that standard, and do not leave comments describing animals that no longer exist.",
+    "Edit source with structured file tools, not shell here-strings or sed. If a shell-based edit fails once on quoting or escaping, switch to the structured editor.",
+    "Do not delete the old model files until the new ones are proven to load and animate in the test suite."
+  ],
+
+  "startingPoints": [
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/territories.js",
+    "src/minigames/zoo/scoring.js",
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/animalClips.js",
+    "src/minigames/zoo/animalAnimator.js",
+    "src/config/lesson.js",
+    "public/assets/animals/README.md",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "This worker's sandbox cannot start the Vite preview server, and every remaining risk is visual: whether each animal loads, stands on the ground, walks forwards rather than moonwalking, is scaled sensibly beside the child, and can still be photographed. The controller runs the Zoo playthrough and owns the verdict.",
+    "checks": [
+      "All eight animals load with no placeholder or missing model",
+      "Each animal walks forwards, not backwards or sideways, and its feet do not skate badly",
+      "Small animals (cat, chicken, raccoon) are still findable and photographable; the horse does not engulf the player",
+      "A visitor can request each of the eight, and the correct photo is accepted while a wrong one is rejected",
+      "The Japanese names shown match the animal the child is looking at"
+    ]
+  },
+
+  "category": "asset-migration",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large"
+}

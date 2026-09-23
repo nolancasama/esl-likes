@@ -33,7 +33,6 @@ test('the broad areas are named and nothing is called a zoo region', () => {
   const ids = regions.map(({ id }) => id);
   for (const area of AREA_IDS) assert.ok(ids.includes(area), `${area} is missing`);
   assert.ok(!ids.includes('savanna'));
-  assert.ok(!ids.includes('penguinCove'));
 });
 
 test('the map is the size it always was', () => {

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { retargetClip } from './animalClips.js';
 
 /**
  * Drives one animal's idle/walk clips off its roaming state.
@@ -9,11 +8,21 @@ import { retargetClip } from './animalClips.js';
  * that has stopped plays its idle. Nothing slides across the grass with frozen
  * legs, which is what the park looked like when the models had no clips at all.
  *
- * Tolerates a missing clip. The giraffe has no run cycle, and if the clip bundle
- * ever fails to load the animal simply stands still rather than throwing.
+ * Tolerates a missing clip so a partially authored model cannot stop the park.
  */
 
 const CROSSFADE = 0.2;
+
+/** Maps a model's embedded clips onto the animator's stable role contract. */
+export function resolveAnimalClips(animations = []) {
+  const byName = new Map(animations.map((clip) => [clip.name.toLowerCase(), clip]));
+  const run = byName.get('run');
+  return {
+    idle: byName.get('idle'),
+    walk: byName.get('walk') ?? run,
+    run,
+  };
+}
 
 export function createAnimalAnimator(model, clips, { clipSpeed = 1.5 } = {}) {
   const mixer = new THREE.AnimationMixer(model);
@@ -21,9 +30,7 @@ export function createAnimalAnimator(model, clips, { clipSpeed = 1.5 } = {}) {
 
   for (const [role, clip] of Object.entries(clips ?? {})) {
     if (!clip) continue;
-    // Track names in the bundle are the source pack's bone names; the loaded
-    // model may have suffixed duplicates. See animalClips.retargetClip.
-    const action = mixer.clipAction(retargetClip(clip, model));
+    const action = mixer.clipAction(clip);
     action.setLoop(THREE.LoopRepeat, Infinity);
     action.clampWhenFinished = false;
     actions[role] = action;

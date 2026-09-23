@@ -86,12 +86,31 @@ async function main() {
   if (zoo) {
     await page.waitForTimeout(2600);
     await page.screenshot({ path: `${OUT}-1-zoo-entrance.png` });
-    // Close enough that a face is unmistakably a face and a back is a blank.
+
+    // Every animal must actually load. A missing model leaves a placeholder,
+    // which is easy to miss in a park this size and impossible to miss here.
+    const loaded = await waitFor(page, () => zooDebug(page),
+      (d) => (d?.animals ?? []).length > 0 && d.animals.every((a) => a.modelLoaded),
+      25000, 'every animal model to load');
+    const animals = loaded?.animals ?? (await zooDebug(page))?.animals ?? [];
+    check('all eight animals load with no placeholder',
+      animals.length === 8 && animals.every((a) => a.modelLoaded),
+      animals.map((a) => `${a.id ?? a.animal ?? '?'}:${a.modelLoaded}`).join(' '));
+    const missingClips = animals.filter((a) => !(a.availableClips ?? []).includes('idle')
+      || !(a.availableClips ?? []).includes('walk'));
+    check('every animal resolves an idle and a walk clip',
+      missingClips.length === 0,
+      missingClips.map((a) => `${a.id}:${(a.availableClips ?? []).join('/')}`).join(' ') || 'all present');
+    for (const a of animals) {
+      notes.push(`${a.id}: loaded=${a.modelLoaded} clips=${(a.availableClips ?? []).join('/')} `
+        + `photoR=${a.photoRadius} halfH=${a.photoHalfHeight} src=${a.source}`);
+    }
+
+    // Walk in among them so the sizes can be judged against the child.
     await hold(page, ['KeyW'], 1100);
     await page.waitForTimeout(1200);
     await page.screenshot({ path: `${OUT}-1b-zoo-visitors-close.png` });
     const near = await zooDebug(page);
-    notes.push(`visitors: ${JSON.stringify(near?.visitors?.slice(0, 3))}`);
     notes.push(`player: ${JSON.stringify(near?.player)}`);
   }
   await backToHub(page);

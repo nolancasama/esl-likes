@@ -50,6 +50,8 @@ function fakeContext() {
     fills: [],
     strokes: [],
     ops: [],
+    stateStack: [],
+    activeClip: null,
     beginPath() { ctx.log.push('beginPath'); ctx.ops = []; },
     roundRect(...args) { ctx.ops.push(['roundRect', ...args]); },
     rect(...args) { ctx.ops.push(['rect', ...args]); },
@@ -58,12 +60,31 @@ function fakeContext() {
     moveTo(...args) { ctx.ops.push(['moveTo', ...args]); },
     lineTo(...args) { ctx.ops.push(['lineTo', ...args]); },
     fill() { ctx.log.push('fill'); ctx.fills.push({ style: ctx.fillStyle, ops: ctx.ops.slice() }); },
-    stroke() { ctx.log.push('stroke'); ctx.strokes.push({ style: ctx.strokeStyle, width: ctx.lineWidth, ops: ctx.ops.slice() }); },
+    stroke() {
+      ctx.log.push('stroke');
+      ctx.strokes.push({
+        style: ctx.strokeStyle,
+        width: ctx.lineWidth,
+        ops: ctx.ops.slice(),
+        clip: ctx.activeClip,
+      });
+    },
     fillRect(...args) { ctx.log.push('fillRect'); ctx.fills.push({ style: ctx.fillStyle, rect: args }); },
-    clip() { ctx.log.push('clip'); ctx.clipped = ctx.ops.slice(); },
+    clip(rule) {
+      ctx.log.push('clip');
+      ctx.clipped = ctx.ops.slice();
+      ctx.activeClip = { rule, ops: ctx.ops.slice() };
+    },
     drawImage(image) { ctx.log.push('drawImage'); ctx.painted = image; },
-    save() { ctx.log.push('save'); },
-    restore() { ctx.log.push('restore'); },
+    save() {
+      ctx.log.push('save');
+      ctx.stateStack.push({ activeClip: ctx.activeClip });
+    },
+    restore() {
+      ctx.log.push('restore');
+      const state = ctx.stateStack.pop();
+      ctx.activeClip = state?.activeClip ?? null;
+    },
     translate(x, y) { ctx.log.push('translate'); ctx.translations ||= []; ctx.translations.push([x, y]); },
   };
   return ctx;
@@ -103,6 +124,30 @@ test('every silhouette shape is outlined', () => {
   drawLineArt(ctx, {});
   const inked = ctx.strokes.filter((entry) => entry.style === INK);
   assert.ok(inked.length >= SHAPES.length, `${inked.length} strokes for ${SHAPES.length} shapes`);
+});
+
+test('a later occluding shape clips an earlier outline but keeps its own border', () => {
+  const subject = {
+    pieces: ['body'],
+    shapes: [
+      { id: 'body', piece: 'body', order: 1, shape: { kind: 'rect', x: 0.2, y: 0.3, width: 0.6, height: 0.5 } },
+      { id: 'head', piece: 'body', order: 2, occludesOutline: true,
+        shape: { kind: 'circle', cx: 0.5, cy: 0.3, r: 0.2 } },
+    ],
+    details: { eyes: [], pupilRatio: 0.5, marks: [] },
+  };
+  const ctx = fakeContext();
+  renderLineArt(ctx, { subject, size: 100 });
+
+  assert.equal(ctx.strokes.length, 2);
+  assert.equal(ctx.strokes[0].clip?.rule, 'evenodd');
+  assert.ok(ctx.strokes[0].clip.ops.some(([operation]) => operation === 'rect'),
+    'the clip has no outer canvas rectangle');
+  assert.ok(ctx.strokes[0].clip.ops.some(([operation]) => operation === 'arc'),
+    'the clip has no occluder hole');
+  assert.equal(ctx.strokes[1].clip, null, 'the head clipped out its own outline');
+  assert.ok(ctx.strokes[1].ops.some(([operation]) => operation === 'arc'),
+    'the head outline was not stroked');
 });
 
 test('the outline is much heavier than the details', () => {

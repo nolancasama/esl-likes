@@ -32,28 +32,23 @@ function deepFreeze(value) {
  * natural at timeScale 1; the animator divides the two so feet do not skate.
  */
 const specs = [
-  // Open grassland — long sightlines. The giraffe is visible from most of it.
-  //
-  // The giraffe does not walk: speed 0. Its model ships no walk cycle of its
-  // own, and the one retargeted from the styloo cow reads as wrong on a
-  // giraffe's build, so the owner judged it better standing still. It idles
-  // where it spawned, which also makes it the landmark of the grassland.
-  ['giraffe', 'grassland', 0, 1.5, [
+  // Open grassland — long sightlines suit the three larger roaming animals.
+  ['horse', 'grassland', 1.8, 2.0, [
     [-36, 8], [-31, 17], [-25, 13], [-34, 18], [-27, 6], [-38, 13],
   ]],
-  ['horse', 'grassland', 2.0, 2.0, [
+  ['sheep', 'grassland', 1.2, 1.4, [
     [-12, 18], [-20, 17], [-22, 10], [-14, 10], [-17, 20], [-11, 13],
   ]],
-  ['deer', 'grassland', 1.9, 1.8, [
+  ['dog', 'grassland', 2.0, 1.8, [
     [-32, 0], [-22, 4], [-27, -2], [-20, -1], [-33, 5], [-24, 7],
   ]],
 
   // Woodland — trees and bushes break up the sightlines, so this is the
   // hardest area to search. Territories are still small enough to sweep.
-  ['tiger', 'woodland', 1.7, 1.6, [
+  ['wolf', 'woodland', 1.8, 1.7, [
     [-36, -10], [-30, -19], [-24, -14], [-34, -19], [-26, -8], [-38, -16],
   ]],
-  ['dog', 'woodland', 2.3, 1.7, [
+  ['raccoon', 'woodland', 1.6, 1.5, [
     [-19, -25], [-10, -18], [-16, -16], [-8, -25], [-20, -19], [-12, -27],
   ]],
   ['cat', 'woodland', 1.6, 1.1, [
@@ -67,20 +62,17 @@ const specs = [
     [17, 10], [26, 12], [22, 19], [28, 17], [18, 17], [25, 8],
   ]],
 
-  // The cove. The penguin circles the pool without entering it; the pool edge
-  // colliders keep it on the bank.
-  // The waypoints ring the pool rather than spanning it, so the legs between
-  // neighbours stay clear of the water and the penguin never picks a
-  // destination it would have to swim to.
-  ['penguin', 'cove', 0.9, 0.9, [
+  // The cove. These waypoints keep the pig on the bank rather than asking a
+  // land animal to cross the pool between destinations.
+  ['pig', 'cove', 1.0, 1.0, [
     [29, -7], [30, -13], [28, -18], [33, -20], [37, -20], [38, -8], [34, -6],
   ]],
 ];
 
 /** How wide a body each animal is assumed to have when testing a waypoint. */
 export const ANIMAL_RADIUS = Object.freeze({
-  giraffe: 0.95, horse: 0.85, deer: 0.8, tiger: 0.8,
-  dog: 0.6, cat: 0.45, chicken: 0.4, penguin: 0.45,
+  cat: 0.45, chicken: 0.4, dog: 0.6, horse: 0.85,
+  pig: 0.6, raccoon: 0.5, sheep: 0.6, wolf: 0.7,
 });
 
 export const TERRITORIES = deepFreeze(specs.map(([id, area, speed, clipSpeed, points]) => {
@@ -114,6 +106,11 @@ export const TERRITORY_BY_ID = deepFreeze(Object.fromEntries(
 ));
 
 export const ANIMAL_IDS = Object.freeze(TERRITORIES.map((territory) => territory.id));
+
+/** A photo target must explicitly name a species in the current Zoo roster. */
+export function zooPhotoSpecies(subject) {
+  return ANIMAL_IDS.includes(subject?.zooSpecies) ? subject.zooSpecies : null;
+}
 
 /** The broad areas, for orientation and for the harness's area sweep. */
 export const AREAS = deepFreeze([

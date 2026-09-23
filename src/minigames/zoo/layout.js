@@ -66,7 +66,7 @@ export const pathEdges = deepFreeze([
   ['forest-north', 'north-cross'],
   ['north-cross', 'fountain-hub'],
 
-  // East lobe: Farm bends through Penguin Cove and back across the north.
+  // East lobe: Farm bends through the cove and back across the north.
   ['fountain-hub', 'farm-south'],
   ['farm-south', 'farm-bend'],
   ['farm-bend', 'farm-east'],
@@ -86,10 +86,10 @@ export const colliders = deepFreeze([
   { id: 'barn', role: 'landmark', landmarkId: 'barn', type: 'box', x: 32.5, z: 23.5, hw: 3, hd: 2.3, rotation: -0.08 },
   { id: 'water-tower', role: 'landmark', landmarkId: 'waterTower', type: 'circle', x: 38.5, z: 28, r: 1.35 },
   { id: 'giant-forest-tree', role: 'landmark', landmarkId: 'giantForestTree', type: 'circle', x: -0.5, z: -27, r: 2.1 },
-  { id: 'penguin-pool-west', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 31.65, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
-  { id: 'penguin-pool-east', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 38.35, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
-  { id: 'penguin-pool-north', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 35, z: -17.1, hw: 3.55, hd: 0.22, rotation: 0 },
-  { id: 'penguin-pool-south', role: 'poolEdge', landmarkId: 'penguinBridge', type: 'box', x: 35, z: -10.9, hw: 3.55, hd: 0.22, rotation: 0 },
+  { id: 'cove-pool-west', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 31.65, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
+  { id: 'cove-pool-east', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 38.35, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
+  { id: 'cove-pool-north', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 35, z: -17.1, hw: 3.55, hd: 0.22, rotation: 0 },
+  { id: 'cove-pool-south', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 35, z: -10.9, hw: 3.55, hd: 0.22, rotation: 0 },
 ]);
 
 export const landmarks = deepFreeze([
@@ -98,7 +98,7 @@ export const landmarks = deepFreeze([
   { id: 'fountainHub', x: 3.2, z: 10 },
   { id: 'barn', x: 32.5, z: 23.5 },
   { id: 'waterTower', x: 38.5, z: 28 },
-  { id: 'penguinBridge', x: 35, z: -17.1 },
+  { id: 'coveBridge', x: 35, z: -17.1 },
   { id: 'giantForestTree', x: -0.5, z: -27 },
 ]);
 

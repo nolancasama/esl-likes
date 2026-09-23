@@ -4,46 +4,47 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
-  PATH_WIDTH,
   bounds as campusBounds,
   colliders,
   landmarks,
-  pathEdges,
   pathNodes,
   regions,
 } from './layout.js';
 import { AREAS, TERRITORIES } from './territories.js';
-import { ENVIRONMENT_MODELS, SCENERY_GROUPS } from './scenery.js';
+import {
+  ENVIRONMENT_MODELS,
+  RUNTIME_ENVIRONMENT_MODELS,
+  SCENERY_GROUPS,
+} from './scenery.js';
 import { createRng, spawnAnimals } from './roaming.js';
-import { createAnimalAnimator } from './animalAnimator.js';
-import { CLIPS_ASSET, parseAnimalClips } from './animalClips.js';
+import { createAnimalAnimator, resolveAnimalClips } from './animalAnimator.js';
+import { createBlockyRock, createBlockyTree, createParkScatter } from './blockyTree.js';
 
 const TAU = Math.PI * 2;
 
 // Ground tints used where an area wants a hint of its animals' colouring.
 // Nothing here fences anything: the park is one continuous space.
-const ANIMAL_MODELS = Object.freeze({
+export const ANIMAL_MODELS = Object.freeze({
   // Every one of these models faces local +z at rotation 0, and the roaming
   // code sets an animal's rotation to its heading, so no yaw offset is wanted.
   // The old zoo carried `yawOffset: Math.PI` from when animals stood still in
   // pens; applied to a walking animal it turns it through 180 degrees and it
   // moonwalks to its destination.
-  tiger: Object.freeze({ file: 'Animals.glb', node: 'tiger', targetHeight: 1.65 }),
-  horse: Object.freeze({ file: 'Animals.glb', node: 'horse.001', targetHeight: 2.2 }),
-  dog: Object.freeze({ file: 'Animals.glb', node: 'dog.001', targetHeight: 1.15 }),
-  deer: Object.freeze({ file: 'Animals.glb', node: 'deer', targetHeight: 2 }),
-  cat: Object.freeze({ file: 'Animals.glb', node: 'kitty.001', targetHeight: 0.8 }),
-  penguin: Object.freeze({ file: 'Animals.glb', node: 'pinguin.001', targetHeight: 1.3 }),
+  cat: Object.freeze({ file: 'cube-world/Cat.gltf', targetHeight: 0.8 }),
   // A large hen rather than a bantam. At 0.8 the chicken had to be framed from
   // inside about three units, and walking at 1.2 it crossed that whole window
   // in a second and a half. It is still comfortably the smallest animal.
-  chicken: Object.freeze({ file: 'Animals.glb', node: 'chicken.001', targetHeight: 1.05 }),
-  giraffe: Object.freeze({ file: 'giraffe.glb', targetHeight: 3.65 }),
+  chicken: Object.freeze({ file: 'cube-world/Chicken.gltf', targetHeight: 1.05 }),
+  dog: Object.freeze({ file: 'cube-world/Dog.gltf', targetHeight: 1.15 }),
+  horse: Object.freeze({ file: 'cube-world/Horse.gltf', targetHeight: 2.2 }),
+  pig: Object.freeze({ file: 'cube-world/Pig.gltf', targetHeight: 1.1 }),
+  raccoon: Object.freeze({ file: 'cube-world/Raccoon.gltf', targetHeight: 0.8 }),
+  sheep: Object.freeze({ file: 'cube-world/Sheep.gltf', targetHeight: 1.25 }),
+  wolf: Object.freeze({ file: 'cube-world/Wolf.gltf', targetHeight: 1.35 }),
 });
 
-// The model list and every placement in the park now live in `scenery.js` as
-// pure data, so the scene placement editor can read a placement, move it and
-// write it back. See that file for why the plant palette is as short as it is.
+// The imported-model palette lives in `scenery.js`. Trees, rocks, and farm
+// landmarks are procedural below.
 
 function publicPath(path) {
   return `${import.meta.env?.BASE_URL || './'}${path}`;
@@ -59,14 +60,15 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   const animators = [];
   // A seeded generator when one is supplied, so a test or a harness run can
   // reproduce an exact park; otherwise the animals start somewhere new.
-  const roamRng = createRng(Number.isFinite(seed) ? seed : Math.floor(Math.random() * 0xffffffff));
-  let animalClips = null;
-  let clipStatus = 'idle';
+  const worldSeed = Number.isFinite(seed) ? seed : Math.floor(Math.random() * 0xffffffff);
+  const roamRng = createRng(worldSeed);
+  const parkScatter = createParkScatter(worldSeed);
   const modelAbort = new AbortController();
   let loadPromise = null;
   let environmentLoadPromise = null;
-  let environmentStatus = 'loading';
-  let environmentPending = ENVIRONMENT_MODELS.length;
+  let editorEnvironmentLoadPromise = null;
+  let environmentStatus = 'ready';
+  let environmentPending = 0;
   let loadedEnvironmentModels = 0;
   const failedEnvironmentAssets = [];
   let beforeDressingStats = null;
@@ -117,20 +119,17 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   const cylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 12));
   const lowCylinder = ownGeometry(new THREE.CylinderGeometry(0.5, 0.5, 1, 24));
   const sphere = ownGeometry(new THREE.SphereGeometry(0.5, 12, 8));
-  // Ground greens are taken from the Quaternius grass palette (Grass.png is a
-  // colour ramp: olive #b19800, green #399600, rust #b95700, yellow-green
-  // #67a300) so the field and the grass standing on it belong to one picture.
-  // The old 0x75b866 was a bluer green and the grass tufts read as stuck on.
+  // The single level field stays bright enough for the four flat region tints
+  // to read without turning those patches into raised terrain.
   const grass = makeMaterial(0x74ad3d);
-  const pathMaterial = makeMaterial(0xe8d3a4);
   const plazaMaterial = makeMaterial(0xd9cab3);
   const stone = makeMaterial(0xb0a79d);
   const stoneDark = makeMaterial(0x777b83);
   const water = makeMaterial(0x4bb9d1, { transparent: true, opacity: 0.8 });
   const bridgeBlue = makeMaterial(0x3f86b7);
-  const mud = makeMaterial(0x7f5b43, { roughness: 1 });
   const leaf = makeMaterial(0x4f9955);
   const leafLight = makeMaterial(0x72b85d);
+  const leafDark = makeMaterial(0x397a43);
   const bark = makeMaterial(0x765137);
   const gateRed = makeMaterial(0xe95b55);
   const gateWhite = makeMaterial(0xfff7df);
@@ -172,29 +171,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     patch.rotation.y = region.id === 'woodland' ? -0.22 : region.id === 'farm' ? 0.17 : 0;
   }
 
-  // Edges form a curving figure-eight polyline. Wide slabs plus round joints
-  // make the bends continuous and forgiving without adding geometry per frame.
-  const nodeById = new Map(pathNodes.map((node) => [node.id, node]));
-  const pathWidth = PATH_WIDTH;
-  for (const [fromId, toId] of pathEdges) {
-    const from = nodeById.get(fromId);
-    const to = nodeById.get(toId);
-    if (!from || !to) continue;
-    const dx = to.x - from.x;
-    const dz = to.z - from.z;
-    const length = Math.hypot(dx, dz) + 0.2;
-    const slab = addMesh(group, box, pathMaterial,
-      (from.x + to.x) * 0.5, 0.015, (from.z + to.z) * 0.5,
-      pathWidth, 0.08, length);
-    slab.name = `zoo-path-${fromId}-${toId}`;
-    slab.rotation.y = Math.atan2(dx, dz);
-  }
-  for (const node of pathNodes) {
-    const joint = addMesh(group, lowCylinder, pathMaterial, node.x, 0.018, node.z,
-      pathWidth, 0.08, pathWidth);
-    joint.name = `zoo-path-node-${node.id}`;
-  }
-
   const landmarkById = new Map(landmarks.map((landmark) => [landmark.id, landmark]));
   const plazaPosition = landmarkById.get('plaza')
     ?? pathNodes.find((node) => node.kind === 'plaza')
@@ -212,22 +188,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   markPhotoOccluder(addMesh(booth, box, gateWhite, boothPosition.x, 1.35, boothPosition.z, 2.7, 2.7, 2.15));
   markPhotoOccluder(addMesh(booth, box, gateRed, boothPosition.x, 2.86, boothPosition.z, 3.15, 0.35, 2.55));
   addMesh(booth, box, dark, boothPosition.x + 0.75, 1.48, boothPosition.z + 1.085, 0.85, 0.78, 0.08);
-
-  const benchMaterial = timber;
-  for (const [x, z, yaw] of [[-4.3, 27.2, -0.18], [4.2, 27.1, 0.18]]) {
-    const bench = new THREE.Group();
-    bench.name = 'zoo-plaza-bench';
-    group.add(bench);
-    const seat = addMesh(bench, box, benchMaterial, x, 0.58, z, 2.35, 0.18, 0.72);
-    seat.rotation.y = yaw;
-    const back = addMesh(bench, box, benchMaterial, x, 1.02, z + 0.31, 2.35, 0.72, 0.16);
-    back.rotation.y = yaw;
-    for (const dx of [-0.85, 0.85]) addMesh(bench, box, dark, x + dx, 0.3, z, 0.12, 0.6, 0.12);
-  }
-  for (const [x, z] of [[-4.2, 34.2], [4.2, 34.2], [-5.2, 25.7], [5.2, 25.7]]) {
-    addMesh(group, cylinder, dark, x, 1.55, z, 0.12, 3.1, 0.12);
-    addMesh(group, sphere, gateWhite, x, 3.18, z, 0.5, 0.58, 0.5);
-  }
 
   const terrace = addMesh(group, lowCylinder, plazaMaterial, 7.8, 0.04, 32.2, 5.6, 0.1, 4.9);
   terrace.name = 'zoo-cafe-terrace';
@@ -248,24 +208,76 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   fountainTop.name = 'zoo-central-fountain-jet';
   animations.push({ kind: 'fountain', object: fountainTop });
 
-  const treePosition = landmarkById.get('giantForestTree');
-  if (treePosition) {
-    markPhotoOccluder(addMesh(group, cylinder, bark,
-      treePosition.x, 2.6, treePosition.z, 0.95, 5.2, 0.95));
-    addMesh(group, sphere, leaf, treePosition.x, 6, treePosition.z, 3.8, 3.45, 3.8);
-    addMesh(group, sphere, leafLight, treePosition.x + 1.35, 6.55, treePosition.z - 0.35, 2.3, 2.15, 2.3);
+  const treeResources = {
+    boxGeometry: box,
+    trunkMaterial: bark,
+    canopyMaterials: [leaf, leafLight, leafDark],
+  };
+
+  // The generator returns ordinary tree groups for landmarks and tooling. The
+  // live scatter is folded into one InstancedMesh per shared material, keeping
+  // eighty trees cheap enough for classroom Chromebooks.
+  const treeMatrices = new Map([bark, leaf, leafLight, leafDark].map((material) => [material, []]));
+  for (const placement of parkScatter.trees) {
+    const tree = createBlockyTree(createRng(placement.seed), treeResources, placement.variant);
+    tree.position.set(placement.x, 0, placement.z);
+    tree.rotation.y += placement.yaw;
+    tree.scale.setScalar(placement.scale);
+    tree.updateMatrixWorld(true);
+    tree.traverse((object) => {
+      if (object.isMesh) treeMatrices.get(object.material).push(object.matrixWorld.clone());
+    });
+  }
+  let treeBatch = 0;
+  for (const [material, matrices] of treeMatrices) {
+    if (!matrices.length) continue;
+    const instances = new THREE.InstancedMesh(box, material, matrices.length);
+    instances.name = `zoo-blocky-tree-scatter-${treeBatch++}`;
+    matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix));
+    instances.instanceMatrix.needsUpdate = true;
+    environmentRoot.add(instances);
+    markPhotoOccluder(instances);
   }
 
-  // The giraffe's feeding post is gone with the enclosures. It was a fixture of
-  // a pen the giraffe no longer lives in, it stood in the way of a third of the
-  // routes across its territory, and a blank board on a post read as one more
-  // sign in a park that is meant to have none.
+  // Rocks get their own cool greys rather than the plaza/fountain `stone`,
+  // which is a pale warm beige: scattered across green grass it read as
+  // cardboard boxes, and at distance it was nearly the colour of the white
+  // sheep the child is sent out to photograph.
+  const rockMid = makeMaterial(0x8f959d);
+  const rockDark = makeMaterial(0x6b727c);
+  const rockResources = { boxGeometry: box, rockMaterials: [rockMid, rockDark] };
+  const rockMatrices = new Map([rockMid, rockDark].map((material) => [material, []]));
+  for (const placement of parkScatter.rocks) {
+    const rock = createBlockyRock(createRng(placement.seed), rockResources, placement.variant);
+    rock.position.set(placement.x, 0, placement.z);
+    rock.rotation.y += placement.yaw;
+    rock.scale.setScalar(placement.scale);
+    rock.updateMatrixWorld(true);
+    rock.traverse((object) => {
+      if (object.isMesh) rockMatrices.get(object.material).push(object.matrixWorld.clone());
+    });
+  }
+  let rockBatch = 0;
+  for (const [material, matrices] of rockMatrices) {
+    if (!matrices.length) continue;
+    const instances = new THREE.InstancedMesh(box, material, matrices.length);
+    instances.name = `zoo-blocky-rock-scatter-${rockBatch++}`;
+    matrices.forEach((matrix, index) => instances.setMatrixAt(index, matrix));
+    instances.instanceMatrix.needsUpdate = true;
+    environmentRoot.add(instances);
+  }
 
-  // A shallow watering hollow. It was dug for the elephant, which is no longer
-  // in the lesson, but it is good grassland scenery and a landmark to steer by.
-  const wateringHollow = addMesh(group, lowCylinder, mud, -17.1, 0.06, 9.1, 4.1, 0.1, 2.8);
-  wateringHollow.name = 'zoo-watering-hollow';
-  wateringHollow.rotation.y = -0.35;
+  const treePosition = landmarkById.get('giantForestTree');
+  if (treePosition) {
+    const giantTree = createBlockyTree(createRng(worldSeed ^ 0x51f15e), treeResources, 'chunky-round');
+    giantTree.name = 'zoo-giant-forest-tree-blocky';
+    giantTree.position.set(treePosition.x, 0, treePosition.z);
+    giantTree.scale.setScalar(1.75);
+    group.add(giantTree);
+    giantTree.traverse((object) => {
+      if (object.isMesh) markPhotoOccluder(object);
+    });
+  }
 
   const forestLog = markPhotoOccluder(addMesh(group, cylinder, bark, -30, 0.48, -19, 0.72, 3.2, 0.72));
   forestLog.name = 'zoo-forest-fallen-log';
@@ -283,26 +295,48 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   addMesh(group, box, dark, 20.2, 0.7, 27, 2.2, 0.1, 0.58);
 
   const barnPosition = landmarkById.get('barn');
-  let barnFallback = null;
   if (barnPosition) {
-    barnFallback = new THREE.Group();
-    barnFallback.name = 'zoo-barn-procedural-fallback';
-    group.add(barnFallback);
+    const barn = new THREE.Group();
+    barn.name = 'zoo-barn-procedural';
+    group.add(barn);
     const barnCollider = colliders.find((collider) => collider.landmarkId === 'barn');
     const barnWidth = (barnCollider?.hw ?? 2.7) * 2;
     const barnDepth = (barnCollider?.hd ?? 2.1) * 2;
-    const barnBody = addMesh(barnFallback, box, barnRed,
+    const barnBody = addMesh(barn, box, barnRed,
       barnPosition.x, 2, barnPosition.z, barnWidth, 4, barnDepth);
     markPhotoOccluder(barnBody);
     barnBody.rotation.y = barnCollider?.rotation ?? 0;
-    const roof = addMesh(barnFallback, box, barnTrim, barnPosition.x, 4.35, barnPosition.z, 6.1, 0.75, 4.8);
+    const roof = addMesh(barn, box, barnTrim, barnPosition.x, 4.35, barnPosition.z,
+      barnWidth * 1.04, 0.75, barnDepth * 1.04);
     markPhotoOccluder(roof);
     roof.rotation.y = barnCollider?.rotation ?? 0;
-    markPhotoOccluder(addMesh(barnFallback, box, dark,
-      barnPosition.x, 1.4, barnPosition.z + 2.12, 1.8, 2.8, 0.12));
+    markPhotoOccluder(addMesh(barn, box, dark,
+      barnPosition.x, 1.4, barnPosition.z + barnDepth * 0.5, 1.8, 2.8, 0.12));
   }
 
-  const bridgePosition = landmarkById.get('penguinBridge');
+  const waterTowerPosition = landmarkById.get('waterTower');
+  if (waterTowerPosition) {
+    const tower = new THREE.Group();
+    tower.name = 'zoo-water-tower-procedural';
+    group.add(tower);
+    const towerCollider = colliders.find((collider) => collider.landmarkId === 'waterTower');
+    const radius = towerCollider?.r ?? 1.35;
+    const legOffset = radius * 0.48;
+    const legHeight = radius * 3.25;
+    const legWidth = radius * 0.2;
+    for (const xOffset of [-legOffset, legOffset]) {
+      for (const zOffset of [-legOffset, legOffset]) {
+        markPhotoOccluder(addMesh(tower, box, timber,
+          waterTowerPosition.x + xOffset, legHeight * 0.5, waterTowerPosition.z + zOffset,
+          legWidth, legHeight, legWidth));
+      }
+    }
+    markPhotoOccluder(addMesh(tower, box, stoneDark,
+      waterTowerPosition.x, legHeight + radius * 0.72, waterTowerPosition.z,
+      radius * 1.85, radius * 1.4, radius * 1.85));
+  }
+
+  const bridgePosition = landmarkById.get('coveBridge');
   if (bridgePosition) {
     markPhotoOccluder(addMesh(group, box, bridgeBlue,
       bridgePosition.x, 0.42, bridgePosition.z, 5.6, 0.35, 1.5));
@@ -326,7 +360,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   }
 
   // The cove water fills the rectangle the pool-edge colliders enclose, so the
-  // visible water and the boundary the penguin walks around cannot drift apart.
+  // visible water and the navigable bank cannot drift apart.
   const poolEdges = colliders.filter((collider) => collider.role === 'poolEdge');
   if (poolEdges.length) {
     const xs = poolEdges.map((edge) => edge.x);
@@ -364,7 +398,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     subject.animal.worldToLocal(center);
     subject.photoTarget.position.copy(center);
     subject.photoRadius = Math.max(0.18, Math.max(size.x, size.z) * 0.5);
-    // Tall, narrow animals (penguin, giraffe) were judged by their width alone
+    // Tall, narrow animals were judged by their width alone
     // and never counted as framed; height is measured separately.
     subject.photoHalfHeight = Math.max(0.18, size.y * 0.5);
   }
@@ -391,6 +425,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
 
     const subject = {
       id: territory.id,
+      zooSpecies: territory.id,
       area: territory.area,
       region: territory.area,
       roamer,
@@ -654,7 +689,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
    * Builds one dressing group.
    *
    * `instanced` collapses the whole group into one InstancedMesh, which is what
-   * every student sees — dozens of grass tufts for one draw call. An instance
+   * every student sees — the wider rock scatter for one draw call. An instance
    * cannot be raycast or dragged individually though, so when the editor is
    * open `sceneryEditable` forces the individual-object path instead.
    */
@@ -669,16 +704,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     const objects = asIndividuals
       ? placements.map((placement) => addEnvironmentClone(...entry, placement, options))
       : addEnvironmentInstances(...entry, placements, options);
-
-    // The procedural barn box only exists until its model arrives.
-    if (group.replacesFallback === 'barn' && barnFallback) {
-      barnFallback.traverse((object) => {
-        const index = photoOccluders.indexOf(object);
-        if (index >= 0) photoOccluders.splice(index, 1);
-      });
-      barnFallback.removeFromParent();
-      barnFallback = null;
-    }
 
     const built = { group, objects, individual: asIndividuals };
     builtGroups.set(group.name, built);
@@ -730,9 +755,8 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   }
 
   /**
-   * A fresh, ground-origin copy of one environment model, for the editor to
-   * place. Returns null when that model failed to load — the optional farm
-   * props do, on a slow classroom connection.
+   * A fresh, ground-origin copy of one loaded environment model, for the
+   * editor to place. Returns null when that model is palette-only or failed.
    */
   function createEnvironmentObject(key) {
     const entry = asset(loadedAssets, key);
@@ -758,9 +782,16 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     });
   }
 
-  async function loadEnvironment() {
-    if (environmentLoadPromise) return environmentLoadPromise;
-    environmentLoadPromise = Promise.all(ENVIRONMENT_MODELS.map(async (config) => {
+  async function loadEnvironment({ editor = false } = {}) {
+    const configs = editor ? ENVIRONMENT_MODELS : RUNTIME_ENVIRONMENT_MODELS;
+    if (!configs.length) {
+      environmentLoadPromise ??= Promise.resolve();
+      return environmentLoadPromise;
+    }
+    if (editorEnvironmentLoadPromise) return editorEnvironmentLoadPromise;
+    environmentStatus = 'loading';
+    environmentPending = configs.length;
+    editorEnvironmentLoadPromise = Promise.all(configs.map(async (config) => {
       try {
         const loaded = config.format === 'obj'
           ? await loadEnvironmentObj(config)
@@ -787,46 +818,14 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
       environmentStatus = failedEnvironmentAssets.length ? 'ready-with-fallbacks' : 'ready';
       afterDressingStats = collectSceneStats();
     });
-    return environmentLoadPromise;
-  }
-
-  function findModelNode(root, name) {
-    const exact = root.getObjectByName(name);
-    if (exact) return exact;
-    const normalisedName = name.replace(/[^a-z0-9]/gi, '').toLowerCase();
-    let match = null;
-    root.traverse((object) => {
-      if (!match && object.name.replace(/[^a-z0-9]/gi, '').toLowerCase() === normalisedName) match = object;
-    });
-    return match;
-  }
-
-  /**
-   * The clip bundle is a separate fetch from the models, because the models
-   * carry no usable animation of their own. A failure here is not fatal: the
-   * animals still roam, they just roam without moving their legs, which is
-   * visibly wrong but better than an empty park.
-   */
-  async function loadClips() {
-    try {
-      const bundle = await fetchAsset(CLIPS_ASSET, 'json');
-      animalClips = parseAnimalClips(bundle);
-      clipStatus = 'ready';
-    } catch (error) {
-      clipStatus = 'failed';
-      if (!disposed) console.warn('[zoo] animal clips unavailable; animals will not animate.', error);
-    }
+    return editorEnvironmentLoadPromise;
   }
 
   function loadAnimals() {
     if (loadPromise) return loadPromise;
-    const configs = [...new Map(Object.values(ANIMAL_MODELS).map((config) => [config.file, config])).values()];
     loadPromise = (async () => {
-      // Clips first, so a model is never placed without the animator it needs
-      // and then left standing frozen while its clips arrive.
-      await loadClips();
-      await Promise.all(configs.map(async (fileConfig) => {
-        const { file } = fileConfig;
+      await Promise.all(habitats.map(async (habitat) => {
+        const { file } = ANIMAL_MODELS[habitat.id];
         try {
           const asset = await loadGltf(file);
           if (disposed) {
@@ -834,13 +833,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
             return;
           }
           modelSources.add(asset);
-          for (const habitat of habitats) {
-            const config = ANIMAL_MODELS[habitat.id];
-            if (config.file !== file) continue;
-            const sourceObject = config.node ? findModelNode(asset.scene, config.node) : asset.scene;
-            if (!sourceObject) throw new Error(`${file} is missing ${config.node}`);
-            placeModel(habitat, sourceObject, animalClips?.[habitat.id] ?? null);
-          }
+          placeModel(habitat, asset.scene, resolveAnimalClips(asset.animations));
         } catch (error) {
           if (!disposed) console.warn(`[zoo] ${file} unavailable; keeping animal placeholders.`, error);
         }
@@ -854,20 +847,14 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     return habitats.map((subject) => ({
       ...subject.roamer.debug(),
       source: ANIMAL_MODELS[subject.id].file,
-      node: ANIMAL_MODELS[subject.id].node ?? null,
       modelLoaded: Boolean(subject.model),
       clip: subject.animator?.currentClip ?? null,
       availableClips: subject.animator?.availableClips ?? [],
       // How big the animal reads in a photo. The chicken is far smaller than
-      // the giraffe, so what counts as a good photographing distance is not the
-      // same number for both.
+      // the horse, so one photographing distance cannot fit both.
       photoRadius: Number((subject.photoRadius ?? 0).toFixed(2)),
       photoHalfHeight: Number((subject.photoHalfHeight ?? 0).toFixed(2)),
     }));
-  }
-
-  function getClipState() {
-    return { status: clipStatus, animals: animalClips ? Object.keys(animalClips) : [] };
   }
 
   group.add(new THREE.HemisphereLight(0xffffff, 0x5f844e, 2.35));
@@ -1009,7 +996,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
 
   return {
     group, habitats, loadAnimals, loadEnvironment, update, getSceneStats, getSceneStatsReport,
-    getEnvironmentState, getAnimalDebug, getClipState, dispose,
+    getEnvironmentState, getAnimalDebug, dispose,
     countBlockedSamples, occluderDistances, visibilitySampleCount: VISIBILITY_OFFSETS.length,
     // Editor-only. Gameplay never touches these; see scenery.js.
     environmentRoot, setSceneryEditable, getSceneryGroups, createEnvironmentObject,

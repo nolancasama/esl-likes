@@ -206,6 +206,16 @@ async function main() {
         `robots=${room?.robots?.length}`);
       await page.screenshot({ path: `${OUT}-4-snowman-alive.png` });
 
+      // The final turnaround must show the creation alone — no avatar walking
+      // back into the middle of the room.
+      await pulseUntil(page, ['KeyD'], (d) => (d?.player?.x ?? -99) >= 3.25, 20, 'the door side');
+      await pulseUntil(page, ['KeyW'], (d) => d?.action === 'door', 28, 'the door');
+      await page.keyboard.press('Space');
+      const turn = await waitFor(page, (d) => d?.phase === 'turnaround', 9000, 'the turnaround');
+      check('walking out starts the turnaround question', Boolean(turn), `phase=${turn?.phase}`);
+      await page.waitForTimeout(1800);
+      await page.screenshot({ path: `${OUT}-7-turnaround.png` });
+
       await page.keyboard.press('Escape');
       await page.waitForTimeout(2400);
       await hold(page, ['KeyD'], 1500);

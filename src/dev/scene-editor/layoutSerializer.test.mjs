@@ -65,10 +65,10 @@ test('xz points serialise as pairs so they paste back into territories.js', () =
   const layout = serializeLayout({
     project: 'animal-park',
     objects: [],
-    points: { tiger: [{ x: -18.2, y: 0, z: -4.3 }, { x: -23.4, y: 0, z: -10.2 }] },
-    pointFormats: { tiger: 'xz' },
+    points: { routeA: [{ x: -18.2, y: 0, z: -4.3 }, { x: -23.4, y: 0, z: -10.2 }] },
+    pointFormats: { routeA: 'xz' },
   });
-  assert.deepEqual(layout.points.tiger, [[-18.2, -4.3], [-23.4, -10.2]]);
+  assert.deepEqual(layout.points.routeA, [[-18.2, -4.3], [-23.4, -10.2]]);
 });
 
 test('xyz points keep their height', () => {

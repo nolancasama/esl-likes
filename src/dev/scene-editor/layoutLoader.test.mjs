@@ -158,9 +158,9 @@ test('points ride along with the layout for the host to consume', () => {
   const layout = serializeLayout({
     project: 'test',
     objects: [],
-    points: { tiger: [{ x: -1, y: 0, z: -2 }] },
-    pointFormats: { tiger: 'xz' },
+    points: { routeA: [{ x: -1, y: 0, z: -2 }] },
+    pointFormats: { routeA: 'xz' },
   });
   const result = loadLayoutInto(root, layout, makeAdapter());
-  assert.deepEqual(result.points.tiger, [[-1, -2]]);
+  assert.deepEqual(result.points.routeA, [[-1, -2]]);
 });

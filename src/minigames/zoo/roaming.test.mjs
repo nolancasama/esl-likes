@@ -15,8 +15,8 @@ import {
 import { IDLE_SECONDS, createRng, createRoamingAnimal, spawnAnimals } from './roaming.js';
 import { ANIMALS } from './scoring.js';
 
-const EXPECTED = ['tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe'];
-const REMOVED = ['elephant', 'alpaca', 'fox', 'wolf', 'stag', 'bull', 'cow', 'donkey'];
+const EXPECTED = ['cat', 'chicken', 'dog', 'horse', 'pig', 'raccoon', 'sheep', 'wolf'];
+const REMOVED = ['elephant', 'alpaca', 'fox', 'stag', 'bull', 'cow', 'donkey'];
 
 // --- roster -----------------------------------------------------------------
 
@@ -84,11 +84,11 @@ test('every territory is internally reachable', () => {
   }
 });
 
-test('the penguin never has to cross its own pool', () => {
-  const penguin = TERRITORY_BY_ID.penguin;
-  for (const point of penguin.waypoints) {
-    assert.ok(canOccupy(point.x, point.z, ANIMAL_RADIUS.penguin),
-      `penguin waypoint (${point.x}, ${point.z}) is in the water`);
+test('the pig never has to cross the cove pool', () => {
+  const pig = TERRITORY_BY_ID.pig;
+  for (const point of pig.waypoints) {
+    assert.ok(canOccupy(point.x, point.z, ANIMAL_RADIUS.pig),
+      `pig waypoint (${point.x}, ${point.z}) is in the water`);
   }
 });
 
@@ -104,14 +104,14 @@ function run(animal, seconds, dt = 1 / 60) {
 }
 
 test('an animal starts idle, then begins to walk', () => {
-  const animal = createRoamingAnimal('deer', { rng: createRng(7) });
+  const animal = createRoamingAnimal('dog', { rng: createRng(7) });
   assert.equal(animal.state, 'idle');
   const samples = run(animal, 30);
   assert.ok(samples.some((sample) => sample.state === 'walking'), 'never started walking');
 });
 
 test('an idle animal does not move, and idles for a few seconds at a time', () => {
-  const animal = createRoamingAnimal('tiger', { rng: createRng(3) });
+  const animal = createRoamingAnimal('wolf', { rng: createRng(3) });
   const start = { x: animal.x, z: animal.z };
   // It is idle at t=0 for at least IDLE_SECONDS.min before anything happens.
   run(animal, IDLE_SECONDS.min * 0.9);
@@ -140,10 +140,13 @@ test('an animal reaches the waypoint it chose', () => {
     destination = animal.destination;
   }
   assert.ok(destination, 'never chose a destination');
-  run(animal, 60);
-  const reached = TERRITORY_BY_ID.dog.waypoints
-    .some((point) => Math.hypot(animal.x - point.x, animal.z - point.z) < 0.5);
-  assert.ok(reached, 'stopped somewhere that is not a waypoint');
+  for (let t = 0; t < 60 && animal.state === 'walking'; t += 1 / 60) {
+    animal.update(1 / 60);
+  }
+  assert.equal(animal.state, 'idle', 'never completed its first walk');
+  // Arrival deliberately stops within the roamer's radius instead of snapping.
+  assert.ok(Math.hypot(animal.x - destination.x, animal.z - destination.z) < 0.5,
+    'stopped somewhere that is not its chosen waypoint');
 });
 
 test('an animal never teleports during normal roaming', () => {
@@ -189,17 +192,16 @@ test('no animal roams across the whole park', () => {
 });
 
 test('a blocked destination is rejected rather than walked through', () => {
-  // The giraffe's feeder and the penguin's pool sit between waypoints, so both
-  // reject some of the straight lines on offer.
-  const penguin = TERRITORY_BY_ID.penguin;
-  const blocked = penguin.waypoints.flatMap((from) => penguin.waypoints
-    .filter((to) => from !== to && !canWalkBetween('penguin', from, to)));
+  // The cove pool sits between waypoints, so it rejects some straight lines.
+  const pig = TERRITORY_BY_ID.pig;
+  const blocked = pig.waypoints.flatMap((from) => pig.waypoints
+    .filter((to) => from !== to && !canWalkBetween('pig', from, to)));
   assert.ok(blocked.length > 0, 'the pool blocks nothing, so the check is not exercised');
 
-  const animal = createRoamingAnimal('penguin', { rng: createRng(13) });
+  const animal = createRoamingAnimal('pig', { rng: createRng(13) });
   for (let t = 0; t < 400; t += 1 / 30) {
     animal.update(1 / 30);
-    assert.ok(canStand('penguin', animal.x, animal.z), 'the penguin entered the pool');
+    assert.ok(canStand('pig', animal.x, animal.z), 'the pig entered the pool');
   }
 });
 
@@ -254,11 +256,11 @@ test('animals do not all start in the same place every session', () => {
 test('animals never flee: approaching one does not change its speed', () => {
   // There is no player argument anywhere in the roaming update, which is the
   // point — a child can walk up to an animal and wait for it to stop.
-  const animal = createRoamingAnimal('deer', { rng: createRng(8) });
+  const animal = createRoamingAnimal('dog', { rng: createRng(8) });
   assert.equal(animal.update.length, 1);
-  assert.equal(animal.speed, TERRITORY_BY_ID.deer.speed);
+  assert.equal(animal.speed, TERRITORY_BY_ID.dog.speed);
   run(animal, 60);
-  assert.equal(animal.speed, TERRITORY_BY_ID.deer.speed);
+  assert.equal(animal.speed, TERRITORY_BY_ID.dog.speed);
 });
 
 test('every walking animal is slower than the player', () => {
@@ -271,14 +273,12 @@ test('every walking animal is slower than the player', () => {
   }
 });
 
-test('the giraffe stands still and never walks', () => {
-  // It has no walk cycle of its own and the retargeted one reads wrong on its
-  // build, so it idles where it spawned. See DESIGN_DECISIONS, 2026-09-20.
-  assert.equal(TERRITORY_BY_ID.giraffe.speed, 0);
-  const giraffe = createRoamingAnimal('giraffe', { rng: createRng(5) });
-  const start = { x: giraffe.x, z: giraffe.z };
-  for (let t = 0; t < 300; t += 1 / 30) giraffe.update(1 / 30);
-  assert.equal(giraffe.state, 'idle');
-  assert.equal(giraffe.x, start.x);
-  assert.equal(giraffe.z, start.z);
+test('the horse now roams with its own walk cycle speed', () => {
+  assert.equal(TERRITORY_BY_ID.horse.speed, 1.8);
+  assert.equal(TERRITORY_BY_ID.horse.clipSpeed, 2.0);
+  const horse = createRoamingAnimal('horse', { rng: createRng(5) });
+  const start = { x: horse.x, z: horse.z };
+  const samples = run(horse, 60);
+  assert.ok(samples.some((sample) => sample.state === 'walking'));
+  assert.ok(Math.hypot(horse.x - start.x, horse.z - start.z) > 0.5);
 });

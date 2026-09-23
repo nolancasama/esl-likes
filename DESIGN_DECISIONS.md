@@ -453,8 +453,7 @@ session on a classroom Chromebook, for a feature only the Zoo uses.
 
 ## 2026-09-12 — Zoo animals follow the models we actually have
 
-The zoo's six animals change from elephant, lion, panda, monkey, giraffe,
-penguin to elephant, giraffe, penguin, tiger, dog, cat. The user supplied real
+The zoo's original six animals changed to match the first supplied models. The user supplied real
 3D models, and those cover only three of the original six; a lion, panda and
 monkey do not exist in the set. Rather than run a zoo where half the animals are
 detailed models and half are procedural blocks, the vocabulary follows the
@@ -462,7 +461,7 @@ assets so every habitat holds a real animal.
 
 The target grammar is untouched: it is still "What animal do you like?" and
 "I like ___." with six countable animals, and dog and cat are words Japanese
-third graders meet early. Rejected: keeping the old list and dressing a tiger as
+third graders meet early. Rejected: keeping the old list and dressing one species as
 a lion, which teaches the wrong word for the picture on the sign.
 
 ## 2026-09-12 — Zoo models scale by animal and load behind placeholders
@@ -470,8 +469,8 @@ a lion, which teaches the wrong word for the picture on the sign.
 Each real animal is measured from its loaded bounding box, centred horizontally,
 and grounded from the measured minimum Y. This handles the elephant's centred
 origin without a special-case lift and keeps replacement assets from inheriting
-hand-written offsets. Target heights are 3.65 for the giraffe, 2.45 for the
-elephant, 1.65 for the tiger, 1.55 for the penguin, 1.05 for the dog and 0.72
+hand-written offsets. The first roster used per-species target heights rather
+than one universal scale, with smaller targets for the dog and cat
 for the cat. The deliberately per-animal targets restore believable relative
 scale while fitting inside the existing fences. The photo target is the placed
 bounds centre and its radius is half the largest horizontal extent.
@@ -489,11 +488,10 @@ silhouettes and their English signs remain visible together from the loop.
 
 ## 2026-09-12 — Skinned glTF animals must be cloned with SkeletonUtils
 
-Five of the six zoo animals are skinned meshes (all four taken from
-`Animals.glb`, plus the giraffe). They were instantiated with
+Five of the six zoo animals were skinned meshes taken from shared sources. They were instantiated with
 `Object3D.clone(true)`, which copies meshes but does not rebind their skeleton,
-so each one kept rendering from the source rig near the file's origin: the tiger
-stood out on the grass and the dog, cat and penguin never appeared in their pens
+so each one kept rendering from the source rig near the file's origin: one
+stood out on the grass and several others never appeared in their pens
 at all. They are now cloned with `SkeletonUtils.clone` from three's own examples
 — no new dependency.
 
@@ -506,16 +504,13 @@ grey.
 
 ## 2026-09-12 — Seven zoo animals, and none of them pets
 
-Dog and cat were wrong for a zoo, so the zoo now teaches seven animals:
-elephant, giraffe, penguin, tiger, deer, horse and alpaca. Deer and horse were
-already sitting unused inside `Animals.glb`, so they cost nothing and match the
-tiger and penguin exactly; the alpaca comes from `animalz.zip` as a rigged,
+Dog and cat were initially judged wrong for a zoo, so an intermediate build
+used seven animals. Two were already sitting unused inside the shared model,
+so they cost nothing and matched the other animals; another came as a rigged,
 self-contained glTF whose materials are already distinct browns.
 
-Seven is not a problem: colours already teach seven words. "deer" also earns its
-place as the clearest case of the vocabulary rule — its plural is "deer", which
-no amount of label inference would produce, so the item defines the sentence
-"I like deer." itself.
+Seven was not a problem: colours already teach seven words. This also reinforced
+the vocabulary rule that each item defines its own plural sentence.
 
 The seventh pen sits in the gap on the loop at (15, -6), about ten units from
 each neighbour, so no fence or sign overlaps another.
@@ -556,8 +551,8 @@ from its measured height and sit on the ground from its measured minimum Y.
 The replacement white horse targets 2.2 units; fox 1.05, wolf 1.35, stag 2.45,
 bull 2.35, cow 2.2 and donkey 1.9. These targets account for the source OBJ
 heights ranging from 2.69 to 5.37 units without trusting their inconsistent
-authoring scale: fox and wolf read smaller than horse and bull, stag is clearly
-taller than fox, and giraffe remains tallest at 3.65.
+authoring scale: smaller animals read smaller than horse and bull, and stag is
+clearly taller than fox.
 
 ## 2026-09-12 — OBJ animals: undo MTLLoader's second colour conversion
 
@@ -896,7 +891,7 @@ replay button takes the pointer. Applies to every minigame, all for the better.
 
 Thirteen pens on a radius-33 ring read as an animal-selection board. The Zoo is
 rebuilt as a compact campus (SPEC §8 "Campus"): entrance plaza, central
-fountain, Savanna / Forest / Farm / Penguin Cove regions, an irregular
+fountain, Savanna / Forest / Farm / Cove regions, an irregular
 figure-eight of broad paths, signposts and a YOU ARE HERE board.
 
 - **Accepted** from the owner's plan: themed region kits, a closer follow camera
@@ -917,7 +912,7 @@ figure-eight of broad paths, signposts and a YOU ARE HERE board.
 - **Added — the world exposes a path graph and a photo viewpoint per habitat**
   from a pure layout module, so tests can prove reachability and no dead ends,
   and scripted runs can route instead of walking straight into fences.
-- **Added — Penguin Cove sits far from the giraffe**, which also removes the
+- **Added — the cove sits far from the tallest enclosure**, which also removes the
   intermittent neighbouring-pen shutter misfire between those two.
 - **Deferred** — a click-to-enlarge map (the in-world board comes first).
 - **Build order**: layout and navigation first (placeholder dressing), then
@@ -934,7 +929,7 @@ gets the same-looking customer even when the five base models wrap.
 
 The built campus keeps the entrance plaza at the south (`z = 31`) and the
 fountain hub one short path north, with Savanna and Forest on the west lobe,
-Farm on the east lobe, and Penguin Cove at the far north-east. The follow camera
+Farm on the east lobe, and the cove at the far north-east. The follow camera
 uses a world-aligned 10.8-unit back / 8.6-unit high offset: close enough for a
 bend to reveal a new area while preserving forward movement up the screen.
 
@@ -951,13 +946,13 @@ bend to reveal a new area while preserving forward movement up the screen.
   the animal is seen between them. A green frame over a sign-covered alpaca
   taught nothing.
 - **Framing measures width and height separately.** The old square estimate
-  used width only, so tall narrow animals (penguin, giraffe, alpaca) never
-  counted as framed and a distant cow won the penguin shot.
+  used width only, so tall narrow animals never counted as framed and a distant
+  neighbour won the intended shot.
 - **The viewfinder zooms and sits close.** While aiming (avatar hidden) the
   camera is 3.8 units behind the player at height 3.4 with a 34° field of view,
   restored to the follow camera's on close and on exit. Previously it was 7.6
   back, 4.1 high at the shared 48°: from their fence viewpoints the slim animals
-  (fox, penguin, alpaca, wolf, donkey) were centred and unblocked yet too small
+  (several of the smaller animals) were centred and unblocked yet too small
   to count as framed, and stepping closer is blocked by the fence. Zoom was
   chosen over moving viewpoints (the fence leaves no room) or lowering the size
   gate (a tiny animal is not a good photo); it also keeps neighbouring pens and
@@ -965,8 +960,8 @@ bend to reveal a new area while preserving forward movement up the screen.
 - **The viewfinder camera never sits behind a sign or building.** If a photo
   occluder lies between the camera and the player, the camera slides along its
   sightline to just in front of it. The layout test only clears the
-  viewpoint→animal line, and the camera stands behind the player: the deer
-  sign, behind its viewpoint, intermittently filled the deer shot.
+  viewpoint→animal line, and the camera stands behind the player: one sign,
+  behind its viewpoint, intermittently filled the intended shot.
 
 ## 2026-09-13 — Zoo animals stand still, no pen signs, no entrance gate
 
@@ -975,8 +970,8 @@ and the red-and-white entrance gate are removed; the Japanese region
 signposts and the YOU ARE HERE board stay. Animals no longer wander: models
 without an idle clip glided around with frozen legs, so every animal now stands
 at its pen centre facing its viewpoint (toward the screen when photographed),
-with a per-model half-turn where the source model faces backwards (tiger,
-deer, penguin, giraffe). Models that ship an idle clip (alpaca, giraffe) play
+with a per-model half-turn where a source model faces backwards. Models that
+ship an idle clip play
 it in place.
 
 ## 2026-09-13 — Zoo campus dressing stays within a Chromebook budget
@@ -1888,15 +1883,15 @@ challenger, and swaps belt stoppages for speed bursts.
 The Zoo becomes a roaming animal park, so every animal needs a real Idle and a
 real Walk. Almost none of them shipped with one.
 
-- **Accepted — the clips are lifted from the original ITHappy FBX, and the
-  models are left alone.** `public/assets/animals/Animals.glb` carries seven
+- **Accepted at the time — clips were lifted from the original source FBX, and
+  the models were left alone.** The shared model carried seven
   rigged skins and **zero** animation clips, so there was nothing to play. The
   clips do exist, embedded in the pack's seven source FBX meshes. GLTFLoader
   runs `sanitizeNodeName` over every node, which strips `.` — so the glb's
   `spine.007`/`thigh.R` load as `spine007`/`thighR`, exactly what the FBX bones
-  are already called. `scripts/build-animal-clips.mjs` reads the pack at build
-  time and writes `assets/animals/animal-clips.json`; the game attaches the
-  clips to the loaded models at runtime. Animals.glb, its materials, its shared
+  are already called. A generator read the pack at build time and wrote a
+  separate JSON bundle; the game attached those clips at runtime. The shared
+  model, its materials and its
   texture atlas and the tuned `targetHeight`/`yawOffset` values are untouched.
 - **Rejected — importing the `.unitypackage` into Unity and re-exporting a GLB
   per animal.** It was the obvious route and it is unnecessary: a
@@ -1907,22 +1902,16 @@ real Walk. Almost none of them shipped with one.
   would slide an animating animal away from the position the roaming code sets.
   Measured: root drift is now exactly 0 on all eight. `*_end` bones are leaf
   tips that do not exist in the glTF models.
-- **Accepted — clip tracks are remapped onto each model's real bone names at
-  load time (`retargetClip`).** Animals.glb packs all seven animals into one
-  scene and they all use the same bone names, so GLTFLoader renames the repeats:
-  the tiger keeps `Root`, the horse gets `Root_1`, the dog `Root_2`. Binding by
-  the name in the clip therefore worked for the tiger alone and silently
+- **Accepted at the time — clip tracks were remapped onto each model's real
+  bone names at load time.** The shared file packed all seven animals into one
+  scene with repeated bone names, so GLTFLoader renamed them. Binding by the
+  name in the clip therefore worked for the first animal alone and silently
   animated nothing for the other six — it warns, it does not throw. The lookup
   now falls back to the name with any `_<digits>` suffix removed.
-- **Accepted — the giraffe's walk is retargeted from the styloo cow.** The
-  styloo pack ships the giraffe with one clip, the misspelled `iddle`, and no
-  walk. Its cow uses a byte-for-byte identical 48-node Rigify rig, and all 46
-  bones the cow's walk drives exist on the giraffe. A hooved quadruped is also a
-  better donor than the pack's dog, which has a walk on the same rig. Only
-  rotation tracks transfer: the giraffe's neck and legs are far longer, and
-  inheriting the cow's bone translations would squash it into cow proportions.
-  Verified by rendering six phases of the cycle — the legs stride, the body and
-  neck stay intact. The giraffe has no run clip, so `run` is optional per animal.
+- **Accepted at the time — one missing walk was retargeted from a compatible
+  quadruped rig.** Only rotation tracks transferred because the proportions
+  differed. This whole external clip pipeline was later replaced by Cube World
+  models carrying their own clips.
 
 ## 2026-09-20 — The Zoo becomes a roaming animal park
 
@@ -1931,7 +1920,7 @@ photograph an animal standing still in it. The signs did the finding, so there
 was no search; the pens did the framing, so there was no aiming.
 
 - **Accepted — one continuous park, eight animals, no enclosures.** The roster
-  is tiger, horse, dog, deer, cat, penguin, chicken, giraffe. Because it is a
+  was an earlier eight-species set. Because it is a
   park rather than a zoo, a dog, a cat and a chicken need no justification.
   Removed: elephant, alpaca, fox, wolf, stag, bull, cow, donkey — with their
   vocabulary, their models and the circular pen floors, fence posts, fence rails
@@ -1954,7 +1943,7 @@ was no search; the pens did the framing, so there was no aiming.
   far more predictable than a navmesh for eight animals on a fixed map, and they
   let each area be tuned for difficulty. A destination whose straight line is
   blocked is rejected, which is what keeps animals out of the fountain, the barn
-  and the penguin pool. Tests walk every waypoint and every leg through
+  and the cove pool. Tests walk every waypoint and every leg through
   `canOccupy`, so scenery and roaming cannot drift apart.
 - **Accepted — idle/walk only, and never fleeing.** An animal idles 2–6s, picks
   a reachable waypoint, turns toward it, walks, and idles again. Approaching it
@@ -1965,7 +1954,7 @@ was no search; the pens did the framing, so there was no aiming.
   is still a teleport, and it read as a hitch at the end of every walk. Animals
   now stop where they stand.
 - **Accepted — speeds well under the player's.** The player moves at 13.5; the
-  animals at 0.9 (penguin) to 2.3 (dog). The walk clip's timeScale is divided by
+  animals at modest per-species speeds. The walk clip's timeScale is divided by
   a per-animal authored `clipSpeed` so feet do not skate.
 - **Accepted — spawn positions are randomised but constrained.** No two animals
   within 4 units, nothing within 12 of the entrance, and the requested animal is
@@ -1996,13 +1985,9 @@ looking, never by reasoning about the maths.**
   did `player.rotation.y += move.x`. With the camera looking along
   `(sin y, cos y)`, screen-right in world is `(-cos y, sin y)`, which is where a
   *smaller* yaw points — so pressing D swung the view left. Now `-=`.
-- **Accepted — the giraffe stands still.** Its own pack ships no walk cycle and
-  the one retargeted from the styloo cow reads as wrong on a giraffe's build:
-  the legs stride correctly but the gait is a cow's. The owner judged a still
-  giraffe better than a strange one. `territories.js` gives it speed 0 and
-  `roaming.js` treats speed 0 as "never walks", so it idles where it spawned —
-  which also makes it a dependable landmark in the open grassland. The walk clip
-  stays in the bundle, unused, if anyone wants to revisit it.
+- **Accepted at the time — the tallest animal stood still.** Its borrowed walk
+  read as the donor's gait, so the owner preferred a still landmark. Cube World
+  later replaced that model and every current animal roams on its own cycle.
 - **Accepted — one plant palette, led by grass.** Every plant already came from
   Quaternius Nature, but the palette was wide: two pines, a dead tree, ferns,
   flowering bushes, two rocks and pebbles, so each corner looked different
@@ -2597,10 +2582,10 @@ coloring-book shape and preserves hidden joints in motion. Rejected: splitting
 faces, clothing, buttons, icing or other decoration into regions, which would
 recreate the worksheet-like robot this system replaced.
 
-**The four animals were cut after the controller looked at them.** Penguin,
-chicken, cat and dog were authored, rendered and rejected: built from the
+**The four animals were cut after the controller looked at them.** Four drafts
+were authored, rendered and rejected: built from the
 robot's template — a circle head on a capsule body with two symmetric limbs —
-the penguin read as a bear, the chicken as two large circles, and the side-on
+one read as a bear, another as two large circles, and the side-on
 cat and dog as jumbles. The cause was the silhouette vocabulary, which is only
 rectangles and circles: there is no way to make a pointed ear, a comb, a beak
 or a tail, so cat ears came out as a cartoon mouse's. A generic `polygon`
@@ -2807,3 +2792,106 @@ centre already exists for exactly this kind of cue.
 the same text each frame would re-announce it to a screen reader endlessly, so
 the helper compares against both the last state and the live DOM before touching
 it — which also lets it recover on its own when a timed cue expires.
+
+## 2026-09-23 — Zoo animals use self-contained Cube World models
+
+**The Zoo roster and asset pipeline are one contract.** Cat, chicken, dog,
+horse, pig, raccoon, sheep and wolf each load from one self-contained Quaternius
+Cube World glTF with a per-species target height. Territories remain the roster
+authority; scoring imports their ids, and tests require lesson vocabulary and
+Japanese display names to expose the same set. This prevents the next asset
+swap from leaving requestable animals without a model or territory.
+
+**Animation comes from each model.** Clip names resolve by case-insensitive
+exact match into the animator's idle/walk/run roles. Walk falls back to Run when
+absent, which handles the chicken while remaining valid for any future model.
+The earlier generated external bundle and bone-remapping pipeline are removed.
+
+**Paper creations require explicit current-roster species metadata to become a
+photo target.** Every current Coloring subject declares `zooSpecies: null`, and
+the Zoo validates any future value against its live roster before a shutter can
+name it. Saved creations remain visitors and are never deleted or rewritten.
+
+## 2026-09-23 — The last shot belongs to the creation, not the child
+
+**The closing question shows only the paper creation.** Walking to the door used
+to teleport the child's avatar back across the room to stand beside its creation,
+which read as the game undoing the walk the child had just made. The avatar now
+keeps the position it reached at the door and is simply hidden, the camera frames
+the creation alone, and the creation turns to heading 0 to look down the closeup
+lens rather than at a body that is no longer drawn. Rejected: moving the avatar
+somewhere less visible, which is the same teleport with a better hiding place.
+
+**The avatar stays hidden through the celebration beat.** The last thing a child
+sees of the room is their own creation, not themselves reappearing for 1.1
+seconds before the wipe. Visibility is restored only in teardown, where no frame
+is rendered.
+
+**つぎ ▶ is taken away for the closing question.** The room overlay stays up
+through the turnaround, so the page-forward button does not hide itself. Left
+visible it offers a child a way out of the one moment the game is actually asking
+them something. The button was already inert then — guarded on `phase === 'room'`
+— which is exactly why this was invisible until the turnaround was reframed.
+
+## 2026-09-23 — A head drawn over a body hides what is behind it
+
+**Outline occlusion is shape metadata, not a per-subject renderer branch.** A
+shape flagged `occludesOutline` clips the outlines of every shape drawn before
+it, so a head reads as solid paper over a torso instead of showing the body's
+edge through it. Ninja, snowman, gingerbread and hero all carry it; the robot
+does not, because its head is a rectangle that barely overlaps and its look is
+already established. Rejected: hard-coding the ninja and snowman, which the
+original request named — gingerbread and hero have the same overlap, and fixing
+two of four would have looked like a bug rather than a style.
+
+**Nothing is painted over the child's artwork.** Only the line-art stroking is
+clipped. Filling the head with an opaque colour would have been far simpler and
+would have erased the colour the child chose.
+
+## 2026-09-23 — The park is built, not imported
+
+**Every piece of the park's dressing is now generated from boxes.** The imported
+Quaternius Nature greenery, the Kenney planters and fences and the KayKit café
+furniture were a smoother, more detailed art style than the voxel animals and
+voxel people they stood among. Trees and rocks are procedural blocky geometry
+with seeded placement, and a student session now fetches no environment model at
+all. Rejected: sourcing a matching blocky nature pack, which trades one style
+mismatch for another the moment the character art moves again.
+
+**The visible paths and the one ground dip are gone; the navigation data is
+not.** `pathNodes`, `pathEdges`, every collider and every landmark are untouched
+— only the beige slabs and joints that drew them stopped being built. The park
+reads as one open flat plane, and the watering hollow, dug for an elephant that
+left the lesson three passes ago, went with them.
+
+**The area tint discs stay.** They are flat, add no height, and are how a child
+tells grassland from woodland from farm while searching. Removing them would have
+been consistent with "remove the dressing" and would have quietly made the
+finding game harder, which is not an art change.
+
+**Scatter is decoration, never collision.** Trees and rocks are neither colliders
+nor navigation obstacles, exactly as the imported scatter they replace. Only the
+authored colliders in `layout.js` block anything, which is what keeps this pass
+from creating trapped navigation. Trees remain photo occluders; rocks are not,
+because sixty low occluders would slow the framing sampler and make animals
+harder to photograph for no visual gain.
+
+**Placement is seeded and rule-bounded.** Nothing is placed at z >= 22 (the
+entrance, the player spawn and every visitor spot), within 2.5 units of any
+animal waypoint, within 2 units of a collider or landmark, or inside the cove
+pool. Measured across four seeds, the nearest tree to any waypoint stays above
+2.6 units, so every animal keeps an approach angle to be photographed from.
+
+**Rocks are cool grey and wider than they are tall.** The first generated pass
+reused the plaza's warm `stone` beige at near-cubic proportions, and sixty of
+them across green grass read as cardboard crates — and at distance sat almost
+exactly on the colour of the white sheep the child is sent to photograph. The
+rocks now have their own two greys, and no boulder is as tall as it is wide.
+
+**The barn and water tower became procedural rather than disappearing.** Both
+carry colliders in `layout.js`, so deleting their imported models would have left
+invisible walls. The barn's existing load-failure fallback box was promoted to
+the permanent barn; the water tower was rebuilt from its collider radius. The
+well had no collider and simply went. The giant forest tree, the woodland
+landmark, was rebuilt with the new tree generator so the one tree a child
+navigates by is not the last smooth object in the park.

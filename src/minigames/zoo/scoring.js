@@ -1,13 +1,6 @@
-export const ANIMALS = Object.freeze([
-  'tiger',
-  'horse',
-  'dog',
-  'deer',
-  'cat',
-  'penguin',
-  'chicken',
-  'giraffe',
-]);
+import { ANIMAL_IDS } from './territories.js';
+
+export const ANIMALS = ANIMAL_IDS;
 
 function randomIndex(length, rng) {
   const sample = Number(rng());

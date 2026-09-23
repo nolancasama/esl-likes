@@ -27,7 +27,7 @@ const ninja = {
     { id: 'leftLeg', piece: 'leftLeg', order: 12, shape: rect(0.33, 0.65, 0.17, 0.3, 0.075) },
     { id: 'rightLeg', piece: 'rightLeg', order: 13, shape: rect(0.5, 0.65, 0.17, 0.3, 0.075) },
     { id: 'torso', piece: 'body', order: 20, shape: rect(0.31, 0.3, 0.38, 0.46, 0.12) },
-    { id: 'hood', piece: 'body', order: 21, shape: circle(0.5, 0.2, 0.17) },
+    { id: 'hood', piece: 'body', order: 21, occludesOutline: true, shape: circle(0.5, 0.2, 0.17) },
   ],
   details: {
     eyes: [{ cx: 0.445, cy: 0.19, r: 0.024 }, { cx: 0.555, cy: 0.19, r: 0.024 }], pupilRatio: 0.52,

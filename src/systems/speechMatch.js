@@ -42,13 +42,13 @@ export const VARIANTS = {
   drink:  ['drink', 'dring', 'drinks', 'junk', 'trink', 'dorinku', 'drinku', 'dorink'],
   sport:  ['sport', 'spot', 'sports', 'spore', 'support', 'supotsu', 'supo', 'sportu'],
   animal: ['animal', 'anime', 'animals', 'aniaml', 'enemal', 'animaru', 'animol', 'anemal'],
-  // The park's three short animal names get no fuzz slack at all (len <= 4), so
-  // their plurals and the usual mis-hearings have to be listed. "dear" for deer
-  // and "house" for horse are homophones a recogniser returns constantly, and
-  // neither word means anything else in this lesson.
+  // The park's short animal names get no fuzz slack at all (len <= 4), so their
+  // plurals and usual mis-hearings have to be listed explicitly.
   dog:    ['dog', 'dogs', 'doggu', 'dogu', 'dock', 'doggy'],
   cat:    ['cat', 'cats', 'kat', 'cut', 'catto', 'kyatto'],
-  deer:   ['deer', 'deers', 'dear', 'dia', 'dea', 'diaa'],
+  pig:    ['pig', 'pigs', 'piggu', 'pigu'],
+  sheep:  ['sheep'],
+  wolf:   ['wolf', 'wolves'],
   horse:  ['horse', 'horses', 'house', 'hoss', 'hoosu', 'horsu'],
   // A loanword the class already says as ラーメン, so the recogniser returns the
   // long-vowel and l/r shapes far more often than the dictionary spelling.
@@ -66,7 +66,7 @@ export const ANSWERS = {
   color:  ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'],
   drink:  ['water', 'milk', 'orange juice', 'apple juice', 'tea', 'soda'],
   sport:  ['soccer', 'basketball', 'baseball', 'volleyball'],
-  animal: ['tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe'],
+  animal: ['cat', 'chicken', 'dog', 'horse', 'pig', 'raccoon', 'sheep', 'wolf'],
 };
 
 /**

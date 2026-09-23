@@ -206,7 +206,7 @@ test('ANSWERS sport matches SPEC.md', () => {
 
 test('ANSWERS animal matches SPEC.md', () => {
   assert.deepEqual(ANSWERS.animal, [
-    'tiger', 'horse', 'dog', 'deer', 'cat', 'penguin', 'chicken', 'giraffe',
+    'cat', 'chicken', 'dog', 'horse', 'pig', 'raccoon', 'sheep', 'wolf',
   ]);
 });
 
@@ -521,20 +521,18 @@ test('matchAnswer survives a missing transcript', () => {
   }
 });
 
-// Vocabulary answers use natural plurals ("I like tigers."), and a child may say
-// either form. "deer" is its own plural, and short words get little or no fuzz,
-// so plural endings are stripped explicitly rather than left to edit distance.
+// Vocabulary answers use natural plurals, and a child may say either form.
+// Irregular plurals and short words are declared explicitly.
 test('matchAnswer accepts plural answers and reports the vocabulary id', () => {
   const cases = [
     ['I like chickens', 'animal', 'chicken'],
-    ['I like giraffes', 'animal', 'giraffe'],
-    ['I like penguins', 'animal', 'penguin'],
-    ['I like tigers', 'animal', 'tiger'],
-    ['I like deer', 'animal', 'deer'],
-    ['I like deers', 'animal', 'deer'],
     ['I like horses', 'animal', 'horse'],
     ['I like dogs', 'animal', 'dog'],
     ['I like cats', 'animal', 'cat'],
+    ['I like pigs', 'animal', 'pig'],
+    ['I like raccoons', 'animal', 'raccoon'],
+    ['I like sheep', 'animal', 'sheep'],
+    ['I like wolves', 'animal', 'wolf'],
     ['I like hamburgers', 'food', 'hamburger'],
   ];
   for (const [text, category, id] of cases) {
@@ -548,11 +546,13 @@ test('the short animal names list their plurals and homophones explicitly', () =
   // len <= 4 gets no fuzz slack at all, so "dogs" would never reach "dog".
   assert.deepEqual(VARIANTS.dog, ['dog', 'dogs', 'doggu', 'dogu', 'dock', 'doggy']);
   assert.deepEqual(VARIANTS.cat, ['cat', 'cats', 'kat', 'cut', 'catto', 'kyatto']);
-  assert.deepEqual(VARIANTS.deer, ['deer', 'deers', 'dear', 'dia', 'dea', 'diaa']);
+  assert.deepEqual(VARIANTS.pig, ['pig', 'pigs', 'piggu', 'pigu']);
+  assert.deepEqual(VARIANTS.sheep, ['sheep']);
+  assert.deepEqual(VARIANTS.wolf, ['wolf', 'wolves']);
 });
 
 test('matchAnswer still accepts the singular form', () => {
-  assert.equal(matchAnswer('I like tiger', 'animal').answer, 'tiger');
+  assert.equal(matchAnswer('I like wolf', 'animal').answer, 'wolf');
   assert.equal(matchAnswer('I like horse', 'animal').answer, 'horse');
   assert.equal(matchAnswer('I like hamburger', 'food').answer, 'hamburger');
 });
