@@ -160,7 +160,13 @@ export function createCoverage({ favourite = null } = {}) {
     },
 
     endStroke() {
-      if (open?.length) strokes.push(open);
+      // An empty stroke still takes a slot. `picture.js` pushes every stroke
+      // onto its own paint stack and `undo()` pops both together, so skipping
+      // one here leaves the two stacks one apart for ever — and the next undo
+      // rubs a margin doodle off the page while taking an EARLIER stroke's
+      // power off the meter, with no way back. Harmless to undo; never
+      // harmless to omit.
+      if (open) strokes.push(open);
       open = null;
       return api;
     },

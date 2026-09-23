@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import * as THREE from 'three';
 
-import { UI } from '../../config/lesson.js';
+import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
+import {
+  buildColoringEasel,
+  CAMERA,
+  createCompletionReadiness,
+  PAPER_CAMERA_GAP,
+  PAPER_PLANE_Z,
+  PAPER_SIZE,
+  PUPPET_START_Z,
+} from './index.js';
 
 /**
  * Guards for the easel loop.
@@ -21,6 +31,14 @@ import { UI } from '../../config/lesson.js';
 
 const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
 const STRINGS = UI.coloring;
+const paintingMarkup = source.match(/paintingOverlay\.innerHTML = `([\s\S]*?)`;/)?.[1] ?? '';
+
+function between(start, end) {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
+  assert.ok(from >= 0 && to > from, `could not isolate ${start}`);
+  return source.slice(from, to);
+}
 
 // --- the phase vocabulary ---------------------------------------------------
 
@@ -125,12 +143,111 @@ test('the close-up sits below the HUD, so the Talk control is reachable', () => 
   assert.match(source, /\.coloring-screen \{[^}]*z-index: 18/);
 });
 
-test('the canvas has balanced columns and hidden tools keep their space', () => {
+test('the canvas has balanced columns and hidden controls keep their space', () => {
   assert.match(source,
     /grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
   assert.match(source,
     /data-stage="asking"\] \.coloring-side,[\s\S]*?visibility: hidden;/);
-  assert.match(source, /class="coloring-side-spacer"/);
+  assert.match(source,
+    /coloring-canvas-wrap[\s\S]*?coloring-power[\s\S]*?<\/div>\s*<\/div>\s*<div class="coloring-screen__bottom">/,
+    'the vertical meter is not the third work-grid child');
+  assert.doesNotMatch(source, /coloring-side-spacer/);
+  assert.match(source, /\.coloring-side \{ grid-column: 1 \/ -1; grid-row: 1; \}/,
+    'compact controls do not span above the balanced painting row');
+  assert.match(source, /\.coloring-power \{ grid-column: 3; grid-row: 2;/,
+    'the compact vertical meter is not beside the canvas');
+});
+
+test('the Coloring header has one contextual hint and no visible title', () => {
+  assert.doesNotMatch(paintingMarkup, /<h1\b/);
+  assert.equal([...paintingMarkup.matchAll(/coloring-screen__instruction/g)].length, 1);
+  assert.match(paintingMarkup,
+    /<header class="coloring-screen__top"><p class="coloring-screen__instruction"><\/p><\/header>/);
+  assert.match(source, /paintingCanvas\.setAttribute\('aria-label', STRINGS\.canvasLabel\)/,
+    'the title was removed without preserving the canvas accessible name');
+});
+
+test('the one hint carries the exact question and all four interaction stages', () => {
+  assert.equal(STRINGS.askRobot, 'ボタンを おして、「What color do you like?」と きこう');
+  assert.equal([...STRINGS.askRobot.matchAll(/What color do you like\?/g)].length, 1);
+  assert.equal(STRINGS.chooseColor, 'いろを えらぼう');
+  assert.equal(STRINGS.paintHint, 'すきなように ぬろう！');
+  assert.equal(STRINGS.readyHint, 'できたら「できた！」を おそう');
+  assert.match(source, /paintInstruction\.textContent = STRINGS\.askRobot/);
+  assert.match(source, /paintInstruction\.textContent = STRINGS\.chooseColor/);
+  assert.match(source, /\? STRINGS\.readyHint\s*: selectedColor \? STRINGS\.paintHint : STRINGS\.chooseColor/);
+});
+
+test('ROBOT POWER is a bottom-anchored vertical progress meter', () => {
+  assert.match(source, /powerFill\.style\.height = `\$\{\(clamped \* 100\)\.toFixed\(1\)\}%`/);
+  assert.doesNotMatch(source, /powerFill\.style\.width/);
+  assert.match(source,
+    /\.coloring-power__fill \{ position: absolute; left: 0; right: 0; bottom: 0;/);
+  assert.match(source, /transition: height \.18s ease-out/);
+  assert.match(paintingMarkup, /role="progressbar"[^>]*aria-valuenow="0"/);
+  assert.match(source,
+    /powerBar\.setAttribute\('aria-valuenow', String\(Math\.round\(clamped \* 100\)\)\)/);
+});
+
+test('full power grants and revokes Done without changing phase', () => {
+  const changed = between('function onPaintChanged(info)', 'function finishArtwork()');
+  assert.match(changed, /updateReadiness\(info\.power\)/);
+  assert.doesNotMatch(changed, /beginCharging/);
+  const readiness = between('function updateReadiness(value)', 'function flash(');
+  assert.match(readiness, /completionReadiness\.update\(value\)/);
+  assert.match(readiness, /doneButton\.disabled = !ready/);
+  assert.match(readiness, /if \(!celebrate\) return/);
+  assert.match(source, /completionReadiness\.reset\(\);[\s\S]*?favourite = PALETTE/,
+    'a new round does not reset the one-shot celebration');
+});
+
+test('Done readiness follows every power change but celebrates only once per round', () => {
+  const readiness = createCompletionReadiness();
+  assert.deepEqual(readiness.update(0.99), { ready: false, celebrate: false });
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
+  assert.deepEqual(readiness.update(0.7), { ready: false, celebrate: false });
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: false });
+  readiness.reset();
+  assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
+});
+
+test('Done is the guarded activation control and Reset is dev-only', () => {
+  assert.match(paintingMarkup,
+    /coloring-tool--undo[\s\S]*?coloring-tool--eraser[\s\S]*?coloring-tool--done/);
+  assert.equal(STRINGS.tools.done, 'できた！');
+  assert.match(source, /if \(phase !== 'coloring' \|\| coverage\.power\(\) < 1\) return;\s*beginCharging\(\);/);
+  assert.equal([...source.matchAll(/\bbeginCharging\(\);/g)].length, 1,
+    'something besides a guarded Done press starts activation');
+  assert.doesNotMatch(paintingMarkup, /reset|やりなおす/);
+  assert.match(source, /window\.__eslDebug\.coloringReset = resetArtwork/);
+  assert.match(source, /delete window\.__eslDebug\.coloringReset/);
+});
+
+test('full power leaves painting, undo and eraser available', () => {
+  assert.match(source, /locked: \(\) => phase !== 'coloring'/);
+  assert.match(source, /function undo\(\) \{\s*if \(phase !== 'coloring'/);
+  assert.match(source, /function toggleEraser\(\) \{\s*if \(phase !== 'coloring'/);
+  assert.doesNotMatch(between('function onPaintChanged(info)', 'function finishArtwork()'),
+    /phase\s*=|beginCharging/);
+});
+
+test('the persistent answer bubble owns replay and creates no duplicate notice', () => {
+  assert.equal(answerFor(LESSON_BY_ID.coloring, 'blue'), 'I like blue.');
+  assert.match(paintingMarkup, /coloring-bubble__answer/);
+  assert.match(paintingMarkup, /<button class="coloring-bubble__speaker" type="button">🔊<\/button>/);
+  assert.match(source, /bubbleAnswer\.textContent = answerSentence/);
+  assert.match(source, /bubbleSpeaker\.setAttribute\('aria-label', UI\.dialogue\.replay\)/);
+  assert.match(source, /bubbleSpeaker\.title = UI\.dialogue\.replay/);
+  assert.equal(UI.dialogue.replay, 'もういちど きく');
+  assert.match(source, /bubbleSpeaker\.addEventListener\('click', onBubbleSpeakerClick\)/);
+  assert.match(source, /if \(event\.detail > 0\) event\.currentTarget\.blur\(\)/);
+  const replay = between('function replayAnswer()', 'function targetQuestion()');
+  assert.match(replay, /replayed = true/);
+  assert.match(replay, /audio\.speak\(answerSentence\)/);
+  assert.match(replay, /flash\(bubble, 'coloring-bubble--speaking'/);
+  assert.doesNotMatch(between('function beginColoring()', 'function selectColor('), /bubble\.hidden/);
+  assert.match(between('function beginCharging()', 'function stirOnPage()'), /bubble\.hidden = true/);
+  assert.doesNotMatch(source, /answerNotice|coloring-answer-notice|createListenAgain|\.listen-again/);
 });
 
 test('the emergence retreats the player clear of the landing and holds the view', () => {
@@ -166,10 +283,59 @@ test('the easel canvas planes share one leaned group', () => {
   assert.match(source, /rearLeg\.rotation\.x = 0\.28/);
 });
 
+test('built easel geometry keeps the sheet ahead of uprights and on its shelf', () => {
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const plane = new THREE.PlaneGeometry(1, 1);
+  const material = new THREE.MeshBasicMaterial();
+  const easel = buildColoringEasel({
+    box,
+    plane,
+    easelMaterial: material,
+    paperMaterial: material,
+    artMaterial: material,
+  });
+  easel.group.updateMatrixWorld(true);
+
+  const paperBox = new THREE.Box3().setFromObject(easel.paper);
+  for (const upright of easel.uprights) {
+    const uprightBox = new THREE.Box3().setFromObject(upright);
+    assert.ok(paperBox.min.z > uprightBox.max.z,
+      `${upright.name} crosses or sits in front of the sheet plane`);
+  }
+
+  const shelfBox = new THREE.Box3().setFromObject(easel.shelf);
+  const shelfYOverlap = Math.min(paperBox.max.y, shelfBox.max.y)
+    - Math.max(paperBox.min.y, shelfBox.min.y);
+  const shelfZOverlap = Math.min(paperBox.max.z, shelfBox.max.z)
+    - Math.max(paperBox.min.z, shelfBox.min.z);
+  assert.ok(shelfYOverlap > 0, 'the paper no longer rests on the shelf');
+  assert.ok(shelfYOverlap / PAPER_SIZE <= 0.04,
+    `shelf covers ${(shelfYOverlap / PAPER_SIZE * 100).toFixed(2)}% of the paper`);
+  assert.ok(shelfZOverlap > 0, 'the shelf moved behind or ahead of the paper');
+
+  const paperWorld = easel.paper.getWorldPosition(new THREE.Vector3());
+  const puppetWorldZ = easel.group.position.z + PUPPET_START_Z;
+  assert.ok(puppetWorldZ > paperBox.max.z, 'the newborn puppet starts behind the leaned sheet');
+  const cameraWorldZ = easel.group.position.z + CAMERA.paper.offset[2];
+  assert.ok(Math.abs((cameraWorldZ - paperWorld.z) - PAPER_CAMERA_GAP) < 1e-12,
+    'paper camera gap changed when the sheet moved');
+  assert.equal(PAPER_PLANE_Z, easel.canvasGroup.position.z);
+
+  box.dispose();
+  plane.dispose();
+  material.dispose();
+});
+
+test('both puppet placements derive from the paper plane', () => {
+  assert.equal([...source.matchAll(/EASEL\.z \+ PUPPET_START_Z/g)].length, 3);
+  assert.doesNotMatch(source, /EASEL\.z \+ 0\.2/);
+  assert.equal(PUPPET_START_Z, PAPER_PLANE_Z + 0.16);
+});
+
 // --- the copy ---------------------------------------------------------------
 
 test('the strings the new loop needs all exist', () => {
-  for (const key of ['roomName', 'askRobot', 'paintTitle', 'chooseColor', 'paintHint',
+  for (const key of ['roomName', 'askRobot', 'canvasLabel', 'chooseColor', 'paintHint', 'readyHint',
     'power', 'powerFull', 'alive', 'roomHint', 'easelAction', 'doorLabel', 'doorAction',
     'turnaround', 'complete']) {
     assert.equal(typeof STRINGS[key], 'string', `UI.coloring.${key} is missing`);
@@ -196,7 +362,10 @@ test('the seven colours and three brushes are all still named', () => {
   assert.deepEqual(Object.keys(STRINGS.colors).sort(),
     ['blue', 'green', 'orange', 'pink', 'purple', 'red', 'yellow']);
   assert.deepEqual(Object.keys(STRINGS.brushes).sort(), ['large', 'medium', 'small']);
-  for (const key of ['undo', 'eraser', 'reset', 'resetConfirm', 'resetYes', 'resetNo']) {
+  for (const key of ['undo', 'eraser', 'done']) {
     assert.equal(typeof STRINGS.tools[key], 'string', `tools.${key} is missing`);
+  }
+  for (const key of ['reset', 'resetConfirm', 'resetYes', 'resetNo']) {
+    assert.equal(STRINGS.tools[key], undefined, `tools.${key} is dead gameplay copy`);
   }
 });

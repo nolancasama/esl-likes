@@ -22,6 +22,7 @@ const TARGET_URL = process.argv[2] || 'http://localhost:5199/';
 const OUT = process.argv[3] || '.tmp/col';
 const VIEW = { width: Number(process.argv[4]) || 1024, height: Number(process.argv[5]) || 600 };
 const SAVE_KEY = 'esl-likes-save-v1';
+const FULL_POWER_SETTLE_MS = 1200;
 const FORBIDDEN_PHASES = new Set(['approach', 'gift', 'reaction', 'transition-to-painting']);
 const ACTIVATION_SEQUENCE = ['activation-page', 'reveal-easel', 'robot-exit', 'room-reveal', 'room'];
 const ANSWER_PATTERN = new RegExp(`^I like (${PALETTE.join('|')})\\.$`);
@@ -126,6 +127,15 @@ async function openPage(label, {
       && Number(getComputedStyle(element).opacity) > 0.01
       && element.getClientRects().length > 0;
     const q = (selector) => document.querySelector(selector);
+    const screen = q('.coloring-screen');
+    const done = q('.coloring-tool--done');
+    const speaker = q('.coloring-bubble__speaker');
+    const powerFill = q('.coloring-power__fill');
+    const powerTrack = q('.coloring-power__track');
+    const fillStyle = powerFill ? getComputedStyle(powerFill) : null;
+    const fillRect = powerFill?.getBoundingClientRect() ?? null;
+    const trackRect = powerTrack?.getBoundingClientRect() ?? null;
+    const trackStyle = powerTrack ? getComputedStyle(powerTrack) : null;
     const text = (selector) => (visible(q(selector))
       ? q(selector).textContent.replace(/\s+/g, ' ').trim()
       : null);
@@ -133,18 +143,45 @@ async function openPage(label, {
     return {
       debug: debug ? JSON.parse(JSON.stringify(debug)) : null,
       room: visible(q('.coloring-room-ui')),
-      screen: visible(q('.coloring-screen')),
+      screen: visible(screen),
       canvas: visible(q('.coloring-canvas')),
       action: text('.coloring-room-ui__action'),
       actionIsDoor: visible(q('.coloring-room-ui__action--door')),
       roomInstruction: text('.coloring-room-ui .scene-card p'),
       pageBubble: text('.coloring-screen .coloring-bubble'),
       pageBubbleAnchored: visible(q('.coloring-screen .coloring-bubble')),
+      bubbleAnswer: text('.coloring-bubble__answer'),
+      bubbleAnswerCount: screen?.querySelectorAll('.coloring-bubble__answer').length ?? 0,
+      bubbleSpeaker: Boolean(speaker),
+      bubbleSpeakerVisible: visible(speaker),
+      bubbleSpeakerFocused: document.activeElement === speaker,
+      bubbleSpeakerLabel: speaker?.getAttribute('aria-label') ?? null,
+      bubbleSpeakerTitle: speaker?.title ?? null,
+      bubbleSpeaking: q('.coloring-bubble')?.classList.contains('coloring-bubble--speaking') ?? false,
+      listenAgainPresent: Boolean(screen?.querySelector('.listen-again')),
       dialogueBubble: text('.npc-dialogue__line'),
       paletteVisible: visible(q('.coloring-palette')),
       brushesVisible: visible(q('.coloring-brushes')),
       powerVisible: visible(q('.coloring-power')),
-      done: Boolean(q('.coloring-done')),
+      powerIcon: visible(q('.coloring-power__icon')),
+      donePresent: Boolean(done),
+      doneVisible: visible(done),
+      doneDisabled: done?.disabled ?? null,
+      undoDisabled: q('.coloring-tool--undo')?.disabled ?? null,
+      eraserDisabled: q('.coloring-tool--eraser')?.disabled ?? null,
+      eraserPressed: q('.coloring-tool--eraser')?.getAttribute('aria-pressed') ?? null,
+      titleAbsent: !screen?.querySelector('h1'),
+      hintText: text('.coloring-screen__instruction'),
+      hintCount: screen?.querySelectorAll('.coloring-screen__instruction').length ?? 0,
+      bottomButtonCount: screen?.querySelectorAll('.coloring-screen__bottom button').length ?? 0,
+      resetAbsent: !screen?.querySelector('.coloring-tool--reset'),
+      powerFillHeight: fillStyle?.height ?? null,
+      powerFillWidth: fillStyle?.width ?? null,
+      powerGeometry: fillRect && trackRect && trackStyle ? {
+        fill: { top: fillRect.top, right: fillRect.right, bottom: fillRect.bottom, left: fillRect.left },
+        track: { top: trackRect.top, right: trackRect.right, bottom: trackRect.bottom, left: trackRect.left },
+        trackInnerBottom: trackRect.bottom - parseFloat(trackStyle.borderBottomWidth || '0'),
+      } : null,
       lineArt: debug?.phase === 'canvas-question' ? (() => {
         const canvas = q('.coloring-canvas');
         if (!visible(canvas) || !canvas.width || !canvas.height) return null;
@@ -269,6 +306,19 @@ async function enterColoring(h) {
 
 const canvasBox = (page) => page.locator('.coloring-canvas').boundingBox();
 
+async function artFingerprint(page) {
+  return page.locator('.coloring-canvas').evaluate((canvas) => {
+    const pixels = canvas.getContext('2d', { willReadFrequently: true })
+      .getImageData(0, 0, canvas.width, canvas.height).data;
+    let hash = 2166136261;
+    for (let i = 0; i < pixels.length; i += 1) {
+      hash ^= pixels[i];
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${canvas.width}x${canvas.height}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+  });
+}
+
 async function selectColour(page, colour) {
   await page.click(`.coloring-swatch[data-color="${colour}"]`, { force: true });
   await page.waitForTimeout(70);
@@ -331,8 +381,11 @@ function nonFavouriteColour(favourite, offset = 1) {
 }
 
 async function resetPainting(h) {
-  await h.page.click('.coloring-tools .coloring-tool--reset', { force: true });
-  await h.page.click('[data-reset="yes"]', { force: true });
+  const resetHookPresent = await h.page.evaluate(() =>
+    typeof window.__eslDebug?.coloringReset === 'function');
+  check('dev reset hook exists before the harness relies on it', resetHookPresent);
+  if (!resetHookPresent) return null;
+  await h.page.evaluate(() => window.__eslDebug.coloringReset());
   return h.waitFor((state) => state.debug?.phase === 'coloring'
     && state.debug.power === 0
     && state.debug.coverage === 0
@@ -433,7 +486,7 @@ async function assertPowerSemantics(h, box, favourite, ordinary) {
   await resetPainting(h);
 }
 
-async function answerCanvasQuestion(h, round, screenshots = true) {
+async function answerCanvasQuestion(h, round, screenshots = true, onAnswer = null) {
   let state = await openFallback(h);
   check(`round ${round}: Talk opens the mic-free question fallback`,
     Boolean(state?.fallback.length), state?.fallback[0]?.text ?? 'no fallback');
@@ -441,11 +494,27 @@ async function answerCanvasQuestion(h, round, screenshots = true) {
     /what color do you like/i.test(state?.fallback[0]?.text ?? ''), state?.fallback[0]?.text);
   if (!state?.fallback.length) return null;
   await h.page.click('.lesson-hud__fallback');
-  state = await h.waitFor((next) => ANSWER_PATTERN.test(next.pageBubble ?? ''), 6000, 'drawing answer');
+  // Wait for the BUBBLE, not just its text. `.coloring-bubble` fades in over
+  // .3s while the answer span inside it already reads as visible, so waiting on
+  // the text alone races the entry animation and then fails the anchored check
+  // it just satisfied. The same race cost this harness a day in a previous pass
+  // on the tools fade-in.
+  state = await h.waitFor((next) => ANSWER_PATTERN.test(next.bubbleAnswer ?? '')
+    && next.pageBubbleAnchored, 6000, 'drawing answer');
   check(`round ${round}: the drawing answers in an anchored page bubble`,
-    Boolean(state?.pageBubbleAnchored && ANSWER_PATTERN.test(state.pageBubble)), state?.pageBubble);
+    Boolean(state?.pageBubbleAnchored && ANSWER_PATTERN.test(state.bubbleAnswer)), state?.bubbleAnswer);
+  check(`round ${round}: the answer bubble has one exact answer and a visible speaker`,
+    Boolean(state?.bubbleAnswerCount === 1
+      && ANSWER_PATTERN.test(state.bubbleAnswer)
+      && state.bubbleSpeaker
+      && state.bubbleSpeakerVisible),
+    JSON.stringify({ answer: state?.bubbleAnswer, count: state?.bubbleAnswerCount,
+      speaker: state?.bubbleSpeaker, visible: state?.bubbleSpeakerVisible }));
+  check(`round ${round}: Coloring has no separate Listen Again control`,
+    state?.listenAgainPresent === false, String(state?.listenAgainPresent));
   if (screenshots && round === 1 && state) await h.page.screenshot({ path: `${OUT}-drawing-answer-bubble.png` });
-  const favourite = state?.pageBubble?.match(ANSWER_PATTERN)?.[1] ?? null;
+  if (state && onAnswer) await onAnswer(state);
+  const favourite = state?.bubbleAnswer?.match(ANSWER_PATTERN)?.[1] ?? null;
   // The stage flag flips a frame before the palette, brushes and bar finish
   // fading in, so wait on the DOM as well — otherwise this races the fade and
   // fails while reporting toolsVisible: true, which reads as a contradiction.
@@ -463,6 +532,18 @@ async function answerCanvasQuestion(h, round, screenshots = true) {
       brushes: state?.brushesVisible,
       power: state?.powerVisible,
     }));
+  check(`round ${round}: the answer bubble persists throughout coloring without duplication`,
+    Boolean(state?.debug?.phase === 'coloring'
+      && state.pageBubbleAnchored
+      && state.bubbleAnswerCount === 1
+      && ANSWER_PATTERN.test(state.bubbleAnswer ?? '')
+      && state.bubbleSpeakerVisible
+      && !state.listenAgainPresent),
+    JSON.stringify({ phase: state?.debug?.phase, answer: state?.bubbleAnswer,
+      count: state?.bubbleAnswerCount, speaker: state?.bubbleSpeakerVisible,
+      listenAgain: state?.listenAgainPresent }));
+  check(`round ${round}: the post-answer hint asks the child to choose a colour`,
+    state?.hintText === 'いろを えらぼう', state?.hintText);
   return favourite;
 }
 
@@ -522,7 +603,11 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
   check(`round ${round}: selected decorative ${decorationColour} with the ${style.brush} brush`,
     state.debug?.selectedColor === decorationColour && state.debug?.brush === style.brush,
     JSON.stringify({ color: state.debug?.selectedColor, brush: state.debug?.brush }));
-  check(`round ${round}: activation has no Done button`, state.done === false);
+  check(`round ${round}: Done is present and disabled below full power`,
+    state.donePresent && state.doneVisible && state.doneDisabled === true,
+    JSON.stringify({ present: state.donePresent, visible: state.doneVisible, disabled: state.doneDisabled }));
+  check(`round ${round}: choosing a colour changes the hint to free painting`,
+    state.hintText === 'すきなように ぬろう！', state.hintText);
 
   const beforeDecoration = state.debug?.power ?? 0;
   await stroke(page, box, style.decoration, 8);
@@ -538,21 +623,34 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
   let strokesUsed = 0;
   for (const points of orderedSweeps(bounds.minY, bounds.maxY, rowStep, style.fill)) {
     state = await h.ui();
-    if (state.debug?.phase !== 'coloring') break;
+    if (state.debug?.phase !== 'coloring' || (state.debug?.power ?? 0) >= 1) break;
     await stroke(page, box, points);
     strokesUsed += 1;
   }
-  state = await h.waitFor((next) => next.debug?.phase === 'activation-page', 6000, 'automatic activation');
-  const activation = clone(state?.debug);
-  const measuredFavouriteCoverage = (activation?.coverage ?? 0) * (activation?.favouriteShare ?? 0);
+  state = await h.waitFor((next) => next.debug?.phase === 'coloring'
+    && next.debug?.power >= 1, 6000, 'full power while still coloring');
+  const fullPower = clone(state?.debug);
+  const measuredFavouriteCoverage = (fullPower?.coverage ?? 0) * (fullPower?.favouriteShare ?? 0);
   check(`round ${round}: painting reaches full power`, (state?.debug?.power ?? 0) >= 1,
     `power ${state?.debug?.power ?? 'missing'}, coverage ${state?.debug?.coverage ?? 'missing'}`);
-  check(`round ${round}: activation starts by itself`, state?.debug?.phase === 'activation-page', state?.debug?.phase);
+  await h.sleep(FULL_POWER_SETTLE_MS);
+  state = await h.ui();
+  check(`round ${round}: full power waits for Done instead of activating itself`,
+    state.debug?.phase === 'coloring' && state.screen && state.canvas,
+    JSON.stringify({ phase: state.debug?.phase, screen: state.screen, canvas: state.canvas }));
+  check(`round ${round}: Done is enabled and the full-power hint is visible`,
+    state.donePresent && state.doneVisible && state.doneDisabled === false
+      && state.hintText === 'できたら「できた！」を おそう',
+    JSON.stringify({ disabled: state.doneDisabled, hint: state.hintText }));
   check(`round ${round}: favourite-colour activation is well below the old 68% threshold`,
-    state?.debug?.phase === 'activation-page' && measuredFavouriteCoverage < 0.68,
+    state?.debug?.phase === 'coloring' && measuredFavouriteCoverage < 0.68,
     `${(measuredFavouriteCoverage * 100).toFixed(1)}% favourite coverage`);
   notes.push(`round ${round}: power reached 1 at ${(measuredFavouriteCoverage * 100).toFixed(1)}% favourite-colour coverage (contract ${(FAVOURITE_POWER_THRESHOLD * 100).toFixed(0)}%); ${strokesUsed} ${style.brush}-brush ${style.fill} sweeps; heard ${favourite ?? 'no answer'}; decoration ${decorationColour}`);
-  if (screenshots && round === 1) await page.screenshot({ path: `${OUT}-camera-paper-activation.png` });
+  if (screenshots && round === 1) await page.screenshot({ path: `${OUT}-camera-paper-full-awaiting-done.png` });
+  await page.click('.coloring-tool--done');
+  state = await h.waitFor((next) => next.debug?.phase === 'activation-page', 6000, 'Done activation');
+  check(`round ${round}: pressing enabled Done starts activation`,
+    state?.debug?.phase === 'activation-page', state?.debug?.phase);
 
   // One NON-BLOCKING recorder for the whole cinematic, started as early as
   // possible and read back at the end.
@@ -825,22 +923,245 @@ async function leaveThroughDoor(h, label, { screenshot = false } = {}) {
   return state;
 }
 
+async function assertBubbleReplay(h, size) {
+  const { page } = h;
+  let state = await h.ui();
+  check(`${size}: the bubble speaker has the shipped words-only replay name`,
+    state.bubbleSpeakerLabel === 'もういちど きく'
+      && state.bubbleSpeakerTitle === 'もういちど きく',
+    JSON.stringify({ label: state.bubbleSpeakerLabel, title: state.bubbleSpeakerTitle }));
+  await page.click('.coloring-bubble__speaker');
+  state = await h.ui();
+  check(`${size}: clicking the bubble speaker replays without duplicating the answer`,
+    state.debug?.usedListenAgain === true
+      && state.bubbleSpeaking
+      && state.bubbleAnswerCount === 1
+      && state.bubbleSpeakerFocused === false,
+    JSON.stringify({ replayed: state.debug?.usedListenAgain, speaking: state.bubbleSpeaking,
+      answers: state.bubbleAnswerCount, focused: state.bubbleSpeakerFocused }));
+
+  await h.sleep(600);
+  await page.locator('.coloring-bubble__speaker').focus();
+  state = await h.ui();
+  check(`${size}: the bubble speaker can receive keyboard focus`,
+    state.bubbleSpeakerFocused === true && state.bubbleSpeaking === false,
+    JSON.stringify({ focused: state.bubbleSpeakerFocused, speaking: state.bubbleSpeaking }));
+  await page.keyboard.press('Enter');
+  state = await h.ui();
+  check(`${size}: Enter on the focused bubble speaker replays the answer`,
+    state.bubbleSpeakerFocused === true
+      && state.debug?.usedListenAgain === true
+      && state.bubbleSpeaking
+      && state.bubbleAnswerCount === 1,
+    JSON.stringify({ focused: state.bubbleSpeakerFocused, replayed: state.debug?.usedListenAgain,
+      speaking: state.bubbleSpeaking, answers: state.bubbleAnswerCount }));
+}
+
+async function fillFavouriteToFull(h, box, favourite, paths) {
+  await selectColour(h.page, favourite);
+  await selectBrush(h.page, 'large');
+  const bounds = silhouetteBounds();
+  const rowStep = (BRUSHES.large.diameter / PICTURE_SIZE) * 0.58;
+  let state = await h.ui();
+  for (const points of sweeps(bounds.minY, bounds.maxY, rowStep)) {
+    if ((state.debug?.power ?? 0) >= 1 || state.debug?.phase !== 'coloring') break;
+    await stroke(h.page, box, points);
+    paths.push(points);
+    state = await h.ui();
+  }
+  return h.waitFor((next) => next.debug?.phase === 'coloring' && next.debug?.power >= 1,
+    5000, 'full power without activation');
+}
+
+async function exerciseFullPowerEditing(h, box, favourite, ordinary, favouritePaths, size) {
+  const { page } = h;
+  await h.sleep(FULL_POWER_SETTLE_MS);
+  let state = await h.ui();
+  check(`${size}: a real charging beat at full power still leaves the page in coloring`,
+    state.debug?.phase === 'coloring' && state.screen && state.canvas,
+    JSON.stringify({ phase: state.debug?.phase, screen: state.screen, canvas: state.canvas }));
+  check(`${size}: Done is enabled at full power`,
+    state.donePresent && state.doneVisible && state.doneDisabled === false,
+    JSON.stringify({ present: state.donePresent, visible: state.doneVisible, disabled: state.doneDisabled }));
+  check(`${size}: the full-power hint tells the child to press Done`,
+    state.hintText === 'できたら「できた！」を おそう', state.hintText);
+
+  // Let the readiness celebration's blink finish: `artFingerprint` hashes the
+  // DISPLAY canvas, which `drawPage` renders with the current eye state.
+  await h.sleep(320);
+  await selectColour(page, ordinary);
+  await selectBrush(page, 'small');
+  // Prime a rebuild before taking the baseline, so the comparison is
+  // like-for-like. Live painting draws each segment as its own path and
+  // antialiases it against what is already on the canvas; `undo()` calls
+  // `rebuildPaint()`, which replays each stroke as ONE polyline and antialiases
+  // it once. Same picture, different edge pixels — so a live-drawn baseline can
+  // never equal a rebuilt one, however correct undo is. This throwaway margin
+  // stroke charges no power and leaves the canvas in rebuilt form.
+  await stroke(page, box, [[0.04, 0.10], [0.22, 0.10]], 8);
+  await page.click('.coloring-tool--undo');
+  await h.sleep(320);
+  const beforeExtraPaint = await artFingerprint(page);
+  const strokesBeforeExtra = (await h.ui()).debug?.strokes ?? NaN;
+  await stroke(page, box, [[0.04, 0.04], [0.22, 0.04]], 8);
+  const afterExtraPaint = await artFingerprint(page);
+  state = await h.ui();
+  check(`${size}: non-favourite painting still changes the artwork at full power`,
+    beforeExtraPaint !== afterExtraPaint
+      && state.debug?.power === 1
+      && state.debug?.phase === 'coloring',
+    JSON.stringify({ before: beforeExtraPaint, after: afterExtraPaint,
+      power: state.debug?.power, phase: state.debug?.phase }));
+  check(`${size}: undo and eraser remain enabled at full power`,
+    state.undoDisabled === false && state.eraserDisabled === false,
+    JSON.stringify({ undoDisabled: state.undoDisabled, eraserDisabled: state.eraserDisabled }));
+
+  await page.click('.coloring-tool--eraser');
+  state = await h.ui();
+  check(`${size}: the eraser can be activated at full power`,
+    state.debug?.erasing === true && state.eraserPressed === 'true' && state.debug?.phase === 'coloring',
+    JSON.stringify({ erasing: state.debug?.erasing, pressed: state.eraserPressed,
+      phase: state.debug?.phase }));
+  await page.click('.coloring-tool--undo');
+  await h.sleep(320);
+  const afterUndo = await artFingerprint(page);
+  state = await h.ui();
+  check(`${size}: undo works at full power without starting activation`,
+    afterUndo === beforeExtraPaint
+      && afterUndo !== afterExtraPaint
+      && state.debug?.strokes === strokesBeforeExtra
+      && state.debug?.power === 1
+      && state.debug?.phase === 'coloring',
+    JSON.stringify({ before: beforeExtraPaint, afterExtraPaint, afterUndo,
+      strokes: `${strokesBeforeExtra} -> ${state.debug?.strokes}`,
+      power: state.debug?.power, phase: state.debug?.phase }));
+
+  await selectBrush(page, 'large');
+  if (!state.debug?.erasing) await page.click('.coloring-tool--eraser');
+  const erasedPaths = [];
+  for (const points of favouritePaths) {
+    state = await h.ui();
+    if ((state.debug?.power ?? 0) < 1) break;
+    await stroke(page, box, points);
+    erasedPaths.push(points);
+  }
+  state = await h.ui();
+  check(`${size}: erasing enough favourite paint disables Done again`,
+    state.debug?.phase === 'coloring'
+      && state.debug?.power < 1
+      && state.doneDisabled === true,
+    JSON.stringify({ phase: state.debug?.phase, power: state.debug?.power,
+      disabled: state.doneDisabled, erased: erasedPaths.length }));
+
+  await selectColour(page, favourite);
+  for (const points of erasedPaths) {
+    state = await h.ui();
+    if ((state.debug?.power ?? 0) >= 1) break;
+    await stroke(page, box, points);
+  }
+  state = await h.waitFor((next) => next.debug?.phase === 'coloring'
+    && next.debug?.power >= 1, 4000, 'restored full power');
+  check(`${size}: restoring favourite paint re-enables Done`,
+    state?.doneDisabled === false && state?.hintText === 'できたら「できた！」を おそう',
+    JSON.stringify({ power: state?.debug?.power, disabled: state?.doneDisabled, hint: state?.hintText }));
+  return state;
+}
+
 async function checkCanvasCentring(viewport) {
   const size = `${viewport.width}x${viewport.height}`;
   const h = await openPage(`centring-${size}`, { viewport });
   const entry = await enterColoring(h);
   check(`${size}: centring session reaches canvas-question`,
     entry.state?.phase === 'canvas-question' && entry.state?.canvas, entry.state?.phase);
+  let state = await h.ui();
+  check(`${size}: opening is title-free with exactly one exact hint`,
+    state.titleAbsent
+      && state.hintCount === 1
+      && state.hintText === 'ボタンを おして、「What color do you like?」と きこう',
+    JSON.stringify({ titleAbsent: state.titleAbsent, hintCount: state.hintCount, hint: state.hintText }));
   const before = await canvasBox(h.page);
-  await h.page.screenshot({ path: `${OUT}-centring-${size}-before.png` });
-  await answerCanvasQuestion(h, `centring ${size}`, false);
+  await h.page.screenshot({ path: `${OUT}-${size}-opening-title-free-one-hint.png` });
+  const favourite = await answerCanvasQuestion(h, `centring ${size}`, false, async () => {
+    await h.page.screenshot({ path: `${OUT}-${size}-answer-bubble-speaker.png` });
+    await assertBubbleReplay(h, size);
+  });
   const after = await canvasBox(h.page);
-  await h.page.screenshot({ path: `${OUT}-centring-${size}-after.png` });
+  await h.page.screenshot({ path: `${OUT}-${size}-tools-arrived-centred.png` });
   const beforeX = before ? before.x + before.width / 2 : NaN;
   const afterX = after ? after.x + after.width / 2 : NaN;
   check(`${size}: canvas centre does not shift when tools appear`,
-    Number.isFinite(beforeX) && Number.isFinite(afterX) && Math.abs(afterX - beforeX) <= 2,
+    Number.isFinite(beforeX) && Number.isFinite(afterX) && Math.abs(afterX - beforeX) < 0.5,
     `${beforeX.toFixed?.(2)} -> ${afterX.toFixed?.(2)} (delta ${Math.abs(afterX - beforeX).toFixed?.(2)}px)`);
+
+  state = await h.ui();
+  const meter = await h.page.locator('.coloring-power').boundingBox();
+  const verticalOverlap = after && meter
+    ? Math.min(after.y + after.height, meter.y + meter.height) - Math.max(after.y, meter.y)
+    : NaN;
+  check(`${size}: vertical ROBOT POWER sits right of and overlaps the canvas`,
+    Boolean(after && meter)
+      && meter.x >= after.x + after.width - 0.5
+      && verticalOverlap > 0
+      && state.powerIcon,
+    JSON.stringify({ canvas: after, meter, verticalOverlap, icon: state.powerIcon }));
+  check(`${size}: bottom row has Undo, Eraser and Done with no Reset`,
+    state.bottomButtonCount === 3 && state.donePresent && state.resetAbsent,
+    JSON.stringify({ buttons: state.bottomButtonCount, done: state.donePresent,
+      resetAbsent: state.resetAbsent }));
+
+  const emptyMeter = await h.ui();
+  const ordinary = nonFavouriteColour(favourite, 1);
+  await selectColour(h.page, favourite);
+  state = await h.ui();
+  check(`${size}: choosing a colour shows the free-painting hint`,
+    state.hintText === 'すきなように ぬろう！', state.hintText);
+  await selectBrush(h.page, 'medium');
+  const box = await canvasBox(h.page);
+  const favouritePaths = [];
+  const partialStroke = [[0.35, 0.25], [0.65, 0.25]];
+  await stroke(h.page, box, partialStroke, 8);
+  favouritePaths.push(partialStroke);
+  await h.sleep(260);
+  const partialMeter = await h.ui();
+  const emptyHeight = parseFloat(emptyMeter.powerFillHeight);
+  const partialHeight = parseFloat(partialMeter.powerFillHeight);
+  const emptyWidth = parseFloat(emptyMeter.powerFillWidth);
+  const partialWidth = parseFloat(partialMeter.powerFillWidth);
+  check(`${size}: vertical power rises in height while its width stays fixed`,
+    partialMeter.debug?.power > 0
+      && partialMeter.debug.power < 1
+      && partialHeight > emptyHeight + 0.5
+      && Math.abs(partialWidth - emptyWidth) < 0.5,
+    JSON.stringify({ power: partialMeter.debug?.power, emptyHeight, partialHeight,
+      emptyWidth, partialWidth }));
+  const emptyGeometry = emptyMeter.powerGeometry;
+  const partialGeometry = partialMeter.powerGeometry;
+  check(`${size}: power fill is bottom-anchored and grows upward`,
+    Boolean(emptyGeometry && partialGeometry)
+      && Math.abs(partialGeometry.fill.bottom - partialGeometry.trackInnerBottom) < 0.75
+      && Math.abs(emptyGeometry.fill.bottom - emptyGeometry.trackInnerBottom) < 0.75
+      && partialGeometry.fill.top < emptyGeometry.fill.top - 0.5,
+    JSON.stringify({ empty: emptyGeometry, partial: partialGeometry }));
+  await h.page.screenshot({ path: `${OUT}-${size}-meter-part-filled-upward.png` });
+
+  state = await fillFavouriteToFull(h, box, favourite, favouritePaths);
+  check(`${size}: the meter can reach full without leaving coloring`,
+    state?.debug?.power === 1 && state?.debug?.phase === 'coloring',
+    JSON.stringify({ power: state?.debug?.power, phase: state?.debug?.phase }));
+  await exerciseFullPowerEditing(h, box, favourite, ordinary, favouritePaths, size);
+  await h.page.screenshot({ path: `${OUT}-${size}-meter-full-done-enabled-not-activated.png` });
+
+  await h.page.click('.coloring-tool--done');
+  state = await h.waitFor((next) => next.debug?.phase === 'activation-page', 4000, 'Done activation');
+  check(`${size}: Done is the action that starts activation`,
+    state?.debug?.phase === 'activation-page', state?.debug?.phase);
+  state = await h.waitFor((next) => next.debug?.phase === 'robot-exit', 10000, 'robot leaving the sheet', 30);
+  check(`${size}: activation reaches the robot-leaving-sheet moment`,
+    state?.debug?.phase === 'robot-exit', state?.debug?.phase);
+  if (state) {
+    await h.sleep(620);
+    await h.page.screenshot({ path: `${OUT}-${size}-easel-robot-leaving-sheet.png` });
+  }
   await h.page.close();
 }
 
@@ -850,7 +1171,13 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
 
 // ---- Session A: persistence visits, six rounds, and door turnarounds ------
 {
-  const h = await openPage('multi-round');
+  // `?editor=1`, like the performance session: this scenario uses the dev-gated
+  // `coloringReset` hook, and the harness runs against a PRODUCTION preview
+  // build, where `import.meta.env.DEV` is false. The gate is right; the harness
+  // opts in rather than the game loosening it for a test.
+  const sessionUrl = new URL(TARGET_URL);
+  sessionUrl.searchParams.set('editor', '1');
+  const h = await openPage('multi-round', { url: sessionUrl.href });
   const { page } = h;
   await page.screenshot({ path: `${OUT}-hub.png` });
   const entry = await enterColoring(h);

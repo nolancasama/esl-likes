@@ -1,0 +1,73 @@
+{
+  "task": "Coloring polish pass: replace the redundant title with one centred contextual hint, turn ROBOT POWER into a vertical bottom-to-top meter beside the picture, replace automatic activation with a child-pressed できた！ button, fold the replay speaker into the answer bubble, and move the easel's paper plane in front of the easel frame (deriving the camera distance and the puppet start from it). Implement .ai/coloring-polish-spec.md exactly.",
+  "requirements": [
+    "READ .ai/coloring-polish-spec.md FIRST. It is the frozen contract for this pass and it wins over every other document. Read .ai/coloring-easel-loop-spec.md and .ai/coloring-correction-spec.md for the loop and the power rule, which both stand unchanged.",
+    "Spec §4.1 — delete the visible <h1> and its text from the Coloring screen. The top of the screen holds exactly one element: the existing contextual hint, horizontally centred over the canvas at every viewport. The canvas must keep an accessible name (it currently reuses paintTitle for aria-label).",
+    "Spec §4.1 — the hint changes with the interaction, one line at a time, never two at once: before the question 'ボタンを おして、「What color do you like?」と きこう'; after the answer with no colour chosen 'いろを えらぼう'; once a colour is chosen 'すきなように ぬろう！'; at full power 'できたら「できた！」を おそう'. 'What color do you like?' is exactly that English string, unchanged in spelling, capitalisation and punctuation.",
+    "Spec §4.1 — the hint must never mention or hint at the favourite colour. .ai/coloring-correction-spec.md froze that by the owner's explicit instruction. Do not add a rescue hint.",
+    "Spec §4.2 — remove the horizontal power bar from the bottom row. ROBOT POWER becomes a vertical battery meter beside the right edge of the picture, filling bottom to top. setPower() writes height, not width, and the fill is anchored to the bottom of the track (position: absolute; left:0; right:0; bottom:0). Keep the role=progressbar and aria-valuenow, the coloring-power--full state, and the milestone pulses fired by fireMilestone.",
+    "Spec §4.2 — the picture's horizontal centre must not move when the tools appear. The work grid is already minmax(0,1fr) auto minmax(0,1fr); the meter takes the right column in place of the spacer, and the hidden stage keeps visibility:hidden, never display:none. The collapsed layout (max-height: 34rem, which 760x420 is inside) drops to one column and hides the spacer today — decide explicitly where the vertical meter lives there and report the decision.",
+    "Spec §4.3 — the bottom row is exactly three centred buttons: もどす, けしゴム, できた！. できた！ is the primary action and must be visually distinct from the grey tools, not a third one.",
+    "Spec §4.3 — remove Reset from gameplay: the button, its toolbar styling, askReset/closeReset and the whole .coloring-reset-confirm modal. Keep confirmReset's clearing logic and expose it as a dev/harness-only hook on the debug object beside coloringSpawn (same devTools guard, same teardown). The playthrough harness depends on a clean-slate step.",
+    "Spec §4.4 — delete the automatic activation `if (info.power >= 1 && phase === 'coloring') beginCharging()`. At full power the meter pulses once, the robot blinks once, できた！ becomes enabled, and painting stays FULLY enabled: phase stays 'coloring' so the surface's locked() predicate needs no change. The child keeps choosing colours, decorating, erasing and undoing until they decide.",
+    "Spec §4.4 — できた！ is disabled below full power and enabled at full, re-evaluated on EVERY onPaintChanged, so painting over or erasing liked-colour area disables it again and restoring it re-enables it. The celebration cue (glow/pulse/bounce) fires once per round on the first enable only — never repeatedly, never continuously.",
+    "Spec §4.4 — pressing できた！ at full power calls beginCharging() and the existing activation sequence follows unchanged, with NO confirmation dialog. Pressing it below full power does nothing.",
+    "Spec §4.5 — stop calling createListenAgain in Coloring and leave src/ui/listenAgain.js completely untouched; Restaurant, Drink Stand, Sports and Zoo all still use it and are out of scope. The answer bubble gains a small 🔊 speaker button inside or immediately beside it, with aria-label and title both set to UI.listenAgain's text, keyboard focusable and activated by Enter and Space.",
+    "Spec §4.5 — the speaker calls the existing replayAnswer, which MUST keep setting the `replayed` flag (it is the memory bonus in scoring). On a mouse or touch press (event.detail > 0) the button must blur itself, exactly as createListenAgain does: Space is the interact key and a focused button eats the child's next Space press. Never bind the speaker to the global interact key.",
+    "Spec §4.5 — the bubble stays visible for the whole of the coloring phase as the persistent answer display, and hides when the round ends. Delete answerNotice, answerNoticeRemaining, its markup, its CSS and its tick branch; a replay pulses the same bubble and speaks instead.",
+    "Spec §2, §3, §5 — the easel's two front uprights currently cut through the artwork: the legs occupy z in [-0.07, 0.11] and the paper plane spans z in [-0.028, 0.108]. Introduce a single PAPER_PLANE_Z constant (~0.24) for the canvasGroup's local z so the sheet is clearly in front of every upright, the rear leg and the centre support. Solve it with positions, never with renderOrder or depthTest:false.",
+    "Spec §3 — CAMERA.paper's offset z is measured from the EASEL GROUP ORIGIN, not the sheet, and the cross-fade between the DOM canvas and the 3D sheet is calibrated to that distance. Derive the camera offset from PAPER_PLANE_Z plus a fixed PAPER_CAMERA_GAP of 2.55 so the distance is preserved exactly. Moving the sheet without moving the camera makes the sheet appear ~8% larger than the DOM canvas it dissolves into.",
+    "Spec §3 — the puppet start is placed at EASEL.z + 0.2 in beginRobotExit and updateRobotExit, which becomes BEHIND the sheet once the sheet moves. Derive PUPPET_START_Z from PAPER_PLANE_Z (+0.16) and use it in both places. No bare `EASEL.z + 0.2` may survive this pass.",
+    "Spec §5 — the shelf may sit in front of or under the bottom edge of the sheet only, overlapping at most 4% of the paper's height (it is 1% today), reading as 'the paper rests on this'. Move it forward with the sheet so it still supports it. PAPER_CENTRE_Y, PAPER_SIZE, the paper's aspect ratio and the art overlay's alignment inside canvasGroup are all unchanged, and the paper and its overlay stay in the one group so they can never desynchronise.",
+    "Spec §5 — PLAYER_RETREAT_X = -1.85 and the partial turn stay exactly as they are; the handoff records that a purely backward retreat moves the player towards the camera and occludes the newborn robot. Do not simplify it back.",
+    "Spec §6 — add unit tests for every listed item: title gone but canvas still named; exactly one hint carrying the exact English question; the hint text at each of the four stages; setPower writes height with a bottom-anchored fill and aria-valuenow still tracking; non-liked colour moves power not at all and the liked colour does; full power does NOT change phase; できた！ disabled below full, enabled at full, disabled again when power drops, enabled again when restored, celebration once only; pressing it at full starts activation and below full does not; canvas still paintable and undo and eraser still usable at full power; the bubble appears after an accepted question, contains the exact 'I like <colour>.', holds a focusable speaker, survives into coloring, replays, sets replayed, and creates no second notice; no .listen-again element exists in the Coloring screen.",
+    "Spec §6 — add geometry tests from the built world: the sheet's world z is in front of every easel upright's front face; no upright's bounding box crosses the sheet's plane; the shelf intersects only the bottom band; the puppet's start z is in front of the sheet; CAMERA.paper still sits PAPER_CAMERA_GAP from the sheet.",
+    "Spec §8 — append the decisions to DESIGN_DECISIONS.md in this same task (date, what, why, rejected alternative): the child decides when the robot is finished and full power is permission rather than a trigger; the sheet moves forward of the easel frame and the camera moves with it because the cross-fade is calibrated to the sheet, not the easel origin; the answer bubble persists through coloring and absorbs the replay control."
+  ],
+  "constraints": [
+    "DO NOT COMMIT AND DO NOT PUSH. Leave the work in the tree for review.",
+    "Do not touch src/ui/listenAgain.js or any minigame other than coloring. Restaurant, Drink Stand, Sports and Zoo are out of scope entirely.",
+    "Do not change the loop, its eight phase names, or the power rule: only the spoken favourite colour charges the meter (FAVOURITE_POWER_THRESHOLD = 0.28 in coverage.js), and repaint/erase/undo semantics are already correct. src/minigames/coloring/coverage.js needs no change.",
+    "Do not change PAPER_CENTRE_Y, PAPER_SIZE, the paper aspect ratio, or the art overlay's placement within canvasGroup.",
+    "Do not add a second confirmation dialog anywhere, and do not reintroduce Reset as a visible gameplay control.",
+    "Do not add an on-screen hint that reveals the favourite colour; that is a frozen owner decision.",
+    "Do not attempt a browser playthrough or screenshots — this sandbox cannot start the preview, and a previous pass shipped a render-loop ReferenceError past a green suite for exactly that reason. The controller owns visual acceptance.",
+    "Do not edit scripts/playthrough-coloring.mjs in this order; the harness is a separate order that follows this one.",
+    "Edit source with structured file edits, never shell here-strings or sed. This file mixes Japanese literals, CSS inside a JS template literal, and regex-hostile punctuation; the first quoting failure means switching tools, not escalating escapes.",
+    "Keep the existing code's voice: the comments in this file explain WHY a thing is the way it is, often citing a defect that was measured. Match that density and that tone; do not add narration to code that does not need it."
+  ],
+  "startingPoints": [
+    ".ai/coloring-polish-spec.md",
+    ".ai/coloring-correction-spec.md",
+    ".ai/coloring-easel-loop-spec.md",
+    "src/minigames/coloring/index.js",
+    "src/config/lesson.js",
+    "src/minigames/coloring/loop.test.mjs",
+    "src/minigames/coloring/picture.js",
+    "src/minigames/coloring/coverage.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/ui/listenAgain.js",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Browser playthrough at 760x420, 1024x600 and 1366x768 with screenshots: no title and one centred hint; answer bubble with its speaker; tools appearing with a measured canvas-centre delta under 0.5px; a non-liked colour moving nothing; the liked colour filling the meter upward; full power NOT activating; できた！ enabling, disabling as liked paint is erased, re-enabling; activation on press; and the easel reveal with the sheet clearly in front of the wood and the robot emerging from its front surface. The controller runs this; the worker must not claim it."
+  },
+  "notes": [
+    "The controller verified these in the source before writing the order; they are facts, not leads. The redundant heading is index.js:919 (STRINGS.paintTitle), also reused as the canvas aria-label at index.js:962. Automatic activation is index.js:876. setPower writes style.width at index.js:816. The surface's paint lock is `locked: () => phase !== 'coloring'`, and beginCharging sets phase='activation-page' — which is why painting stops at full power today, and why leaving phase alone is all that is needed to keep it enabled.",
+    "The easel occlusion is measured, not impressionistic. Front legs: centre z=0.02, depth 0.18, so z in [-0.07, 0.11], at x=±0.66. canvasGroup: z=0.04, rotation.x=-0.08, PAPER_SIZE=1.7, so the sheet's top edge is at 0.04-0.85*sin(0.08) = -0.028 and its bottom edge at +0.108. The sheet lies entirely inside the legs' depth range and well inside their x span. The shelf's top (y=0.95) versus the sheet's bottom edge (y=0.933) overlaps 1% of the picture height — that part is already right.",
+    "The camera trap is the one thing worth slowing down for. CAMERA.paper's offset z (2.59) is measured from the easel GROUP ORIGIN, not from the sheet, so the real camera-to-sheet distance is 2.55. The header comment above CAMERA explains that this distance is what makes the DOM canvas and the 3D sheet the same size on screen, which is the whole cross-fade illusion. Move the sheet without moving the camera and the sheet renders ~8% larger than the page it dissolves into. Derive the offset; do not retune it by eye.",
+    "src/styles.css is not where this screen lives. All Coloring CSS is one template literal inside index.js (the `style` element built around line 230). The responsive rules at the end of that literal matter here: at (max-width: 46rem), (max-height: 34rem) the work grid collapses to ONE column and hides .coloring-side-spacer. 760x420 is inside the height branch, so the vertical meter needs a real answer there, not a desktop-only one.",
+    "The existing comments in index.js explain why a thing is the way it is, usually citing a defect someone measured — the lintel overlap, the lateral retreat, the grid-not-flex work row. Match that. A comment that restates the code is worse than none."
+  ],
+  "category": "ui-3d-refactor",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large"
+}

@@ -9,7 +9,81 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — the Coloring correction pass
+## Latest pass (2026-09-23) — the Coloring polish pass
+
+The frozen contract is `.ai/coloring-polish-spec.md`. This source pass keeps
+the existing loop and favourite-only power rule, but changes who decides when a
+finished robot wakes up.
+
+- The redundant visible Coloring title is gone. One centred hint now follows
+  question → colour choice → free painting → ready-to-finish, without revealing
+  the favourite colour; the canvas keeps its accessible name.
+- ROBOT POWER is a bottom-to-top battery beside the page. At short/narrow sizes,
+  tools span a compact row above a balanced canvas/meter row, so the vertical
+  meter remains beside the picture and the picture stays horizontally centred.
+- The bottom row is exactly Undo, Eraser and a distinct 「できた！」 action.
+  Full power enables it but does not change phase or lock painting; readiness can
+  fall and return with the artwork, while its celebration is once per round.
+- Reset left gameplay. Its clean-slate logic remains behind the dev-gated
+  `window.__eslDebug.coloringReset` hook alongside `coloringSpawn`.
+- The answer bubble persists through coloring and contains its own keyboard-
+  accessible speaker. The separate Listen Again control and duplicate answer
+  notice are gone from Coloring; the shared `listenAgain.js` remains untouched.
+- The sheet and shelf moved forward of the easel uprights. The paper camera keeps
+  its exact 2.55-unit sheet gap, and the newborn puppet starts 0.16 units in
+  front of the sheet, all derived from `PAPER_PLANE_Z`.
+- Unit coverage now includes the UI/state invariants and Box3 assertions against
+  the production-used easel assembly. Browser playthrough and screenshots remain
+  controller-owned and were not run in this source order.
+
+### Validation
+
+`npm test` **611/611**. `npm run build` OK (the existing large-chunk advisory
+remains non-fatal). `npm run playthrough:coloring` **363/363, exit 0** — six
+rounds, three leave/return cycles, the door turnaround, a 15-robot performance
+session and all three viewports.
+
+**The harness is TRUSTED.** A known-bad build that restored automatic
+activation went red on exactly the four checks that describe it — "the meter can
+reach full without leaving coloring", "a real charging beat at full power still
+leaves the page in coloring", "Done is enabled at full power", "the full-power
+hint tells the child to press Done" — then aborted, which is correct once there
+is no coloring session left to test.
+
+### IF YOU CHANGE SOURCE, REBUILD BEFORE THE PLAYTHROUGH
+
+`scripts/playthrough-run.mjs` serves `dist/` through `vite preview` and **never
+builds**; it only refuses when `dist/` is missing. `npm run build` first, or you
+are grading the previous build. This cost three runs in this pass.
+
+### Five defects the controller found and fixed after the worker stopped
+
+1. **Undo desynchronised the meter from the page** — `coverage.endStroke()`
+   skipped empty strokes while `picture.js` pushed every one. Pre-existing;
+   widened by this pass. See DESIGN_DECISIONS. Found by the playthrough.
+2. **The persistent bubble blocked the brush** — no `pointer-events: none`. At
+   760x420 it covered part of the head. Found by looking at a screenshot.
+3. **The meter label was clipped at 760x420** — `white-space: nowrap` in the
+   compact branch overflowed the 4.8rem column and cut the leading ロ. Found by
+   looking at a screenshot.
+4. **The speaker announced its icon twice** — the label string `UI.listenAgain`
+   leads with 🔊 and the button already shows one; it now uses
+   `UI.dialogue.replay`.
+5. **Three harness defects** — the answer wait raced the bubble's .3s fade-in;
+   `coloringReset` is dev-gated and the harness runs a PRODUCTION preview build,
+   so Session A now opens with `?editor=1`; and the undo check compared a
+   live-drawn canvas against a rebuilt one, which antialiasing makes impossible
+   to match, so it now primes a rebuild first and also asserts the stroke count.
+
+### Remaining visual finding
+
+**At 760x420 the answer bubble overlaps the robot's head.** It no longer blocks
+painting, but the child paints blind under it. At 1024x600 and 1366x768 it sits
+on empty paper above the head and reads well. The bubble must stay visible
+during coloring (owner's instruction), so the fix would be moving or shrinking
+it in the compact branch — an owner call, not made here.
+
+## Previous pass (2026-09-23) — the Coloring correction pass
 
 The owner played the shipped easel loop and produced a fix list. This pass
 implemented it, and **resolves all four visual findings from the previous pass**.
@@ -94,9 +168,11 @@ this — judge it from a screenshot.
 
 ### NEXT STEPS for a fresh session
 
-1. **Owner acceptance of Coloring.** Still never played by a human. In
-   particular the new power rule is a real classroom risk worth watching: can a
-   child work out that the spoken colour is what wakes the robot?
+1. **Owner acceptance of Coloring.** Still never played by a human, and now
+   LIVE on GitHub Pages at the owner's instruction. Two things to watch: can a
+   child work out that the spoken colour is what wakes the robot (no on-screen
+   hint says so, deliberately), and does the 760x420 bubble overlapping the head
+   bother a real child?
 2. The robot-clustering finding above, if it bothers the owner.
 3. **Owner acceptance of the scene editor** — outstanding from an earlier pass:
    open the Zoo with `npm run dev` and press `P`.

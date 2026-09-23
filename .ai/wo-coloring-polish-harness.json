@@ -1,0 +1,56 @@
+{
+  "task": "Update the Coloring playthrough harness for the polish pass: the Reset button is gone, full power no longer activates by itself, ROBOT POWER is a vertical meter, and the replay control now lives in the answer bubble. Re-point the existing checks and add the new ones from .ai/coloring-polish-spec.md §6 and §7.",
+  "requirements": [
+    "READ .ai/coloring-polish-spec.md FIRST, then `git diff` the source pass it describes, which is already in the working tree. The harness must assert what the code now does, not what the spec hoped it would do; where they differ, report the difference rather than papering over it.",
+    "The Reset button no longer exists. The click at scripts/playthrough-coloring.mjs:334 must become a call to the dev-gated hook `window.__eslDebug.coloringReset()`, which performs the same clean slate. Assert the hook exists before relying on it, so its removal fails loudly instead of silently skipping the reset.",
+    "Full power NO LONGER activates the robot. Every place the harness waited for activation to follow a full meter must now: assert that the phase is still 'coloring' and that the canvas is still paintable after the meter fills, then click `.coloring-tool--done` to start activation. The existing ACTIVATION_SEQUENCE assertions follow unchanged from that click.",
+    "Add a check that full power does not activate on its own: after the meter reaches 1, wait a real beat (at least the old CHARGE_SECONDS of 1.1s) and assert the phase is STILL 'coloring' and the painting overlay is still present. This is the single most important new check in the pass — it is the behaviour the whole change exists to produce.",
+    "Add できた！ readiness checks against the live artwork: disabled below full power; enabled at full; disabled AGAIN after erasing enough favourite-colour paint to drop below full; enabled again once that paint is restored. Read the real `disabled` property of `.coloring-tool--done`, not a class.",
+    "Add a check that painting still works at full power: after the meter fills, paint more strokes in a NON-favourite colour, and assert the artwork changed (the existing art-fingerprint helper) while power stayed at 1 and the phase stayed 'coloring'. Also assert undo and eraser are still usable at full power.",
+    "Update the ui() snapshot: `done: Boolean(q('.coloring-done'))` refers to an element that never existed. Replace it with the real control — presence, visibility and disabled state of `.coloring-tool--done` — plus `titleAbsent` (no <h1> in the Coloring screen), `hintText` (the single `.coloring-screen__instruction`), `hintCount` (how many such elements exist), `powerFillHeight` and `powerFillWidth` (the computed style of `.coloring-power__fill`), `bubbleSpeaker` (presence and visibility of `.coloring-bubble__speaker`), and `listenAgainPresent` (any `.listen-again` in the Coloring screen, which must be false).",
+    "Add opening-state checks: no <h1> anywhere in the Coloring screen; exactly ONE `.coloring-screen__instruction`; its text is exactly 'ボタンを おして、「What color do you like?」と きこう' before the question; it becomes 'いろを えらぼう' after the answer, 'すきなように ぬろう！' once a colour is chosen, and 'できたら「できた！」を おそう' at full power.",
+    "Add vertical-meter checks: while power rises, `.coloring-power__fill`'s computed HEIGHT grows and its width stays constant (it is a bottom-anchored absolute fill), and the fill's bounding box bottom stays pinned to the track's inner bottom while its top rises. A meter that filled top-down would pass a naive height check, so assert the anchor, not just the size.",
+    "Add bubble checks: after an accepted question the bubble shows exactly 'I like <colour>.' matching the existing ANSWER_PATTERN; it holds a `.coloring-bubble__speaker` button; the bubble is STILL VISIBLE during coloring (it used to be transient); clicking the speaker replays without creating any second answer element on screen; the speaker is reachable by keyboard (focus it and activate with Enter, and assert the replay happened); and no `.listen-again` element exists anywhere in the Coloring screen.",
+    "Extend the existing canvas-centring measurement at CENTRING_VIEWPORTS (760x420, 1024x600, 1366x768): measure the picture's horizontal centre before and after the tools appear, as it already does, and assert the delta is under 0.5px at each. Additionally assert that at each viewport the power meter's bounding box is to the RIGHT of the canvas and vertically overlaps it — that is the claim 'a vertical meter beside the picture' actually makes, and 760x420 uses a different grid branch, so it is the one most likely to be wrong.",
+    "Capture screenshots for controller judgement at each viewport: the opening (title-free, one hint), the answer bubble with its speaker, the tools arriving, the meter part-filled, the meter full with できた！ enabled and the robot NOT activated, and the easel reveal at the moment the robot is leaving the sheet. Name them so the controller can find them without listing a directory.",
+    "Keep every existing check that still applies — the eight artwork-persistence checks, the power semantics (a)-(h), the phase-order assertions, the leave/return cycles, the door turnaround and the 15-robot performance session. This is an update, not a rewrite.",
+    "Report the final check count and which checks are new."
+  ],
+  "constraints": [
+    "DO NOT COMMIT AND DO NOT PUSH.",
+    "Do not change any application source. This order touches scripts/playthrough-coloring.mjs and, only if genuinely required, scripts/lib/*. If a check cannot be written without a source change, STOP and report that instead of editing src/.",
+    "Do not run the harness — this sandbox cannot start the preview, and a previous pass shipped a render-loop ReferenceError past a fully green suite for exactly that reason. The controller runs it and owns the visual judgement. Do not claim a playthrough result.",
+    "Do not weaken an existing check to make it pass, and do not delete a check because the UI moved — re-point it. If a check is genuinely obsolete, say so explicitly in the report with the reason.",
+    "This harness is currently TRUSTED: a known-bad copy went red on exactly the eight artwork-persistence checks and nothing else. Do not break that property. Every new check must be capable of failing — no assertion that is true regardless of the application's behaviour.",
+    "Edit with structured file edits, never shell here-strings or sed. The file mixes Japanese literals, regex and template strings; the first quoting failure means switching tools, not escalating escapes."
+  ],
+  "startingPoints": [
+    ".ai/coloring-polish-spec.md",
+    "scripts/playthrough-coloring.mjs",
+    "scripts/playthrough-run.mjs",
+    "scripts/lib/pressTalk.mjs",
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/coverage.js"
+  ],
+  "validation": [
+    "npm test"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "The controller runs `npm run playthrough:coloring` at all three viewports, judges the screenshots, and re-proves the harness with a known-bad copy before accepting it. The worker must not attempt or claim any of this."
+  },
+  "notes": [
+    "The source pass is already in the tree and green at 610/610; read the diff rather than guessing at the new DOM. The relevant new selectors are `.coloring-tool--done`, `.coloring-bubble__answer`, `.coloring-bubble__speaker`, `.coloring-power__icon`, and `.coloring-power__fill` (now absolutely positioned, bottom-anchored, animating height).",
+    "The power meter moved OUT of `.coloring-screen__bottom` and is now the third child of `.coloring-screen__work`, so the bottom row holds only the three buttons. In the compact branch (max-width: 46rem OR max-height: 34rem) the tools span row 1 and the canvas and meter share row 2 in columns 2 and 3. 760x420 is inside the HEIGHT branch, so it exercises the compact path while 1024x600 and 1366x768 do not.",
+    "`window.__eslDebug.coloringReset` is gated behind `import.meta.env.DEV || ?editor`, exactly like the existing `coloringSpawn`. The harness runs against the dev server, so it is present — but assert it rather than assuming it.",
+    "`.coloring-tool--done:disabled` and `.coloring-tool:disabled` both style the disabled state, so a colour check would be ambiguous. Read the DOM `disabled` property.",
+    "The harness already has a CENTRING_VIEWPORTS array holding exactly the three required viewports; extend that path rather than adding a second one."
+  ],
+  "category": "test-harness",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

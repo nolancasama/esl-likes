@@ -91,8 +91,16 @@ test('painting the same area in the favourite again adds nothing', () => {
   for (let i = 0; i < 12; i += 1) sweep(coverage, 0.5, 'blue');
   assert.equal(coverage.power(), firstPower, 'repeating the favourite farmed power');
   assert.equal(coverage.coverage(), firstCoverage, 'repeating the favourite inflated coverage');
-  assert.equal(coverage.undoStroke(), true,
-    'no-op repeats must leave the original meaningful stroke as the undo target');
+  // Each repeat still takes its own undo slot. Skipping the empty ones read
+  // well in isolation — "don't make the child undo twelve no-ops" — but the
+  // journal is not consumed on its own: `picture.js` pushes every stroke and
+  // pops both stacks together, so a skipped slot means one もどす press rubs
+  // out a no-op on the page while draining the meter of an earlier stroke.
+  for (let i = 0; i < 12; i += 1) {
+    assert.equal(coverage.undoStroke(), true, `repeat ${i} had no undo slot`);
+    assert.equal(coverage.power(), firstPower, `undoing repeat ${i} moved the meter`);
+  }
+  assert.equal(coverage.undoStroke(), true);
   assert.equal(coverage.power(), 0);
 });
 
@@ -111,7 +119,9 @@ test('favourite paint outside the silhouette charges nothing at all', () => {
   coverage.endStroke();
   assert.equal(coverage.power(), 0, 'background paint charged the bar');
   assert.equal(coverage.coverage(), 0);
-  assert.equal(coverage.undoStroke(), false, 'background paint created an undo entry');
+  // It takes an undo slot even though it changed no cell, so that the meter
+  // and the page stay in step when the child undoes a background decoration.
+  assert.equal(coverage.undoStroke(), true, 'background paint took no undo slot');
   assert.equal(coverage.power(), 0);
 });
 
@@ -304,4 +314,31 @@ test('there is no longer any way to grade a round', () => {
   assert.equal(coverageModule.scoreRound, undefined);
   assert.ok(!Object.keys(coverageModule).some((name) => /score/i.test(name)),
     `something still scores: ${Object.keys(coverageModule)}`);
+});
+
+/**
+ * A stroke that never touches the robot must still occupy a slot in the
+ * journal. `picture.js` pushes EVERY stroke onto its own paint stack and
+ * `undo()` pops both stacks together, so a journal that silently skips an
+ * empty stroke leaves the two one apart for ever: the next undo rubs a
+ * margin doodle off the page and takes an earlier stroke's power off the
+ * meter. Found by the playthrough at full power, where the child is now
+ * invited to keep decorating.
+ */
+test('a stroke entirely in the paper margin still takes an undo slot', () => {
+  const coverage = createCoverage({ favourite: 'blue' });
+  sweep(coverage, 0.5, 'blue');
+  const earned = coverage.power();
+  assert.ok(earned > 0, 'the silhouette sweep earned no power to lose');
+
+  // Along the very top edge of the page, clear of the robot.
+  coverage.beginStroke();
+  coverage.paintSegment([0.04, 0.02], [0.30, 0.02], D('small'), 'red');
+  coverage.endStroke();
+  assert.equal(coverage.power(), earned, 'margin paint moved the meter');
+
+  // One undo reverses the margin stroke, which changed no cell.
+  assert.equal(coverage.undoStroke(), true);
+  assert.equal(coverage.power(), earned,
+    'undoing a margin stroke took power from an earlier stroke');
 });

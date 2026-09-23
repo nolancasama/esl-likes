@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
-import { createListenAgain } from '../../ui/listenAgain.js';
 import { createPaintingSurface } from './picture.js';
 import { PALETTE, PALETTE_HEX } from './palette.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from './brushes.js';
@@ -53,8 +52,14 @@ const ROBOT_LANDING_Z = EASEL.z + 1.95;
 const PLAYER_RETREAT_SECONDS = 0.55;
 
 /** The paper on the easel: a square, because the picture is a square. */
-const PAPER_SIZE = 1.7;
+export const PAPER_SIZE = 1.7;
 const PAPER_CENTRE_Y = 1.78;
+/** Local z of the paper plane on the easel. Everything else follows it. */
+export const PAPER_PLANE_Z = 0.24;
+/** Camera-to-sheet distance. Fixed by the cross-fade, not by taste. */
+export const PAPER_CAMERA_GAP = 2.55;
+/** The newborn starts far enough forward to clear the leaned sheet's bottom. */
+export const PUPPET_START_Z = PAPER_PLANE_Z + 0.16;
 
 /**
  * The three camera stages (see .ai/coloring-easel-loop-spec.md section 4).
@@ -64,12 +69,12 @@ const PAPER_CENTRE_Y = 1.78;
  * damping so the move reads as a deliberate reveal.
  *
  * `paper`'s distance is not a guess: the camera is 48 degrees vertical, so the
- * visible height at distance d is 0.8905 d. At 2.45 in front of the sheet a
+ * visible height at distance d is 0.8905 d. At 2.55 in front of the sheet a
  * 1.7-unit page fills about 78% of the screen — which is what the DOM canvas
  * fills, and the cross-fade between them only works if they match.
  */
-const CAMERA = Object.freeze({
-  paper: Object.freeze({ offset: [0, PAPER_CENTRE_Y, 2.59], lookOffset: [0, PAPER_CENTRE_Y, 0], damping: 2.4 }),
+export const CAMERA = Object.freeze({
+  paper: Object.freeze({ offset: [0, PAPER_CENTRE_Y, PAPER_PLANE_Z + PAPER_CAMERA_GAP], lookOffset: [0, PAPER_CENTRE_Y, 0], damping: 2.4 }),
   easel: Object.freeze({ offset: [1.5, 2.75, 5.9], lookOffset: [0, 1.15, 0.9], damping: 2.1 }),
   room: Object.freeze({ offset: [0, 8.5, 10.5], lookOffset: [0, 1.05, -2.2], damping: 5 }),
 });
@@ -114,6 +119,72 @@ const BLANK_DELAY_SPAN = 1.5;
 /** The new drawing fades in over this long. Visual invitation, never a gate. */
 const PICTURE_FADE_SECONDS = 1.2;
 
+function addPart(parent, geometry, material, x, y, z, sx = 1, sy = 1, sz = 1) {
+  const part = new THREE.Mesh(geometry, material);
+  part.position.set(x, y, z);
+  part.scale.set(sx, sy, sz);
+  parent.add(part);
+  return part;
+}
+
+/**
+ * The production easel assembly, exported so geometry tests inspect the same
+ * transformed meshes that the room renders rather than a second set of maths.
+ */
+export function buildColoringEasel({ box, plane, easelMaterial, paperMaterial, artMaterial }) {
+  const group = new THREE.Group();
+  group.name = 'coloring-easel';
+  group.position.set(EASEL.x, 0, EASEL.z);
+
+  const leftFrontLeg = addPart(group, box, easelMaterial,
+    -0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
+  leftFrontLeg.name = 'coloring-easel-upright-left';
+  leftFrontLeg.rotation.z = -0.15;
+  const rightFrontLeg = addPart(group, box, easelMaterial,
+    0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
+  rightFrontLeg.name = 'coloring-easel-upright-right';
+  rightFrontLeg.rotation.z = 0.15;
+  const rearLeg = addPart(group, box, easelMaterial,
+    0, 1.17, -0.55, 0.18, 2.72, 0.18);
+  rearLeg.name = 'coloring-easel-upright-rear';
+  rearLeg.rotation.x = 0.28;
+
+  // The shelf keeps the same 1% overlap at the lower edge, but follows the
+  // sheet forward so it still reads as the support rather than a rail behind it.
+  const shelf = addPart(group, box, easelMaterial,
+    0, 0.86, PAPER_PLANE_Z + 0.09, 1.95, 0.18, 0.38);
+  shelf.name = 'coloring-easel-shelf';
+
+  // The paper and its painted line-art overlay share one tilted frame. Their
+  // tiny local depth separation avoids z-fighting without ever changing the
+  // plane angle independently.
+  const canvasGroup = new THREE.Group();
+  canvasGroup.name = 'coloring-easel-canvas';
+  canvasGroup.position.set(0, PAPER_CENTRE_Y, PAPER_PLANE_Z);
+  canvasGroup.rotation.x = -0.08;
+  group.add(canvasGroup);
+  const paper = addPart(canvasGroup, plane, paperMaterial, 0, 0, 0, PAPER_SIZE, PAPER_SIZE, 1);
+  paper.name = 'coloring-easel-paper';
+  const art = addPart(canvasGroup, plane, artMaterial, 0, 0, 0.015, PAPER_SIZE, PAPER_SIZE, 1);
+  art.name = 'coloring-easel-art';
+
+  return { group, canvasGroup, paper, art, shelf, uprights: [leftFrontLeg, rightFrontLeg, rearLeg] };
+}
+
+/** Readiness may come and go with the paint; its celebration belongs to the round. */
+export function createCompletionReadiness() {
+  let celebrated = false;
+  return {
+    update(value) {
+      const ready = value >= 1;
+      const celebrate = ready && !celebrated;
+      if (celebrate) celebrated = true;
+      return { ready, celebrate };
+    },
+    reset() { celebrated = false; },
+  };
+}
+
 /** Coloring v3: the magical easel. One page, one robot, then another, forever. */
 export function createColoring(ctx) {
   const {
@@ -151,11 +222,10 @@ export function createColoring(ctx) {
   let powerFill = null;
   let undoButton = null;
   let eraserButton = null;
-  let resetButton = null;
-  let resetConfirm = null;
+  let doneButton = null;
   let bubble = null;
-  let answerNotice = null;
-  let listenAgain = null;
+  let bubbleAnswer = null;
+  let bubbleSpeaker = null;
   let style = null;
   let unsubscribeSettings = null;
 
@@ -184,7 +254,6 @@ export function createColoring(ctx) {
   let blankDelay = BLANK_DELAY_MIN;
 
   let answerRemaining = 0;
-  let answerNoticeRemaining = 0;
   let chargeRemaining = 0;
   let stirRemaining = 0;
   let exitElapsed = 0;
@@ -192,6 +261,7 @@ export function createColoring(ctx) {
   let finishRemaining = 0;
   let acceptedAnswer = null;
   let finishCalled = false;
+  const completionReadiness = createCompletionReadiness();
   let elapsed = 0;
   let debugRootCreated = false;
 
@@ -208,14 +278,6 @@ export function createColoring(ctx) {
     roughness: 0.86,
     ...options,
   }));
-
-  function addPart(parent, geometry, material, x, y, z, sx = 1, sy = 1, sz = 1) {
-    const part = new THREE.Mesh(geometry, material);
-    part.position.set(x, y, z);
-    part.scale.set(sx, sy, sz);
-    parent.add(part);
-    return part;
-  }
 
   function ownCanvasTexture(canvas) {
     const texture = new THREE.CanvasTexture(canvas);
@@ -251,8 +313,7 @@ export function createColoring(ctx) {
          "the coloring screen WAS the canvas on this easel" believable. */
       .coloring-screen--leaving { opacity: 0; pointer-events: none; }
       .coloring-screen__top { display: flex; align-items: center; justify-content: center;
-        gap: 1rem; flex-wrap: wrap; text-align: center; }
-      .coloring-screen__top h1 { margin: 0; font-size: calc(clamp(1.2rem, 3.2vh, 1.9rem) * var(--ui-scale, 1)); }
+        padding-inline: 6.5rem; text-align: center; }
       .coloring-screen__instruction { min-width: min(90vw, 24rem); margin: 0;
         font-size: calc(1.05rem * var(--ui-scale, 1)); font-weight: 800; }
       /* A grid, not a flex row. A flex line shorter than its content overflows
@@ -262,7 +323,6 @@ export function createColoring(ctx) {
         display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
         align-items: center; justify-items: center; gap: clamp(.6rem, 1.6vw, 1.2rem); }
       .coloring-side { display: flex; flex-direction: column; gap: .5rem; align-items: center; }
-      .coloring-side-spacer { width: 100%; }
       /* Nothing but the drawing until the robot has spoken. The tools are a
          distraction from the one thing the child is here to say. */
       .coloring-screen[data-stage="asking"] .coloring-side,
@@ -313,7 +373,14 @@ export function createColoring(ctx) {
       .coloring-tool:disabled { background: #bdc0c4; box-shadow: none; cursor: default; }
       .coloring-tool[aria-pressed="true"] { background: #273858; outline: .28rem solid #ff9f1c;
         outline-offset: .18rem; }
-      .coloring-tool--reset { background: #b4785f; }
+      .coloring-tool--done { min-width: 7rem; background: #248a68; font-weight: 950;
+        box-shadow: 0 .28rem 0 rgb(18 85 63 / .35); }
+      .coloring-tool--done:disabled { background: #9eb5ac; color: #edf2ef; box-shadow: none; }
+      .coloring-tool--ready-pulse { animation: coloring-done-ready .7s cubic-bezier(.2,.9,.3,1.25) 1; }
+      @keyframes coloring-done-ready {
+        0%, 100% { transform: none; }
+        45% { transform: translateY(-.3rem) scale(1.08); filter: brightness(1.15); }
+      }
       .coloring-canvas-wrap { position: relative; min-width: 0; min-height: 0;
         height: 100%; width: auto; max-height: min(78vh, 46rem); max-width: 100%;
         aspect-ratio: 1; display: grid; place-items: center; padding: .5rem; box-sizing: border-box;
@@ -328,8 +395,20 @@ export function createColoring(ctx) {
         max-width: 40%; padding: .5rem .85rem; border: .22rem solid #273858;
         border-radius: 1.1rem 1.1rem 1.1rem .2rem; background: #fff;
         box-shadow: 0 .28rem 0 rgb(39 56 88 / .22);
+        display: flex; align-items: center; justify-content: center; gap: .35rem;
         font-size: calc(1.15rem * var(--ui-scale, 1)); font-weight: 900; text-align: center;
         animation: coloring-bubble-in .3s cubic-bezier(.2,.9,.3,1.3) 1; }
+      .coloring-bubble[hidden] { display: none; }
+      /* The bubble sits ON the picture and now stays there for the whole of
+         coloring, so it must not eat the brush. It used to vanish after 2.35s,
+         before painting even began; persistent, it silently made the paper
+         under it unpaintable — and at 760x420 that includes part of the head. */
+      .coloring-bubble { pointer-events: none; }
+      .coloring-bubble__speaker { pointer-events: auto;
+        flex: 0 0 auto; width: 2rem; height: 2rem; padding: 0;
+        border: .14rem solid #273858; border-radius: 50%; background: #fff2c9;
+        font-size: 1rem; line-height: 1; cursor: pointer; }
+      .coloring-bubble--speaking { animation: coloring-speak .5s ease-in-out 1; }
       @keyframes coloring-bubble-in {
         from { opacity: 0; transform: scale(.7) translateY(.4rem); }
         to { opacity: 1; transform: none; }
@@ -340,46 +419,34 @@ export function createColoring(ctx) {
         30% { transform: rotate(-1.2deg); }
         70% { transform: rotate(1.2deg); }
       }
-      .coloring-screen__bottom { display: flex; justify-content: center; align-items: center;
-        flex-wrap: wrap; gap: .5rem clamp(.5rem, 2vw, 1.4rem); }
+      .coloring-screen__bottom { display: flex; justify-content: center; align-items: center; }
       /* ROBOT POWER. No number on it: a child reads a filling bar, and a
          percentage invites them to treat it as a mark. */
-      .coloring-power { flex: 1 1 18rem; min-width: min(72vw, 16rem); max-width: 34rem;
-        display: flex; flex-direction: column; gap: .15rem; }
+      .coloring-power { justify-self: start; width: 4.8rem; height: min(78%, 24rem);
+        min-height: 10rem; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+      .coloring-power__icon { font-size: 1.35rem; line-height: 1; }
       .coloring-power__label { font: 900 calc(.95rem * var(--ui-scale, 1)) system-ui, sans-serif;
-        letter-spacing: .04em; }
-      .coloring-power__track { display: block; height: 1.6rem; padding: .18rem;
-        box-sizing: border-box; border: .2rem solid #273858; border-radius: 999px;
+        letter-spacing: .04em; text-align: center; line-height: 1.05; }
+      .coloring-power__track { position: relative; display: block; flex: 1 1 auto;
+        width: 2rem; min-height: 5rem; overflow: hidden; box-sizing: border-box;
+        border: .2rem solid #273858; border-radius: 999px;
         background: #e7dfd0; box-shadow: inset 0 .12rem .3rem rgb(39 56 88 / .18); }
-      .coloring-power__fill { display: block; width: 0; height: 100%; border-radius: 999px;
-        background: linear-gradient(90deg, #62c46b, #f2c53d 65%, #ffae2e);
-        transition: width .18s ease-out; }
+      .coloring-power__fill { position: absolute; left: 0; right: 0; bottom: 0; display: block;
+        height: 0; border-radius: 999px; background: linear-gradient(0deg, #62c46b, #f2c53d 65%, #ffae2e);
+        transition: height .18s ease-out; }
       .coloring-power--full .coloring-power__fill {
-        background: linear-gradient(90deg, #ffd34d, #fff2b0, #ffd34d); }
+        background: linear-gradient(0deg, #ffd34d, #fff2b0, #ffd34d); }
       .coloring-power--pulse { animation: coloring-power-pulse .6s ease-out 1; }
       @keyframes coloring-power-pulse {
         0%, 100% { transform: none; filter: none; }
         45% { transform: scale(1.035); filter: brightness(1.22); }
       }
-      .coloring-answer-notice { position: absolute; top: 4.6rem; left: 50%; z-index: 24;
-        transform: translateX(-50%); width: max-content; max-width: 82vw; padding: .6rem 1.1rem;
-        border: .22rem solid #273858; border-radius: 999px; background: #fff;
-        box-shadow: 0 .3rem 0 rgb(39 56 88 / .2); font-size: calc(1.3rem * var(--ui-scale, 1));
-        font-weight: 900; text-align: center; }
       /* The robot stirring as it charges: one short warm flare on the page. */
       .coloring-canvas-wrap--spark { animation: coloring-spark .7s ease-out 1; }
       @keyframes coloring-spark {
         0%, 100% { box-shadow: 0 .55rem 0 rgb(39 56 88 / .18); }
         40% { box-shadow: 0 .55rem 0 rgb(39 56 88 / .18), 0 0 2rem .5rem rgb(255 231 140 / .9); }
       }
-      .coloring-reset-confirm { position: absolute; inset: 0; z-index: 26; display: grid;
-        place-items: center; padding: 1rem; background: rgb(31 42 65 / .6); }
-      .coloring-reset-confirm__card { width: min(88vw, 24rem); padding: 1.6rem 1.3rem;
-        box-sizing: border-box; border: .32rem solid #fff; border-radius: 1.8rem;
-        background: #fff8df; box-shadow: 0 .6rem 0 rgb(30 43 68 / .35); text-align: center; }
-      .coloring-reset-confirm__card p { margin: 0 0 1.1rem;
-        font-size: calc(1.3rem * var(--ui-scale, 1)); font-weight: 900; }
-      .coloring-reset-confirm__row { display: flex; gap: .8rem; justify-content: center; }
       /* Activation, still on the paper: it glows, it wiggles, it blinks, it
          gives one small hop. The page is NOT taken away here — the child keeps
          watching the same sheet, and the camera does the rest. */
@@ -395,28 +462,20 @@ export function createColoring(ctx) {
         76% { transform: translateY(.2rem) rotate(-.8deg) scale(.99); }
         100% { transform: none; box-shadow: 0 0 2.5rem .6rem rgb(255 231 140 / .85); }
       }
-      /* Narrow only: the title and the hint cannot share a line. Keyed to width
-         alone — stacking them on a merely *short* screen cost the picture 30px
-         it needed more. */
       @media (max-width: 46rem) {
-        .coloring-screen__top { flex-direction: column; gap: .1rem; padding-right: 6.5rem; }
-        .coloring-screen__top h1 { font-size: calc(1rem * var(--ui-scale, 1)); }
         .coloring-screen__instruction { font-size: calc(.9rem * var(--ui-scale, 1)); }
       }
-      /* Short or narrow: one column of work, and everything else as tight as it
-         goes, because the picture is the game. At 760x420 the palette, the power
-         bar and the tools each took a row of their own and left the canvas
-         130px — too small to paint a robot on. */
+      /* Short or narrow: controls span a compact first row, while the canvas and
+         vertical meter keep the same balanced painting row. Collapsing all three
+         into one column put ROBOT POWER below the picture at 760x420; positioning
+         it absolutely could not follow a canvas whose size comes from height. */
       @media (max-width: 46rem), (max-height: 34rem) {
         .coloring-screen { padding: .45rem; gap: .35rem; }
-        /* The shell's せってい button floats top-right over this screen, and at
-           760px the hint ran underneath it. Reserved here rather than in the
-           narrow-only rule, because the collision is with a fixed button and so
-           happens at any width once the header is this close to the top. */
-        .coloring-screen__top { padding-right: 6.5rem; }
-        .coloring-screen__work { grid-template-columns: minmax(0, 1fr);
-          grid-template-rows: auto minmax(0, 1fr); gap: .35rem; }
-        .coloring-side-spacer { display: none; }
+        .coloring-screen__work { grid-template-rows: auto minmax(0, 1fr); gap: .35rem; }
+        .coloring-side { grid-column: 1 / -1; grid-row: 1; }
+        .coloring-canvas-wrap { grid-column: 2; grid-row: 2; }
+        .coloring-power { grid-column: 3; grid-row: 2; height: min(100%, 14rem);
+          min-height: 7rem; }
         .coloring-side { flex-direction: row; gap: .35rem; }
         .coloring-palette { grid-template-columns: repeat(7, auto); gap: .3rem; padding: .3rem; }
         .coloring-brushes { padding: .28rem; gap: .25rem; }
@@ -425,13 +484,12 @@ export function createColoring(ctx) {
         .coloring-tool { min-width: 4.2rem; min-height: 2.5rem; font-size: calc(.85rem * var(--ui-scale, 1)); }
         .coloring-canvas-wrap { padding: .3rem; border-width: .22rem; }
         .coloring-bubble { font-size: calc(.95rem * var(--ui-scale, 1)); padding: .35rem .6rem; }
-        /* The bar's label moves beside its track, and the tools stay on the
-           same line, so the whole bottom is one row instead of three. */
-        .coloring-screen__bottom { flex-wrap: nowrap; gap: .5rem; }
-        .coloring-power { flex: 1 1 10rem; min-width: 0; flex-direction: row;
-          align-items: center; gap: .45rem; }
-        .coloring-power__label { white-space: nowrap; font-size: calc(.8rem * var(--ui-scale, 1)); }
-        .coloring-power__track { flex: 1 1 auto; height: 1.2rem; }
+        /* Wrapping, not nowrap: ロボットパワー is wider than the 4.8rem column,
+           so holding it on one line overflowed both sides and the leading ロ was
+           clipped off under the picture. It wraps to two lines here exactly as
+           it already does at full size. */
+        .coloring-power__label { font-size: calc(.8rem * var(--ui-scale, 1)); }
+        .coloring-power__track { width: 1.6rem; }
       }
       @media (prefers-reduced-motion: reduce) {
         .coloring-palette--invite .coloring-swatch { animation: none; }
@@ -576,33 +634,6 @@ export function createColoring(ctx) {
       DOOR_JAMB_WIDTH, DOOR_HEIGHT, DOOR_FRAME_DEPTH);
 
     // ONE easel, in the middle of the room, and the room is built around it.
-    easelGroup = new THREE.Group();
-    easelGroup.name = 'coloring-easel';
-    easelGroup.position.set(EASEL.x, 0, EASEL.z);
-    world.add(easelGroup);
-
-    const leftFrontLeg = addPart(easelGroup, box, easelMaterial,
-      -0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
-    leftFrontLeg.rotation.z = -0.15;
-    const rightFrontLeg = addPart(easelGroup, box, easelMaterial,
-      0.66, 1.25, 0.02, 0.18, 2.9, 0.18);
-    rightFrontLeg.rotation.z = 0.15;
-    const rearLeg = addPart(easelGroup, box, easelMaterial,
-      0, 1.17, -0.55, 0.18, 2.72, 0.18);
-    rearLeg.rotation.x = 0.28;
-    // The shelf crosses both front legs and the page rests directly on it.
-    addPart(easelGroup, box, easelMaterial, 0, 0.86, 0.13, 1.95, 0.18, 0.38);
-
-    // The paper and its painted line-art overlay share one tilted frame. Their
-    // tiny local depth separation avoids z-fighting without ever changing the
-    // plane angle independently.
-    const canvasGroup = new THREE.Group();
-    canvasGroup.name = 'coloring-easel-canvas';
-    canvasGroup.position.set(0, PAPER_CENTRE_Y, 0.04);
-    canvasGroup.rotation.x = -0.08;
-    easelGroup.add(canvasGroup);
-    addPart(canvasGroup, plane, paperMaterial, 0, 0, 0, PAPER_SIZE, PAPER_SIZE, 1);
-
     easelArtCanvas = document.createElement('canvas');
     easelArtCanvas.width = 700;
     easelArtCanvas.height = 700;
@@ -610,7 +641,15 @@ export function createColoring(ctx) {
     easelArtMaterial = ownMaterial(new THREE.MeshBasicMaterial({
       map: easelArtTexture, transparent: true, opacity: 1, depthWrite: false,
     }));
-    addPart(canvasGroup, plane, easelArtMaterial, 0, 0, 0.015, PAPER_SIZE, PAPER_SIZE, 1);
+    const easel = buildColoringEasel({
+      box,
+      plane,
+      easelMaterial,
+      paperMaterial,
+      artMaterial: easelArtMaterial,
+    });
+    easelGroup = easel.group;
+    world.add(easelGroup);
     setEaselArt('ready');
 
     player = characters.create({ model: characters.playerModel });
@@ -691,11 +730,7 @@ export function createColoring(ctx) {
     if (!active || !answerSentence) return;
     replayed = true;
     audio.speak(answerSentence);
-    if (answerNotice) {
-      answerNotice.textContent = answerSentence;
-      answerNotice.hidden = false;
-      answerNoticeRemaining = 2.1;
-    }
+    flash(bubble, 'coloring-bubble--speaking', 520);
   }
 
   function targetQuestion() {
@@ -721,7 +756,7 @@ export function createColoring(ctx) {
     hud.setTalkState('accepted');
     audio.playSfx('accept');
     answerSentence = answerFor(LESSON, favourite);
-    bubble.textContent = answerSentence;
+    bubbleAnswer.textContent = answerSentence;
     bubble.hidden = false;
     flash(canvasWrap, 'coloring-canvas-wrap--speaking', 520);
     blinkOnce(1);
@@ -741,7 +776,7 @@ export function createColoring(ctx) {
     palette.classList.add('coloring-palette--invite');
     refreshTools();
     setPower(coverage.power());
-    listenAgain.show();
+    updateReadiness(coverage.power());
   }
 
   function selectColor(color) {
@@ -750,7 +785,7 @@ export function createColoring(ctx) {
     erasing = false;
     palette.classList.remove('coloring-palette--invite');
     refreshTools();
-    paintInstruction.textContent = STRINGS.paintHint;
+    updateReadiness(coverage.power());
     audio.playSfx('interact');
   }
 
@@ -787,35 +822,40 @@ export function createColoring(ctx) {
     audio.playSfx('interact');
   }
 
-  function askReset() {
-    if (phase !== 'coloring') return;
-    resetConfirm.hidden = false;
-    resetConfirm.querySelector('[data-reset="no"]').focus();
-  }
-
-  function closeReset() {
-    resetConfirm.hidden = true;
-    resetButton.focus();
-  }
-
-  function confirmReset() {
+  function resetArtwork() {
     // Undo every stroke rather than clearing two things separately: the paint
     // and the coverage grid must never disagree about what has been coloured.
-    while (surface.canUndo) surface.undo();
-    coverage.reset();
+    while (surface?.canUndo) surface.undo();
+    coverage?.reset();
     setPower(0);
     refreshTools();
-    closeReset();
-    audio.playSfx('interact');
+    updateReadiness(0);
   }
 
-  /** The ⚡ bar. No number: a child reads a filling bar, not a percentage. */
+  /** The ⚡ meter. No number: a child reads a filling battery, not a percentage. */
   function setPower(value) {
     if (!powerFill) return;
     const clamped = Math.min(1, Math.max(0, value));
-    powerFill.style.width = `${(clamped * 100).toFixed(1)}%`;
+    powerFill.style.height = `${(clamped * 100).toFixed(1)}%`;
     powerBar.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
     powerBar.classList.toggle('coloring-power--full', clamped >= 1);
+  }
+
+  /** Readiness follows the live artwork; only its first arrival is celebrated. */
+  function updateReadiness(value) {
+    if (!doneButton) return;
+    const { ready, celebrate } = completionReadiness.update(value);
+    doneButton.disabled = !ready;
+    if (phase === 'coloring') {
+      paintInstruction.textContent = ready
+        ? STRINGS.readyHint
+        : selectedColor ? STRINGS.paintHint : STRINGS.chooseColor;
+    }
+    if (!celebrate) return;
+    flash(powerBar, 'coloring-power--pulse', 620);
+    flash(doneButton, 'coloring-tool--ready-pulse', 720);
+    blinkOnce(1);
+    audio.playSfx('spark', SOUNDS.spark);
   }
 
   /** A brief, playful flash on an element, without keeping a timer per element. */
@@ -863,17 +903,27 @@ export function createColoring(ctx) {
     shut();
   }
 
-  /** Answers the surface after every stroke: the bar, the tools, activation. */
+  /** Answers the surface after every stroke: the meter, tools and live readiness. */
   function onPaintChanged(info) {
+    setPower(info.power);
+    updateReadiness(info.power);
     if (info.needsColor) {
       paintInstruction.textContent = STRINGS.chooseColor;
       flash(palette, 'coloring-palette--invite', 1600);
       return;
     }
-    setPower(info.power);
     if (undoButton) undoButton.disabled = !info.canUndo;
     if (info.milestone) fireMilestone(info.milestone);
-    if (info.power >= 1 && phase === 'coloring') beginCharging();
+  }
+
+  function finishArtwork() {
+    if (phase !== 'coloring' || coverage.power() < 1) return;
+    beginCharging();
+  }
+
+  function onBubbleSpeakerClick(event) {
+    replayAnswer();
+    if (event.detail > 0) event.currentTarget.blur();
   }
 
   function createPaintingOverlay() {
@@ -882,7 +932,7 @@ export function createColoring(ctx) {
     // Nothing but the drawing and the question until the robot has answered.
     paintingOverlay.dataset.stage = 'asking';
     paintingOverlay.innerHTML = `
-      <header class="coloring-screen__top"><h1></h1><p class="coloring-screen__instruction"></p></header>
+      <header class="coloring-screen__top"><p class="coloring-screen__instruction"></p></header>
       <div class="coloring-screen__work">
         <div class="coloring-side">
           <div class="coloring-palette" role="group"></div>
@@ -890,33 +940,25 @@ export function createColoring(ctx) {
         </div>
         <div class="coloring-canvas-wrap">
           <canvas class="coloring-canvas"></canvas>
-          <div class="coloring-bubble" role="status" aria-live="polite" hidden></div>
+          <div class="coloring-bubble" role="status" aria-live="polite" hidden>
+            <span class="coloring-bubble__answer"></span>
+            <button class="coloring-bubble__speaker" type="button">🔊</button>
+          </div>
         </div>
-        <div class="coloring-side-spacer" aria-hidden="true"></div>
+        <div class="coloring-power" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span class="coloring-power__icon" aria-hidden="true">⚡</span>
+          <span class="coloring-power__track"><span class="coloring-power__fill"></span></span>
+          <span class="coloring-power__label"></span>
+        </div>
       </div>
       <div class="coloring-screen__bottom">
-        <div class="coloring-power" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-          <span class="coloring-power__label"></span>
-          <span class="coloring-power__track"><span class="coloring-power__fill"></span></span>
-        </div>
         <div class="coloring-tools">
           <button class="coloring-tool coloring-tool--undo" type="button" disabled></button>
           <button class="coloring-tool coloring-tool--eraser" type="button" aria-pressed="false"></button>
-          <button class="coloring-tool coloring-tool--reset" type="button"></button>
+          <button class="coloring-tool coloring-tool--done" type="button" disabled></button>
         </div>
       </div>
-      <div class="coloring-answer-notice" role="status" aria-live="polite" hidden></div>
-      <div class="coloring-reset-confirm" hidden>
-        <section class="coloring-reset-confirm__card">
-          <p></p>
-          <div class="coloring-reset-confirm__row">
-            <button class="coloring-tool" type="button" data-reset="no"></button>
-            <button class="coloring-tool coloring-tool--reset" type="button" data-reset="yes"></button>
-          </div>
-        </section>
-      </div>
     `;
-    paintingOverlay.querySelector('h1').textContent = STRINGS.paintTitle;
     paintInstruction = paintingOverlay.querySelector('.coloring-screen__instruction');
     paintInstruction.textContent = STRINGS.askRobot;
 
@@ -959,11 +1001,18 @@ export function createColoring(ctx) {
 
     canvasWrap = paintingOverlay.querySelector('.coloring-canvas-wrap');
     paintingCanvas = paintingOverlay.querySelector('.coloring-canvas');
-    paintingCanvas.setAttribute('aria-label', STRINGS.paintTitle);
+    paintingCanvas.setAttribute('aria-label', STRINGS.canvasLabel);
     bubble = paintingOverlay.querySelector('.coloring-bubble');
+    bubbleAnswer = paintingOverlay.querySelector('.coloring-bubble__answer');
+    bubbleSpeaker = paintingOverlay.querySelector('.coloring-bubble__speaker');
+    // Words only, not `UI.listenAgain`: that string leads with a 🔊 the button
+    // already shows, so a screen reader announced the speaker twice.
+    bubbleSpeaker.setAttribute('aria-label', UI.dialogue.replay);
+    bubbleSpeaker.title = UI.dialogue.replay;
+    bubbleSpeaker.addEventListener('click', onBubbleSpeakerClick);
 
     powerBar = paintingOverlay.querySelector('.coloring-power');
-    powerBar.querySelector('.coloring-power__label').textContent = `⚡ ${STRINGS.power}`;
+    powerBar.querySelector('.coloring-power__label').textContent = STRINGS.power;
     powerFill = paintingOverlay.querySelector('.coloring-power__fill');
 
     undoButton = paintingOverlay.querySelector('.coloring-tool--undo');
@@ -973,20 +1022,9 @@ export function createColoring(ctx) {
     eraserButton.textContent = STRINGS.tools.eraser;
     eraserButton.setAttribute('aria-label', STRINGS.tools.eraserLabel);
     eraserButton.addEventListener('click', toggleEraser);
-    resetButton = paintingOverlay.querySelector('.coloring-tools .coloring-tool--reset');
-    resetButton.textContent = STRINGS.tools.reset;
-    resetButton.addEventListener('click', askReset);
-
-    resetConfirm = paintingOverlay.querySelector('.coloring-reset-confirm');
-    resetConfirm.querySelector('p').textContent = STRINGS.tools.resetConfirm;
-    const resetNo = resetConfirm.querySelector('[data-reset="no"]');
-    resetNo.textContent = STRINGS.tools.resetNo;
-    resetNo.addEventListener('click', closeReset);
-    const resetYes = resetConfirm.querySelector('[data-reset="yes"]');
-    resetYes.textContent = STRINGS.tools.resetYes;
-    resetYes.addEventListener('click', confirmReset);
-
-    answerNotice = paintingOverlay.querySelector('.coloring-answer-notice');
+    doneButton = paintingOverlay.querySelector('.coloring-tool--done');
+    doneButton.textContent = STRINGS.tools.done;
+    doneButton.addEventListener('click', finishArtwork);
 
     document.querySelector('#ui-layer').append(paintingOverlay);
     surface = createPaintingSurface({
@@ -995,13 +1033,11 @@ export function createColoring(ctx) {
       color: () => selectedColor,
       brush: () => brushId,
       erasing: () => erasing,
-      // Paint stops the instant the bar fills; the robot is waking up. It is
-      // also locked before the answer, so the page cannot be coloured while
-      // the child is meant to be asking.
+      // Full power is permission, not a lock: only leaving `coloring` freezes
+      // the surface, so the child can keep decorating until they choose Done.
       locked: () => phase !== 'coloring',
       onChange: onPaintChanged,
     });
-    listenAgain = createListenAgain({ root: paintingOverlay, label: UI.listenAgain, onPress: replayAnswer });
   }
 
   function onSwatchClick(event) {
@@ -1030,10 +1066,10 @@ export function createColoring(ctx) {
     selectedColor = null;
     erasing = false;
     answerRemaining = 0;
-    answerNoticeRemaining = 0;
     chargeRemaining = 0;
     stirRemaining = 0;
     exitElapsed = 0;
+    completionReadiness.reset();
     favourite = PALETTE[Math.floor(Math.random() * PALETTE.length)];
     coverage = createCoverage({ favourite });
     createPaintingOverlay();
@@ -1064,8 +1100,7 @@ export function createColoring(ctx) {
   }
 
   /**
-   * Full power. There is no Done button and no way to fail — the bar filling
-   * *is* the win, so activation starts by itself.
+   * The child has declared the page finished after earning full power.
    *
    * The charging beat comes first: a strong pulse, a couple of blinks and a
    * spark on the page, so the child sees the robot stirring before anything
@@ -1074,7 +1109,7 @@ export function createColoring(ctx) {
   function beginCharging() {
     if (phase !== 'coloring') return;
     phase = 'activation-page';
-    listenAgain.hide();
+    bubble.hidden = true;
     paintInstruction.textContent = STRINGS.powerFull;
     setPower(1);
     flash(powerBar, 'coloring-power--pulse', 900);
@@ -1148,7 +1183,7 @@ export function createColoring(ctx) {
     phase = 'robot-exit';
     exitElapsed = 0;
     world.add(pendingPuppet.group);
-    pendingPuppet.placeAt(EASEL.x, EASEL.z + 0.2, 0);
+    pendingPuppet.placeAt(EASEL.x, EASEL.z + PUPPET_START_Z, 0);
     pendingPuppet.setState(STATES.STARTUP);
     pendingPuppet.setGlowFloor(0.4);
     // Standing on the lower edge of the sheet, not on the floor.
@@ -1181,8 +1216,8 @@ export function createColoring(ctx) {
       if (easelArt !== 'blank') setEaselArt('blank');
       const k = (exitElapsed - 0.45) / 0.85;
       const arc = Math.sin(k * Math.PI) * 0.45;
-      puppet.placeAt(EASEL.x, EASEL.z + 0.2
-        + k * (ROBOT_LANDING_Z - (EASEL.z + 0.2)), 0);
+      puppet.placeAt(EASEL.x, EASEL.z + PUPPET_START_Z
+        + k * (ROBOT_LANDING_Z - (EASEL.z + PUPPET_START_Z)), 0);
       puppet.setLift(startLift * (1 - k) + arc);
     } else {
       puppet.setLift(0);
@@ -1289,8 +1324,6 @@ export function createColoring(ctx) {
   // --- teardown ------------------------------------------------------------
 
   function disposePaintingOverlay() {
-    listenAgain?.dispose();
-    listenAgain = null;
     surface?.dispose();
     surface = null;
     for (const swatch of palette?.querySelectorAll('button') ?? []) {
@@ -1301,9 +1334,8 @@ export function createColoring(ctx) {
     }
     undoButton?.removeEventListener('click', undo);
     eraserButton?.removeEventListener('click', toggleEraser);
-    resetButton?.removeEventListener('click', askReset);
-    resetConfirm?.querySelector('[data-reset="no"]')?.removeEventListener('click', closeReset);
-    resetConfirm?.querySelector('[data-reset="yes"]')?.removeEventListener('click', confirmReset);
+    doneButton?.removeEventListener('click', finishArtwork);
+    bubbleSpeaker?.removeEventListener('click', onBubbleSpeakerClick);
     paintingOverlay?.remove();
     if (paintingCanvas) {
       paintingCanvas.width = 0;
@@ -1319,10 +1351,10 @@ export function createColoring(ctx) {
     powerFill = null;
     undoButton = null;
     eraserButton = null;
-    resetButton = null;
-    resetConfirm = null;
+    doneButton = null;
     bubble = null;
-    answerNotice = null;
+    bubbleAnswer = null;
+    bubbleSpeaker = null;
   }
 
   /**
@@ -1379,7 +1411,12 @@ export function createColoring(ctx) {
           z: robot.puppet.group.position.z,
         },
         lift: robot.puppet.pose.root.y,
-        art: robot.puppet.fingerprint(),
+        // 24, not the default 6. Six points across the body catch a decoration
+        // dab and little else on a sparsely painted robot, so two robots told
+        // DIFFERENT colours collided on their shared red decoration alone and
+        // the distinctness check cried wolf. Resolution, not semantics: this is
+        // read only by the harness.
+        art: robot.puppet.fingerprint(24),
       })),
     };
   }
@@ -1418,13 +1455,17 @@ export function createColoring(ctx) {
     // the scene editor is, so a student's browser can never reach it.
     const devTools = Boolean(import.meta.env?.DEV)
       || new URLSearchParams(window.location.search).has('editor');
-    if (devTools) window.__eslDebug.coloringSpawn = spawnRobots;
+    if (devTools) {
+      window.__eslDebug.coloringSpawn = spawnRobots;
+      window.__eslDebug.coloringReset = resetArtwork;
+    }
   }
 
   function removeDebugHook() {
     if (window.__eslDebug) {
       delete window.__eslDebug.coloring;
       delete window.__eslDebug.coloringSpawn;
+      delete window.__eslDebug.coloringReset;
     }
     if (debugRootCreated && window.__eslDebug && Object.keys(window.__eslDebug).length === 0) delete window.__eslDebug;
     debugRootCreated = false;
@@ -1464,11 +1505,6 @@ export function createColoring(ctx) {
     if (!active) return;
     const safeDt = Math.min(Math.max(dt || 0, 0), 0.05);
     elapsed += safeDt;
-
-    if (answerNoticeRemaining > 0) {
-      answerNoticeRemaining -= safeDt;
-      if (answerNoticeRemaining <= 0 && answerNotice) answerNotice.hidden = true;
-    }
 
     if (phase === 'canvas-answer') {
       answerRemaining -= safeDt;

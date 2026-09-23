@@ -2392,3 +2392,69 @@ position appeared to pass for the wrong reason, and broke the moment the retreat
 gained a sideways component. Position only; the favourite colour still never
 appears in the snapshot.
 
+## 2026-09-23 — Coloring polish: finishing is the child's decision
+
+**Full ROBOT POWER is permission to finish, not the trigger.** Reaching full
+power enables a distinct 「できた！」 action while painting, colour choice,
+erasing and undo remain available. Readiness follows the live favourite-colour
+area in both directions, but its celebration fires only on the first enable in
+the round. The child decides when the robot is finished. Rejected: automatic
+activation at full power, because it takes the page away while the child may
+still be decorating it; and a confirmation dialog, because the explicit Done
+press already is the decision.
+
+**The paper moves in front of the easel frame, and the calibrated camera moves
+with it.** The sheet now has one local z source of truth; the shelf and newborn
+puppet derive their positions from it, while the tight camera derives its offset
+from the sheet plus the unchanged 2.55-unit viewing gap. That preserves the DOM
+page-to-easel cross-fade scale while clearing every structural upright. Rejected:
+`renderOrder`, disabling depth tests, or moving only the sheet — the first two
+hide incorrect geometry, and the last makes the 3D page about 8% larger at the
+handoff.
+
+**The answer bubble persists through coloring and owns replay.** The spoken
+`I like <colour>.` stays beside the drawing as a light memory aid, with a small
+speaker button inside the same bubble. Replays pulse that bubble and still set
+the scoring memory flag. Rejected: a separate Listen Again control and a second
+temporary answer notice, because both duplicate the answer and split one idea
+across unrelated parts of the screen.
+
+## 2026-09-23 — Coloring polish: four defects the tests could not have found
+
+**An empty stroke still takes a slot in the coverage journal.** `endStroke()`
+pushed only when a stroke had touched a silhouette cell, while `picture.js`
+pushes every stroke onto its paint stack and `undo()` pops both together. A
+stroke painted entirely in the paper margin — decorating the background —
+desynchronised the two for ever: the next もどす rubbed the doodle off the page
+while subtracting an EARLIER stroke's power from the meter, with no way back.
+Pre-existing, but this pass widened it sharply, because inviting the child to
+keep painting at full power is an invitation to decorate the margin, and the
+consequence is `できた！` disabling itself unrecoverably. Two unit tests asserted
+the old behaviour on purpose ("no-op repeats must leave the original meaningful
+stroke as the undo target"); that reads well only while the journal is consumed
+alone, which it never is. Rejected: a second history, or making `undo()` skip
+empty strokes on the paint side, which would desynchronise the same two stacks
+from the other end.
+
+**The answer bubble does not take pointer events.** Making it persist through
+coloring (this pass) silently made the paper beneath it unpaintable — at
+760x420 that includes part of the robot's head, which is silhouette the child
+must paint to charge the meter. It never mattered before, because the bubble
+vanished 2.35s after the answer, before painting began. The speaker inside it
+keeps `pointer-events: auto`. No assertion could catch this: the harness aims
+its strokes at the silhouette and simply covers fewer cells when some are
+blocked — it never asks whether a particular point accepted paint.
+
+**The debug fingerprint samples 24 points, not 6.** Six points across the body
+piece catch a decoration dab and little else on a sparsely painted robot, so two
+robots told DIFFERENT colours collided on their shared red decoration alone and
+the distinctness check cried wolf on an unlucky random draw. Resolution, not
+semantics; `fingerprint(samples)` already took the argument. Rejected: relaxing
+the check, which is one of the eight that make the harness trusted.
+
+**The playthrough harness runs against `dist/`, and never builds it.**
+`playthrough-run.mjs` spawns `vite preview` and only checks that `dist/` is
+non-empty, so a source change not followed by `npm run build` is graded against
+the previous build. Three runs in this pass were spent on that, and the tell was
+a floating-point power value reproducing to all 16 digits across a supposedly
+changed code path. Recorded because nothing in the harness says so.
