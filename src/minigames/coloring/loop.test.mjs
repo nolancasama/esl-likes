@@ -248,6 +248,25 @@ test('Done celebrates each fresh arrival at full power, never a held one', () =>
   assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
 });
 
+test('the first page of a visit is the robot, and every page after it varies', () => {
+  const round = between('function startRound()', 'async function openCanvas()');
+  // The child may already have met the robot; a first visit should not also be
+  // a surprise. After that the pool takes over.
+  assert.match(round, /roundsStarted === 0/);
+  assert.match(round, /subjectById\(DEFAULT_SUBJECT_ID\)/);
+  assert.match(round, /pickNextSubject\(\{ lastId/,
+    'later rounds do not draw from the subject pool');
+  assert.match(round, /coverage = createCoverage\(\{ subject: activeSubject/,
+    'power is not measured against the subject actually being drawn');
+});
+
+test('the visible power label no longer says robot', () => {
+  const strings = readFileSync(new URL('../../config/lesson.js', import.meta.url), 'utf8');
+  const coloring = strings.slice(strings.indexOf('  coloring: {'));
+  assert.doesNotMatch(coloring.slice(0, 2000), /ロボット/,
+    'a child colouring a snowman is still told about a robot');
+});
+
 test('Done is the guarded activation control and Reset is dev-only', () => {
   assert.match(paintingMarkup,
     /coloring-tool--undo[\s\S]*?coloring-tool--eraser[\s\S]*?coloring-tool--done/);

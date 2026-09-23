@@ -10,7 +10,7 @@ import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 import { createCrowd } from './robotCrowd.js';
 import { saveCompletedCreation, savedCreations } from './coloringSession.js';
-import { DEFAULT_SUBJECT_ID, subjectById } from './subjectRegistry.js';
+import { DEFAULT_SUBJECT_ID, pickNextSubject, subjectById } from './subjectRegistry.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
@@ -210,7 +210,15 @@ export function createColoring(ctx) {
     transitions,
     finish,
   } = ctx;
-  const activeSubject = subjectById(DEFAULT_SUBJECT_ID);
+  /**
+   * Which picture this round draws.
+   *
+   * The first page of a visit is always the robot: it is the one the child may
+   * already have met, and a first visit should not also be a surprise. Every
+   * round after that draws from the pool, never the same subject twice running.
+   */
+  let activeSubject = subjectById(DEFAULT_SUBJECT_ID);
+  let roundsStarted = 0;
 
   let world = null;
   let player = null;
@@ -516,10 +524,11 @@ export function createColoring(ctx) {
         .coloring-tool { min-width: 4.2rem; min-height: 2.5rem; font-size: calc(.85rem * var(--ui-scale, 1)); }
         .coloring-canvas-wrap { padding: .3rem; border-width: .22rem; }
         .coloring-bubble { font-size: calc(.95rem * var(--ui-scale, 1)); padding: .35rem .6rem; }
-        /* Wrapping, not nowrap: ロボットパワー is wider than the 4.8rem column,
-           so holding it on one line overflowed both sides and the leading ロ was
-           clipped off under the picture. It wraps to two lines here exactly as
-           it already does at full size. */
+        /* Wrapping, not nowrap. The label was ロボットパワー, which is wider than
+           the 4.8rem column: holding it on one line overflowed both sides and
+           clipped the leading ロ off under the picture. It reads POWER now that
+           the page is not always a robot, which fits — but the wrap stays,
+           because the label is translatable and the next one may not. */
         .coloring-power__label { font-size: calc(.8rem * var(--ui-scale, 1)); }
         .coloring-power__track { width: 1.6rem; }
       }
@@ -1116,6 +1125,10 @@ export function createColoring(ctx) {
    * when it was built.
    */
   function startRound() {
+    activeSubject = roundsStarted === 0
+      ? subjectById(DEFAULT_SUBJECT_ID)
+      : pickNextSubject({ lastId: activeSubject?.id ?? null }) ?? activeSubject;
+    roundsStarted += 1;
     replayed = false;
     answerSentence = '';
     selectedColor = null;

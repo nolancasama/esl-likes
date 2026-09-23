@@ -1,8 +1,18 @@
 import robot from './subjects/robot.js';
+import snowman from './subjects/snowman.js';
+import gingerbread from './subjects/gingerbread.js';
+import hero from './subjects/hero.js';
+import ninja from './subjects/ninja.js';
 
 export const DEFAULT_SUBJECT_ID = 'robot';
 
-export const SUBJECTS = Object.freeze([robot]);
+export const SUBJECTS = Object.freeze([
+  robot,
+  snowman,
+  gingerbread,
+  hero,
+  ninja,
+]);
 export const subjectRegistry = SUBJECTS;
 
 export function subjectById(id) {

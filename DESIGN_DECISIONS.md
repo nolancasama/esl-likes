@@ -2588,3 +2588,30 @@ the room title and hint sat underneath the button. The back control sets a
 pads the bar clear of it. Rejected: nudging each minigame's own card, which is
 four places to keep in sync and would have left the hub's bar indented for a
 button that is not there.
+## 2026-09-23 — Coloring adds four subjects without adding another engine
+
+**Piece counts stay low and fixed per silhouette.** Snowman has three pieces,
+gingerbread five, hero six and ninja five, always with `body` as root. Details remain overdrawn marks rather
+than fillable pieces. This keeps every page a connected, child-readable
+coloring-book shape and preserves hidden joints in motion. Rejected: splitting
+faces, clothing, buttons, icing or other decoration into regions, which would
+recreate the worksheet-like robot this system replaced.
+
+**The four animals were cut after the controller looked at them.** Penguin,
+chicken, cat and dog were authored, rendered and rejected: built from the
+robot's template — a circle head on a capsule body with two symmetric limbs —
+the penguin read as a bear, the chicken as two large circles, and the side-on
+cat and dog as jumbles. The cause was the silhouette vocabulary, which is only
+rectangles and circles: there is no way to make a pointed ear, a comb, a beak
+or a tail, so cat ears came out as a cartoon mouse's. A generic `polygon`
+silhouette kind was drafted to fix it and reverted unused when the owner chose
+to drop the animals rather than spend another pass on them. `category` and
+`zooSpecies` stay in the contract so a later pass can add animals and let the
+Zoo find them. Rejected: shipping animals that a child would have to be told
+the name of.
+
+**Hero and ninja are original, playful and weapon-free.** The hero uses a
+generic star and a cape behind the body; the ninja uses only a generic hood and
+sash outfit. Rejected: franchise costumes, logos, signature silhouettes,
+colour schemes and weapons, which would undermine originality and the
+child-friendly tone.

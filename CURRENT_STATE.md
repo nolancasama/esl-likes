@@ -9,7 +9,61 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — Coloring learns what a "subject" is
+## Latest pass (2026-09-23) — four more pictures, chosen at random
+
+Slices 2 and 3 of the Coloring subject plan. Order
+`.ai/wo-coloring-eight-subjects.json` (Codex via the router, Sol medium,
+SUCCESS) authored eight subjects; the controller **rejected the four animals
+after looking at them** and the owner chose to drop them rather than spend
+another pass. Slice 3 (selection and wording) was done directly.
+
+**Five subjects ship: robot, snowman, gingerbread, hero, ninja.**
+
+- The first page of a visit is always the robot; every page after it comes from
+  `pickNextSubject({ lastId })`, so a subject never repeats back to back.
+- The visible label is now `POWER` with its ⚡, and the canvas's accessible name
+  is `えに いろを ぬろう`. Nothing tells a child colouring a snowman about a robot.
+- `savedRobots()` still filters to `subjectId === 'robot'`, so the Restaurant
+  keeps taking robots only. Confirmed in the browser: a room holding a robot and
+  a snowman produced robot customers and no snowman.
+
+### Why the animals were cut
+
+Penguin, chicken, cat and dog were authored, rendered and rejected. Built from
+the robot's template — a circle head on a capsule body with two symmetric limbs
+— the penguin read as a bear, the chicken as two large circles, and the side-on
+cat and dog as jumbles. The cause is the silhouette vocabulary: it is only
+rectangles and circles, so there is no way to make a pointed ear, a comb, a beak
+or a tail, and cat ears came out as a cartoon mouse's. **Anyone retrying the
+animals should add a `polygon` silhouette kind first** — one generic addition to
+`shapeBounds`, `insideShape` and `pathSilhouette`. A draft of exactly that was
+written and reverted unused when the animals were dropped. `category` and
+`zooSpecies` remain in the contract for that later pass.
+
+### Validation
+
+`npm test` **663/663**. `npm run build` OK. Browser: all five pages rendered and
+looked at (`.tmp/five-pages.png`, `.tmp/subjects-poses.png` — the pose sheet
+samples each subject at four moments of its own hop); a full playthrough painted
+a robot then a snowman, both roam the room together, and the Restaurant took
+only the robot.
+
+### How to look at the subjects again
+
+`.tmp/render-subjects.mjs` runs against `npm run dev` (NOT the built bundle) and
+imports the source modules straight into the page, so it calls the real
+`drawPage` rather than a copy of it:
+
+    npx vite --port 5300 --strictPort
+    node .tmp/render-subjects.mjs http://localhost:5300 .tmp/subjects
+
+### Next
+
+The Coloring subject plan is complete for the five characters. Outstanding from
+the original plan: the four animals (needs `polygon` first), and Zoo reuse of
+animal records, which was explicitly out of scope.
+
+## Previous pass (2026-09-23) — Coloring learns what a "subject" is
 
 Slice 1 of 3 of the nine-subject Coloring plan. Order
 `.ai/wo-coloring-subject-contract.json` (Codex via the router, Sol high,

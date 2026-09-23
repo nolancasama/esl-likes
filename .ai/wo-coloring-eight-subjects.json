@@ -1,0 +1,77 @@
+{
+  "task": "Add the eight new Coloring subjects as pure data against the subject contract that shipped in slice 1: penguin, chicken, cat, dog, snowman, gingerbread, hero and ninja. The Robot already exists and must not change.",
+
+  "context": [
+    "Slice 1 shipped the contract. src/minigames/coloring/subjects/robot.js is the worked example and the only correct reference for the exact shape of a subject; src/minigames/coloring/subjectRegistry.js is where a subject is registered.",
+    "A subject supplies: id, category ('animal' | 'character'), zooSpecies (string or null), pieces (root piece FIRST), pivots {piece:{x,y}}, parents {piece: parentPiece|null}, depth {piece:number}, shapes [{id, piece, order, shape}], details {eyes, pupilRatio, marks}, personality {idle, startup, hop, celebrate, glow?} and liveScale.",
+    "Silhouette shapes today come in two kinds: rect(x, y, width, height, radius) and circle(cx, cy, r). A rounded rect whose radius is half its height is a capsule, which is what makes a good animal body or limb. Coordinates are normalised 0..1 over a square picture with y increasing DOWNWARD.",
+    "Detail marks are drawn as line art OVER the child's paint and come in four types: line {x1,y1,x2,y2}, circle {cx,cy,r}, arc {cx,cy,r,startAngle,endAngle,counterclockwise} and polygon/triangle {points:[{x,y}]}. Each takes optional fill, stroke and lineWidth, and each carries the `piece` it belongs to so the paper puppet cuts it with that piece.",
+    "personality drives the ONE shared animation engine in robotPuppet.js. Look at how the robot's personality maps onto poseFor and rotationsFor before authoring the others: idle takes root {sway, bob, tilt, tiltPhase, squash} and per-piece {base, bob, phase}; startup takes root {shake, shakeFrequency, lift, tiltFromShake, restSquash, bounceSquash} and per-piece {base, flare, bounce}; hop and celebrate take root {hopHeightScale, tilt, tiltScale} and per-piece {base, air, lagAir}, plus rotationScale, blink and glow.",
+    "The controller does not pick subjects yet - slice 3 adds the random rotation and the generic POWER wording. Registering the eight is enough here.",
+    "The registry test written in slice 1 loops over every registered subject, so these eight come under its geometry, bounds, pieces and category assertions the moment they are registered."
+  ],
+
+  "requirements": [
+    "Eight new files under src/minigames/coloring/subjects/: penguin.js, chicken.js, cat.js, dog.js, snowman.js, gingerbread.js, hero.js, ninja.js, each default-exporting a deeply frozen subject exactly as robot.js does. Register all eight in subjectRegistry.js.",
+    "CATEGORY: penguin, chicken, cat and dog are category 'animal' with zooSpecies set to their own id, so a later Zoo pass can find them without guessing. robot, snowman, gingerbread, hero and ninja are category 'character' with zooSpecies null.",
+    "EVERY SUBJECT MUST BE ONE CONNECTED SHAPE. This is the lesson the robot already learned and records: shapes must overlap at every joint so the figure reads as one drawing and so the seams stay hidden when a limb swings. A figure whose head floats above its body is the defect to avoid.",
+    "Keep each picture a COLOURING BOOK PAGE, not an illustration: a handful of big continuous areas a child can scribble across, bold outlines, few pieces. Faces, buttons, icing, scarves, belts and fur tufts are detail marks drawn OVER the paint, never separate silhouette shapes - a separately fillable detail is a region, and regions are what turned an earlier robot into a worksheet.",
+    "Each figure stands on its own lowest silhouette point and should use most of the picture height (roughly y 0.03 to 0.95, like the robot) and be horizontally centred about x = 0.5. Do not leave a figure floating with empty space below it: the baseline is derived from the silhouette's lowest point, so a stray low shape becomes the ground.",
+    "PIECE COUNTS, kept deliberately low: penguin 5 (body, leftWing, rightWing, leftFoot, rightFoot); chicken 5 (body, leftWing, rightWing, leftLeg, rightLeg); cat 4 (body, frontLeg, backLeg, tail); dog 4 (body, frontLeg, backLeg, tail); snowman 3 (body, leftArm, rightArm); gingerbread 5 (body, leftArm, rightArm, leftLeg, rightLeg); hero 6 (body, leftArm, rightArm, leftLeg, rightLeg, cape); ninja 5 (body, leftArm, rightArm, leftLeg, rightLeg). `body` is the root in every case.",
+    "CAT AND DOG ARE SIDE-ON (the owner chose this): a cartoon animal in profile, which gives a strong silhouette and an obvious tail, with one visible front leg and one visible back leg. Do not attempt four-legged anatomy. The head is part of the body piece, as the robot's is.",
+    "HERO's cape is its own piece and must sit BEHIND the body (lowest shape order, most negative depth) so it reads as a cape rather than a bib. Its emblem is an original generic star on the chest - no existing superhero's costume, colours, logo or silhouette, and no weapon.",
+    "NINJA is a generic hood-and-sash outfit with visible eyes, a belt, gloves and boots, playful rather than threatening, with NO weapon and no franchise markings.",
+    "SNOWMAN has no legs: two or three stacked snowballs with simple stick arms, a carrot nose, coal buttons and a scarf. Its ground baseline is the bottom of the lowest snowball.",
+    "ANIMATION PERSONALITY, expressed only through the existing personality fields: penguin a waddle with a wing flap; chicken a head bob with a wing flap; cat and dog a small bounding hop with a tail sway or wag; snowman a wobble and bounce with no legs; gingerbread a large cheerful bounce; hero a confident heroic hop with the cape trailing; ninja a quick light hop with a small crouch. Every subject must be visibly itself in motion without any new engine code.",
+    "Only the ROBOT gets the antenna glow. Every other subject leaves `personality.glow` unset so no chicken grows a glowing antenna.",
+    "Blinking is fine for every subject, so each needs `details.eyes` and a `pupilRatio`.",
+    "liveScale sets relative living size in the room: chicken and cat small, dog small-medium, penguin, gingerbread, robot and ninja medium, hero medium, snowman medium-large. Keep the spread modest - all nine must stay readable under the existing room camera and must not break crowding or dialogue.",
+    "If, and only if, a subject genuinely cannot be drawn well from rects and circles, you may add ONE new silhouette kind ('ellipse') - added once and generically to shapeBounds, insideShape and pathSilhouette with its own tests, never as a special case for one subject. Prefer capsules (a rect with radius = height / 2) first."
+  ],
+
+  "constraints": [
+    "The Robot must not change at all - not its shapes, its details, its personality, its geometry or its motion. It is the shipped reference.",
+    "Do NOT add subject selection, do NOT change which subject a round uses, and do NOT change the visible ロボットパワー wording. That is slice 3.",
+    "Do not touch the Zoo or the Restaurant. The Restaurant must keep receiving robot records only - savedRobots() already filters, and nothing here may widen it.",
+    "Do not add per-subject branches anywhere. If a subject needs behaviour the contract cannot express, say so in your summary rather than adding an if.",
+    "Do not add new engine states, new pose functions, or a second animation path. Personalities are data.",
+    "Hero and ninja must be original, child-friendly and weapon-free. No copyrighted character's costume, emblem, colour scheme or silhouette.",
+    "Keep every subject's detail marks sparse. If a figure needs more than about a dozen marks to read, the silhouette is wrong.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism - do not try another escaped variant.",
+    "Append one dated DESIGN_DECISIONS.md entry for this pass covering the piece counts, the side-on cat and dog, and the hero/ninja originality rule, each with what, why and the rejected alternative."
+  ],
+
+  "startingPoints": [
+    "src/minigames/coloring/subjects/robot.js (the only correct reference for the contract)",
+    "src/minigames/coloring/subjectRegistry.js",
+    "src/minigames/coloring/subjectRegistry.test.mjs (the per-subject loop these must satisfy)",
+    "src/minigames/coloring/robotRenderer.js (drawMark, for the four detail mark types)",
+    "src/minigames/coloring/robotPuppet.js (poseFor and rotationsFor, for what a personality can express)",
+    "src/minigames/coloring/robotDefinition.js (shapeBounds, insideShape, silhouetteBounds)"
+  ],
+
+  "tests": [
+    "The existing registry loop must pass for all nine subjects: non-empty silhouette, bounds inside the picture, a root piece first, every shape owned by a declared piece, pivots for every piece, no NaN, valid piece texture bounds, a category.",
+    "Connectedness: every subject's silhouette is ONE connected mass. Sample the silhouette on a grid, flood fill from any filled cell, and assert every filled cell is reached. This is the assertion that catches a floating head or a detached tail, and it is the single most valuable test in this order.",
+    "Every piece owns at least one shape, and every non-root piece's shapes overlap its parent's shapes somewhere, so no limb is attached by nothing.",
+    "Each subject stands: its lowest silhouette point maps to world Y approximately 0 through the paper puppet, and each uses a reasonable share of the picture height.",
+    "Category and zooSpecies are exactly as specified for all nine, and only the robot declares a glow.",
+    "Every personality names only pieces that subject actually has - a rotation for a leg the snowman does not have is a silent no-op today and a bug later.",
+    "pickNextSubject over the real nine-subject registry: never an immediate repeat, and every subject is reachable across seeded runs."
+  ],
+
+  "validation": ["npm test", "npm run build"],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "note": "The controller renders all nine blank colouring pages and all nine puppets in motion and judges whether each is recognisable. Do not attempt a browser run and do not claim one."
+  },
+
+  "category": "game-content",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "composition": "atomic"
+}

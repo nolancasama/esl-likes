@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { insideSilhouette, silhouetteBounds } from './robotDefinition.js';
 import robot from './subjects/robot.js';
 import {
   DEFAULT_SUBJECT_ID,
@@ -9,12 +10,111 @@ import {
   subjectById,
 } from './subjectRegistry.js';
 
-test('the first slice registers only the robot as the default subject', () => {
+const expectedPieces = {
+  robot: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
+  snowman: ['body', 'leftArm', 'rightArm'],
+  gingerbread: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
+  hero: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg', 'cape'],
+  ninja: ['body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'],
+};
+
+/**
+ * The contract still carries `category` and `zooSpecies` so a later pass can add
+ * animals and let the Zoo find them, but the owner cut the four animals from
+ * this pass, so every registered subject is a character today.
+ */
+const animalIds = new Set();
+
+function assertDeepFrozen(value) {
+  if (!value || typeof value !== 'object') return;
+  assert.ok(Object.isFrozen(value));
+  for (const child of Object.values(value)) assertDeepFrozen(child);
+}
+
+function assertConnected(subject) {
+  const size = 120;
+  const cells = Array.from({ length: size * size }, (_, index) => {
+    const x = (index % size + 0.5) / size;
+    const y = (Math.floor(index / size) + 0.5) / size;
+    return insideSilhouette(subject, x, y);
+  });
+  const first = cells.findIndex(Boolean);
+  const visited = new Set(first < 0 ? [] : [first]);
+  const queue = first < 0 ? [] : [first];
+  while (queue.length) {
+    const at = queue.shift();
+    const x = at % size;
+    const y = Math.floor(at / size);
+    for (const next of [at - 1, at + 1, at - size, at + size]) {
+      const nx = next % size;
+      const ny = Math.floor(next / size);
+      if (next < 0 || next >= cells.length || Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+      if (cells[next] && !visited.has(next)) { visited.add(next); queue.push(next); }
+    }
+  }
+  assert.equal(visited.size, cells.filter(Boolean).length, `${subject.id} is not one connected silhouette`);
+}
+
+test('all nine subjects are registered and robot stays the default', () => {
   assert.equal(DEFAULT_SUBJECT_ID, 'robot');
-  assert.deepEqual(SUBJECTS, [robot]);
+  assert.deepEqual(SUBJECTS.map(({ id }) => id), Object.keys(expectedPieces));
   assert.equal(subjectById('robot'), robot);
   assert.equal(subjectById('missing'), null);
-  assert.equal(pickNextSubject({ random: () => 0, lastId: 'robot' }), robot);
+  assert.notEqual(pickNextSubject({ random: () => 0, lastId: 'robot' }), robot);
+});
+
+test('every subject satisfies the shared frozen data contract', () => {
+  for (const subject of SUBJECTS) {
+    assert.deepEqual(subject.pieces, expectedPieces[subject.id], `${subject.id} pieces`);
+    assert.equal(subject.pieces[0], 'body');
+    assert.deepEqual(Object.keys(subject.pivots).sort(), [...subject.pieces].sort());
+    assert.deepEqual(Object.keys(subject.parents).sort(), [...subject.pieces].sort());
+    assert.deepEqual(Object.keys(subject.depth).sort(), [...subject.pieces].sort());
+    assert.equal(subject.parents.body, null);
+    assert.ok(subject.details.eyes.length > 0);
+    assert.ok(subject.details.pupilRatio > 0 && subject.details.pupilRatio < 1);
+    assert.ok(subject.details.marks.length <= 12, `${subject.id} has too many detail marks`);
+    assert.ok(subject.liveScale >= 0.8 && subject.liveScale <= 1.1);
+    for (const piece of subject.pieces) {
+      assert.ok(subject.shapes.some((entry) => entry.piece === piece), `${subject.id}/${piece} has no shape`);
+    }
+    assertDeepFrozen(subject);
+  }
+});
+
+test('subjects have the requested categories, zoo species and glow policy', () => {
+  for (const subject of SUBJECTS) {
+    if (animalIds.has(subject.id)) {
+      assert.equal(subject.category, 'animal');
+      assert.equal(subject.zooSpecies, subject.id);
+    } else {
+      assert.equal(subject.category, 'character');
+      assert.equal(subject.zooSpecies, null);
+    }
+    if (subject.id !== 'robot') {
+      assert.equal(subject.personality.glow, undefined);
+      for (const state of ['idle', 'startup', 'hop', 'celebrate']) {
+        assert.equal(subject.personality[state]?.glow, undefined, `${subject.id}/${state} glows`);
+      }
+    }
+  }
+});
+
+test('every subject is connected, centered and stands near the page baseline', () => {
+  for (const subject of SUBJECTS) {
+    assertConnected(subject);
+    const bounds = silhouetteBounds(subject);
+    assert.ok(bounds.minY <= 0.07, `${subject.id} leaves too much space above`);
+    assert.ok(bounds.maxY >= 0.94 && bounds.maxY <= 0.97, `${subject.id} misses the baseline`);
+    assert.ok(Math.abs((bounds.minX + bounds.maxX) / 2 - 0.5) <= 0.04, `${subject.id} is off-centre`);
+  }
+});
+
+test('the hero cape is the back-most shape and piece', () => {
+  const hero = subjectById('hero');
+  const capeShape = hero.shapes.find(({ piece }) => piece === 'cape');
+  assert.equal(capeShape.order, Math.min(...hero.shapes.map(({ order }) => order)));
+  assert.equal(hero.depth.cape, Math.min(...Object.values(hero.depth)));
 });
 
 test('the selector never immediately repeats when a registry has alternatives', () => {
