@@ -9,7 +9,62 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — a finished creation survives the browser closing
+## Latest pass (2026-09-23) — a polish pass across three games
+
+**Committed and pushed** to `main` at the owner's request, so it is live on
+GitHub Pages. `npm test` 689/689, `npm run build`, the `preview` playthrough
+15/15 and the `polish-visuals` screenshot pass 5/5 all pass.
+
+Four slices. The Zoo one was done directly by Claude (one line plus correcting a
+test); the other three went to Codex via the router (Sol medium, SUCCESS) as
+order `.ai/wo-polish-preview-snowman-hint.json`. Claude wrote both acceptance
+harnesses and ran them.
+
+- **The Coloring easel stops lying.** `previewSubject` is now separate from
+  `activeSubject`: the sheet in the room shows exactly what Space will open.
+  Before, the easel drew the subject the child had just *finished* and then
+  `startRound()` rerolled at random on opening — the page you walked up to was
+  never the page you got.
+- **つぎ ▶ button** pages the preview in registry order and wraps. Verified
+  live: `snowman -> gingerbread -> hero -> ninja -> robot -> snowman`.
+- **The snowman is two balls** with its face in the clear upper half of the
+  head, and reads 1.25x human size in the Restaurant and Zoo.
+- **Zoo visitors face the arriving child** instead of showing their backs.
+- **The Restaurant names the question** — `おきゃくさんに「What food do you
+  like?」と きこう` — in the existing pill, only while asking is the contextual
+  action.
+
+### Two corrections to this project's own record
+
+- The DESIGN_DECISIONS claim that `faceToward(character, 0, 19)` aimed Zoo
+  visitors at "the park entrance" was **wrong**. The player spawns at z 33.8 and
+  the spots sit at z 24.3–30.0, so it aimed them away from the child.
+- `paperVisitorFacing.test.mjs` was **asserting the bug**, requiring
+  `cos(worldYaw) < -0.5` on the mistaken premise that a child at the entrance
+  looks along +Z. They look along −Z. Sign flipped, premise documented.
+
+### Acceptance actually performed
+
+`node scripts/playthrough-run.mjs preview` (15/15) proves the easel invariant
+from `previewSubjectId`/`activeSubjectId` rather than from a screenshot that all
+five subjects could plausibly produce, and proves Space still opens the canvas
+after つぎ ▶. `polish-visuals` (5/5) shows the hint appearing beside a customer
+and clearing once the action becomes `collect`. Screenshots confirmed the
+two-ball snowman and a paper visitor showing its painted front to the child.
+
+The first snowman render was rejected on looking at it: the smile had landed on
+the head/body seam with the arms crossing it. Face and arms were re-tuned and
+re-rendered.
+
+### Not verified in the browser
+
+The snowman's 1.25x cross-game size side by side with Restaurant or Zoo humans.
+The multiplier is pinned by a test (its scale is strictly greater, defaults
+unchanged at 1) but the Zoo cast the robot rather than the snowman into the
+visible slot on the run that was made. It is one number and easy to tune once
+seen.
+
+## Previous pass (2026-09-23) — a finished creation survives the browser closing
 
 Phase 5, persistence. **Committed and pushed** to `main` at the owner's request,
 so it is live on GitHub Pages. `npm test` 678/678, `npm run build` and the new

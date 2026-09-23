@@ -1,0 +1,85 @@
+{
+  "task": "Three independent polish slices in esl-likes: (A) make the Coloring room easel show the subject that will actually open, and add a simple つぎ ▶ button to page through subjects; (B) rebuild the Snowman as two snowballs instead of three, and make it read larger in the Restaurant and Zoo; (C) show a contextual Japanese hint in the Restaurant telling the child to ask \"What food do you like?\". The slices touch different files and must not be merged into each other.",
+
+  "context": [
+    "esl-likes is a 3D ESL game for Japanese elementary classrooms. Read DESIGN_DECISIONS.md before starting; append one entry per slice at the end (date, what, why, rejected alternative), as the project requires.",
+    "A fourth slice of this pass (turning the Zoo's entrance visitors to face the arriving player) is ALREADY DONE in the working tree by the controller. Do not touch src/minigames/zoo/index.js or src/minigames/zoo/paperVisitorFacing.test.mjs.",
+    "SLICE B REVERSES A PRIOR DECISION on purpose. DESIGN_DECISIONS.md currently says Zoo visitors are normalised to human height and explicitly rejects 'carrying liveScale through, which would have a snowman looming over the people beside it'. The owner has now asked for the Snowman specifically to be bigger. Implement it, and record the reversal as a new dated entry that names the superseded decision rather than editing the old one away.",
+    "Tests run under `node --test` with no DOM and no WebGL. Existing tests read module source as text where they cannot import it; follow that established pattern rather than inventing a renderer."
+  ],
+
+  "requirements": [
+    "SLICE A — Coloring easel preview. Introduce `previewSubject` alongside the existing `activeSubject` in src/minigames/coloring/index.js. `activeSubject` is what is being coloured or coming alive; `previewSubject` is what is drawn on the room easel AND exactly what opens when the child presses Space at it. Initialise both to subjectById(DEFAULT_SUBJECT_ID) so the first visit is still the robot.",
+    "SLICE A — `startRound(subject = activeSubject)` must no longer choose a subject. Delete the `roundsStarted === 0 ? ... : pickNextSubject(...)` selection from it and take the subject from its argument, falling back to DEFAULT_SUBJECT_ID. Keep the `roundsStarted += 1` increment and every other reset in that function untouched. If `pickNextSubject` then has no remaining use in index.js, drop only that import; leave the helper and its tests in subjectRegistry.js alone.",
+    "SLICE A — Add a deterministic `subjectAfter(subject)` that returns the next entry in the registry's SUBJECTS order and wraps from the last back to the first, returning the first entry when the given subject is not found. Import SUBJECTS from './subjectRegistry.js'. Never hard-code a subject order or any subject id beyond the existing DEFAULT_SUBJECT_ID fallback, so a subject added later joins the rotation with no edit here.",
+    "SLICE A — `drawEaselArt(subject, paint = null)` takes the subject to draw and returns early when it is falsy. `setEaselArt(state, { paint = null, subject = null } = {})` picks the subject: an explicit `subject` wins, otherwise 'finished' draws `activeSubject` and every other state draws `previewSubject ?? activeSubject`. The 'blank' branch must keep its current early return and random blankDelay exactly as it is.",
+    "SLICE A — When a creation is finished and the room comes back (in or immediately before `revealRoom()`), set `previewSubject = subjectAfter(activeSubject)` once, before the existing `setEaselArt('blank')` call. The existing blank -> fading drift then renders the new preview.",
+    "SLICE A — `openCanvas()` must open EXACTLY what the easel is showing and must never reroll: resolve `const subject = previewSubject ?? activeSubject ?? subjectById(DEFAULT_SUBJECT_ID)`, assign `activeSubject = subject`, then call `setEaselArt('ready', { subject })` and `startRound(subject)` in place of the current `setEaselArt('ready'); startRound();` pair.",
+    "SLICE A — Add one button to the existing room overlay markup in `createRoomOverlay()`: `<button class=\"coloring-room-ui__next\" type=\"button\">つぎ ▶</button>`, kept inside roomOverlay so it hides with the room. On click it advances `previewSubject = subjectAfter(previewSubject ?? activeSubject)`, redraws the easel with that subject, and plays a small sfx via the existing audio helper. It must do nothing unless `active && phase === 'room'`.",
+    "SLICE A — CRITICAL: the Next button must not steal the Space key. Space is how the child opens the easel, and a focused HTML button consumes Space as a click. Call `.blur()` on the button at the end of its click handler (and make sure a pointer press cannot leave it focused), so pressing Space after Next still opens the canvas rather than paging the preview again. Remove the click listener in the same teardown path that already removes the action button's listener.",
+    "SLICE A — Style `.coloring-room-ui__next` in the existing Coloring stylesheet block, positioned bottom-centre, `pointer-events: auto`, sized for a child's finger (min 8rem x 3.2rem), scaling with `var(--ui-scale, 1)` like the other Coloring controls. It must not overlap the shared Back control (top-left) or the Settings control (top-right).",
+    "SLICE A — Expose the preview in Coloring's `debugSnapshot()` as `previewSubjectId: previewSubject?.id ?? null` alongside the existing fields, and add `activeSubjectId: activeSubject?.id ?? null` if it is not already there. The browser acceptance run needs these to prove the easel and the close-up agree.",
+    "SLICE B — Snowman becomes two snowballs. In src/minigames/coloring/subjects/snowman.js delete the `middleSnowball` shape entirely and reshape to one large lower body plus one head, overlapping slightly so there is no visible gap: body circle about (0.5, 0.67) r 0.29, head circle about (0.5, 0.28) r 0.22, arms as thin rects around y 0.43 reaching out to about x 0.07 and x 0.93. Update `pivots` to match (body about y 0.56, arms about y 0.47).",
+    "SLICE B — Move the Snowman's face and marks to suit the bigger, lower head: eyes near cy 0.245, carrot nose triangle spanning roughly y 0.285-0.34, smile arc near y 0.34-0.36, scarf lines near y 0.43-0.47, and the three buttons on the LOWER body only, near y 0.58, 0.69 and 0.80. Exact values may be tuned for looks; the invariant is exactly two primary snow circles and a face that sits on the head rather than floating off it.",
+    "SLICE B — Add an optional `sizeMultiplier = 1` second parameter to BOTH `restaurantPresentation(liveScale, sizeMultiplier)` and `zooPresentation(liveScale, sizeMultiplier)` in src/minigames/coloring/subjectPresentation.js. It multiplies the computed `scale`, and in the Restaurant also `bubbleOffsetY` and `dialogueOffsetY`, and in the Zoo also `dialogueOffsetY`, so speech stays above a taller head. `hitTargetScale` stays `RESTAURANT_HUMAN_SCALE / scale` so the clickable area remains the shipped human size. With the default of 1, every existing caller's output must be byte-for-byte what it is today.",
+    "SLICE B — In snowman.js declare `const CROSS_GAME_SIZE = 1.25;` and pass it to both presentation helpers. Do NOT change the Snowman's `liveScale` (1.08); this is cross-game presentation only.",
+    "SLICE C — Add `askFoodHint: 'おきゃくさんに「What food do you like?」と きこう'` to the restaurant strings in src/config/lesson.js. Keep the English target phrase exactly 'What food do you like?'.",
+    "SLICE C — Reuse the existing `.restaurant-ui__phase` pill. Add a `showAskFoodHint(visible)` helper that returns immediately when `phasePillRemaining > 0`, so temporary cues (ラッシュ！, round labels) keep priority; hides the pill when not visible; and otherwise shows STRINGS.askFoodHint.",
+    "SLICE C — CRITICAL: `.restaurant-ui__phase` carries `role=\"status\" aria-live=\"polite\"`. `updateContext()` runs every frame, so the helper must only touch `textContent` and `hidden` when the value actually CHANGES. Writing the same text each frame re-announces it endlessly to a screen reader. Track the last shown hint state and early-return when nothing changed.",
+    "SLICE C — Wire it contextually in `updateContext()`: right after `chosenAction` is computed, call `showAskFoodHint(chosenAction === 'talk')`, leaving the existing action if/else chain exactly as it is. Also call `showAskFoodHint(false)` in the `speechCooldown > 0` early return at the top of `updateContext()`, so the hint clears while the child is being heard rather than lingering.",
+    "SLICE C — Add `.restaurant-ui__phase` to the existing `.restaurant-ui--modal ... { display: none; }` selector group so the hint never sits over the rival introduction, challenge dialogue, results or rematch panel. The existing code that hides phasePill on results must keep working.",
+    "TESTS — Slice A: opening the easel yields exactly the previewed subject; opening does not reroll (the preview subject before opening equals the active subject after); Next advances through the registry order and wraps from the last entry back to the first; Next leaves savedCreations() and the living-creature list untouched; the first visit is still the robot. Prefer importing the pure pieces (subjectRegistry, and a `subjectAfter` you may export for testing) over driving the whole controller, and use the existing source-reading pattern where the controller cannot be imported.",
+    "TESTS — Slice B: the Snowman has exactly two circle shapes on the `body` piece and no shape with id `middleSnowball`; its line art / coverage geometry still derives from the definition with no snowman-specific branch; both presentation helpers return their current values unchanged when `sizeMultiplier` is omitted; and the Snowman's Restaurant and Zoo scales are strictly greater than those of a subject with the same liveScale and no multiplier.",
+    "TESTS — Slice C: `chosenAction === 'talk'` shows the hint and any other action hides it; a live phase cue (`phasePillRemaining > 0`) is not overwritten; after the cue expires the hint can return; the helper does not rewrite textContent when the state is unchanged. Test the helper's logic directly rather than booting the Restaurant controller if that is what the existing restaurant tests do.",
+    "Every existing test must still pass. Do not weaken or delete an existing assertion to make new code fit — if one genuinely encodes the old behaviour, change it deliberately and say so in the final report."
+  ],
+
+  "constraints": [
+    "Do not touch src/minigames/zoo/** at all — the Zoo slice of this pass is already finished in the working tree.",
+    "Do not build a subject-selection menu, a carousel, a grid or any second screen. Slice A is one button that pages the existing easel preview.",
+    "Do not regress: Coloring persistence and saved artwork, paper puppet recreation, the power meter, the manual できた！ finish, the Restaurant rival system, scoring, patience, the contextual action priority order, the Zoo photo and animal-search logic, cross-game creations, or Back behaviour.",
+    "Do not change Restaurant lesson speech matching or any answer-recognition logic; the hint is display only.",
+    "Do not add a second HUD, banner or bottom text block in the Restaurant. One existing pill, reused.",
+    "Do not add snowman-specific branches to coverage, line art, blank-body drawing, paper-piece texturing or silhouette bounds. If an existing test or helper assumes a third snowball, remove that assumption rather than keeping a hidden middle circle.",
+    "Do not change the Snowman's liveScale, and do not change any other subject's cross-game size.",
+    "Keep `savedCreations()` and the whole persistence layer untouched; a creation saved before this change must still restore.",
+    "Match the surrounding code style: this project writes short comments about WHY, not what.",
+    "Edit source with structured file tools, not shell here-strings or sed. If a shell-based edit fails once on quoting or escaping, switch to the structured editor rather than trying another escaped variant.",
+    "The three slices are independent. Do not let one slice's refactor spread into another's files."
+  ],
+
+  "startingPoints": [
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/subjectRegistry.js",
+    "src/minigames/coloring/subjects/snowman.js",
+    "src/minigames/coloring/subjectPresentation.js",
+    "src/minigames/restaurant/index.js",
+    "src/config/lesson.js",
+    "DESIGN_DECISIONS.md"
+  ],
+
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "reason": "This worker's sandbox cannot start the Vite preview server, and all three slices are visual: easel/close-up agreement, a two-circle snowman, cross-game size, and an on-screen hint can only be judged from the rendered game. The controller runs the Playwright playthroughs and owns the verdict.",
+    "checks": [
+      "Finish a creation, see the next subject fade onto the easel, press つぎ ▶ and watch it change, then open it and get exactly that subject — repeated several times",
+      "Press Space right after つぎ ▶ and confirm it opens the canvas rather than paging again",
+      "The Snowman reads as two snowballs with its face on the head",
+      "A saved Snowman is visibly larger than the humans beside it in the Restaurant and the Zoo",
+      "Approaching an orderable customer shows the Japanese hint, and it disappears when carrying or delivering a dish",
+      "A rush cue still replaces the hint temporarily, and the hint returns afterwards"
+    ]
+  },
+
+  "category": "gameplay-ui-polish",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

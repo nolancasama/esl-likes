@@ -288,7 +288,11 @@ export function createZoo(ctx) {
         character.scale.setScalar(0.78);
       }
       character.position.set(spot.x, character.groundY ?? 0.08, spot.z);
-      faceToward(character, 0, 19);
+      // Look at the child, not into the park. Every spot sits at a lower z than
+      // the entrance the player spawns at, so aiming these northward stood the
+      // whole waiting crowd with its back turned — and a paper visitor showed
+      // the child a blank sheet where its drawing should have been.
+      faceToward(character, player.position.x, player.position.z);
       character.visible = false;
       zooWorld.group.add(character);
       visitors.push({

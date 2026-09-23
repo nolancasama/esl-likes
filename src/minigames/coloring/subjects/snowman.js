@@ -9,35 +9,38 @@ function deepFreeze(value) {
 const rect = (x, y, width, height, radius = 0.03) => ({ kind: 'rect', x, y, width, height, radius });
 const circle = (cx, cy, r) => ({ kind: 'circle', cx, cy, r });
 const LIVE_SCALE = 1.08;
+const CROSS_GAME_SIZE = 1.25;
 
 const snowman = {
   id: 'snowman', category: 'character', zooSpecies: null,
   crossGame: { restaurantCustomer: true, zooVisitor: true },
   presentation: {
-    restaurant: restaurantPresentation(LIVE_SCALE),
-    zoo: zooPresentation(LIVE_SCALE),
+    restaurant: restaurantPresentation(LIVE_SCALE, CROSS_GAME_SIZE),
+    zoo: zooPresentation(LIVE_SCALE, CROSS_GAME_SIZE),
   },
   pieces: ['body', 'leftArm', 'rightArm'],
-  pivots: { body: { x: 0.5, y: 0.55 }, leftArm: { x: 0.31, y: 0.43 }, rightArm: { x: 0.69, y: 0.43 } },
+  pivots: { body: { x: 0.5, y: 0.56 }, leftArm: { x: 0.38, y: 0.535 }, rightArm: { x: 0.62, y: 0.535 } },
   parents: { body: null, leftArm: 'body', rightArm: 'body' },
   depth: { leftArm: -0.5, rightArm: -0.5, body: 0 },
   shapes: [
-    { id: 'leftArm', piece: 'leftArm', order: 10, shape: rect(0.1, 0.39, 0.27, 0.08, 0.04) },
-    { id: 'rightArm', piece: 'rightArm', order: 11, shape: rect(0.63, 0.39, 0.27, 0.08, 0.04) },
-    { id: 'bottomSnowball', piece: 'body', order: 20, shape: circle(0.5, 0.69, 0.26) },
-    { id: 'middleSnowball', piece: 'body', order: 21, shape: circle(0.5, 0.43, 0.22) },
-    { id: 'head', piece: 'body', order: 22, shape: circle(0.5, 0.19, 0.17) },
+    { id: 'leftArm', piece: 'leftArm', order: 10, shape: rect(0.07, 0.5, 0.35, 0.07, 0.035) },
+    { id: 'rightArm', piece: 'rightArm', order: 11, shape: rect(0.58, 0.5, 0.35, 0.07, 0.035) },
+    { id: 'bottomSnowball', piece: 'body', order: 20, shape: circle(0.5, 0.67, 0.29) },
+    { id: 'head', piece: 'body', order: 21, shape: circle(0.5, 0.28, 0.22) },
   ],
+  // The whole face sits in the clear upper half of the head. Two balls put the
+  // seam, the scarf and the arms all in one narrow band around y 0.42-0.55, and
+  // a mouth anywhere near that reads as a mouth on the snowman's neck.
   details: {
-    eyes: [{ cx: 0.445, cy: 0.17, r: 0.024 }, { cx: 0.555, cy: 0.17, r: 0.024 }], pupilRatio: 0.5,
+    eyes: [{ cx: 0.44, cy: 0.215, r: 0.024 }, { cx: 0.56, cy: 0.215, r: 0.024 }], pupilRatio: 0.5,
     marks: [
-      { type: 'triangle', piece: 'body', points: [{ x: 0.49, y: 0.22 }, { x: 0.64, y: 0.25 }, { x: 0.49, y: 0.27 }], fill: '#e58a1f' },
-      { type: 'arc', piece: 'body', cx: 0.5, cy: 0.26, r: 0.07, startAngle: 0.35, endAngle: 2.8 },
-      { type: 'line', piece: 'body', x1: 0.34, y1: 0.34, x2: 0.66, y2: 0.34, lineWidth: 1.5 },
-      { type: 'line', piece: 'body', x1: 0.35, y1: 0.38, x2: 0.64, y2: 0.38, lineWidth: 1.5 },
-      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.48, r: 0.018, fill: true },
-      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.57, r: 0.018, fill: true },
-      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.68, r: 0.018, fill: true },
+      { type: 'triangle', piece: 'body', points: [{ x: 0.5, y: 0.25 }, { x: 0.65, y: 0.275 }, { x: 0.5, y: 0.3 }], fill: '#e58a1f' },
+      { type: 'arc', piece: 'body', cx: 0.5, cy: 0.3, r: 0.058, startAngle: 0.35, endAngle: 2.8 },
+      { type: 'line', piece: 'body', x1: 0.32, y1: 0.425, x2: 0.68, y2: 0.425, lineWidth: 1.5 },
+      { type: 'line', piece: 'body', x1: 0.33, y1: 0.465, x2: 0.67, y2: 0.465, lineWidth: 1.5 },
+      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.63, r: 0.018, fill: true },
+      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.73, r: 0.018, fill: true },
+      { type: 'circle', piece: 'body', cx: 0.5, cy: 0.83, r: 0.018, fill: true },
     ],
   },
   personality: {

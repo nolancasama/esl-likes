@@ -18,6 +18,10 @@ const SCENARIOS = Object.freeze({
   // Refresh and browser-reopen survival for finished creations. Runs its own
   // persistent Chromium profile rather than the usual throwaway context.
   persistence: 'scripts/playthrough-persistence.mjs',
+  // The easel preview tells the truth, and つぎ ▶ pages it without eating Space.
+  preview: 'scripts/playthrough-preview.mjs',
+  // Screenshot pass for the Zoo entrance facing and the Restaurant ask hint.
+  'polish-visuals': 'scripts/playthrough-polish-visuals.mjs',
   // Runner self-tests (known-good / known-bad), not game checks:
   //   npm run build && npm run playthrough -- selftest-pass   -> exit 0
   //   npm run build && npm run playthrough -- selftest-fail   -> exit 1

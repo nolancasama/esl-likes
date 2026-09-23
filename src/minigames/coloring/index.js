@@ -10,7 +10,7 @@ import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
 import { createCrowd } from './robotCrowd.js';
 import { creationPersistenceStatus, saveCompletedCreation, savedCreations } from './coloringSession.js';
-import { DEFAULT_SUBJECT_ID, pickNextSubject, subjectById } from './subjectRegistry.js';
+import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './subjectRegistry.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
@@ -195,6 +195,12 @@ export function createCompletionReadiness() {
   };
 }
 
+/** Registry order is the easel's order, so newly registered subjects join automatically. */
+export function subjectAfter(subject) {
+  const index = SUBJECTS.indexOf(subject);
+  return SUBJECTS[index < 0 || index === SUBJECTS.length - 1 ? 0 : index + 1] ?? null;
+}
+
 /** Coloring v3: the magical easel. One page, one robot, then another, forever. */
 export function createColoring(ctx) {
   const {
@@ -211,13 +217,13 @@ export function createColoring(ctx) {
     finish,
   } = ctx;
   /**
-   * Which picture this round draws.
+   * The close-up and the room preview deliberately have separate identities.
    *
-   * The first page of a visit is always the robot: it is the one the child may
-   * already have met, and a first visit should not also be a surprise. Every
-   * round after that draws from the pool, never the same subject twice running.
+   * Both start on the familiar default; after a creation comes alive, the room
+   * pages forward while the completed subject remains available to its puppet.
    */
   let activeSubject = subjectById(DEFAULT_SUBJECT_ID);
+  let previewSubject = subjectById(DEFAULT_SUBJECT_ID);
   let roundsStarted = 0;
 
   let world = null;
@@ -229,6 +235,7 @@ export function createColoring(ctx) {
   let roomOverlay = null;
   let roomInstruction = null;
   let actionButton = null;
+  let nextButton = null;
   let roomAction = null;
   let paintingOverlay = null;
   let paintingCanvas = null;
@@ -322,6 +329,12 @@ export function createColoring(ctx) {
         box-shadow: 0 .38rem 0 rgb(32 49 75 / .3);
         font: 900 calc(1.15rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
       .coloring-room-ui__action--door { background: #b4785f; }
+      .coloring-room-ui__next { position: absolute; left: 50%; bottom: 6.25rem;
+        transform: translateX(-50%); min-width: calc(8rem * var(--ui-scale, 1));
+        min-height: calc(3.2rem * var(--ui-scale, 1)); padding: .55rem 1rem;
+        pointer-events: auto; border: .22rem solid #fff; border-radius: 1.2rem;
+        background: #ed9b4a; color: #fff; box-shadow: 0 .32rem 0 rgb(32 49 75 / .28);
+        font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
       /* z-index 18, deliberately BELOW the HUD's 20. The question is asked on
          this screen now, so the Talk control has to be reachable — and the HUD
          is appended before this overlay, so an equal z-index puts the page on
@@ -556,11 +569,15 @@ export function createColoring(ctx) {
     roomOverlay.className = 'coloring-room-ui';
     roomOverlay.innerHTML = `
       <div class="top-bar"><section class="scene-card"><h1></h1><p></p></section></div>
+      <button class="coloring-room-ui__next" type="button">つぎ ▶</button>
       <button class="coloring-room-ui__action" type="button" hidden></button>
     `;
     roomOverlay.querySelector('h1').textContent = STRINGS.roomName;
     roomInstruction = roomOverlay.querySelector('p');
     roomInstruction.textContent = STRINGS.roomHint;
+    nextButton = roomOverlay.querySelector('.coloring-room-ui__next');
+    nextButton.addEventListener('pointerdown', preventNextFocus);
+    nextButton.addEventListener('click', pressNextSubject);
     actionButton = roomOverlay.querySelector('.coloring-room-ui__action');
     actionButton.addEventListener('click', pressRoomAction);
     roomOverlay.hidden = true;
@@ -575,17 +592,18 @@ export function createColoring(ctx) {
    * than a second sheet materialising. The composition is otherwise exactly
    * `drawPage`'s — blank body, then paint, then line art over the top.
    */
-  function drawEaselArt(paint = null) {
+  function drawEaselArt(subject, paint = null) {
+    if (!subject) return;
     const size = easelArtCanvas.width;
     const art = easelArtCanvas.getContext('2d');
     art.clearRect(0, 0, size, size);
-    drawBlankBody(art, { subject: activeSubject, size });
+    drawBlankBody(art, { subject, size });
     if (paint) art.drawImage(paint, 0, 0, size, size);
-    drawLineArt(art, { subject: activeSubject, size });
+    drawLineArt(art, { subject, size });
     easelArtTexture.needsUpdate = true;
   }
 
-  function setEaselArt(state, { paint = null } = {}) {
+  function setEaselArt(state, { paint = null, subject = null } = {}) {
     easelArt = state;
     easelArtTimer = 0;
     if (state === 'blank') {
@@ -593,7 +611,10 @@ export function createColoring(ctx) {
       easelArtMaterial.opacity = 0;
       return;
     }
-    drawEaselArt(paint);
+    const easelSubject = subject ?? (state === 'finished'
+      ? activeSubject
+      : previewSubject ?? activeSubject);
+    drawEaselArt(easelSubject, paint);
     easelArtMaterial.opacity = state === 'fading' ? 0 : 1;
   }
 
@@ -759,6 +780,20 @@ export function createColoring(ctx) {
     if (!active || phase !== 'room' || holdRemaining > 0) return;
     if (roomAction === 'easel') void openCanvas();
     else if (roomAction === 'door') beginTurnaround();
+  }
+
+  function preventNextFocus(event) {
+    event.preventDefault();
+  }
+
+  function pressNextSubject() {
+    if (active && phase === 'room') {
+      previewSubject = subjectAfter(previewSubject ?? activeSubject);
+      setEaselArt('ready', { subject: previewSubject });
+      audio.playSfx('interact');
+    }
+    // Space belongs to the easel action, even immediately after a pointer click.
+    nextButton?.blur();
   }
 
   // --- the page ------------------------------------------------------------
@@ -1124,10 +1159,8 @@ export function createColoring(ctx) {
    * must not disturb a puppet's textures, which each puppet copied for itself
    * when it was built.
    */
-  function startRound() {
-    activeSubject = roundsStarted === 0
-      ? subjectById(DEFAULT_SUBJECT_ID)
-      : pickNextSubject({ lastId: activeSubject?.id ?? null }) ?? activeSubject;
+  function startRound(subject = activeSubject) {
+    activeSubject = subject ?? subjectById(DEFAULT_SUBJECT_ID);
     roundsStarted += 1;
     replayed = false;
     answerSentence = '';
@@ -1162,8 +1195,10 @@ export function createColoring(ctx) {
       // Whatever the sheet was doing out there, the close-up starts on a fresh
       // drawing — which is what makes "press Space while it is still fading"
       // legal rather than a special case.
-      setEaselArt('ready');
-      startRound();
+      const subject = previewSubject ?? activeSubject ?? subjectById(DEFAULT_SUBJECT_ID);
+      activeSubject = subject;
+      setEaselArt('ready', { subject });
+      startRound(subject);
     });
     if (!changed && active && phase === 'to-canvas') phase = 'room';
   }
@@ -1327,6 +1362,7 @@ export function createColoring(ctx) {
     setRoomAction(null);
     // The sheet is blank; a fresh drawing drifts onto it shortly, and the child
     // may interrupt that at any point.
+    previewSubject = subjectAfter(activeSubject);
     setEaselArt('blank');
     holdRemaining = ROOM_HOLD;
     phase = 'room';
@@ -1469,6 +1505,8 @@ export function createColoring(ctx) {
       brush: brushId,
       toolsVisible: paintingOverlay?.dataset.stage === 'painting',
       easelArt,
+      previewSubjectId: previewSubject?.id ?? null,
+      activeSubjectId: activeSubject?.id ?? null,
       easelArtOpacity: easelArtMaterial?.opacity ?? 0,
       action: roomAction ?? null,
       canAct: phase === 'room' && holdRemaining <= 0,
@@ -1653,6 +1691,8 @@ export function createColoring(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     actionButton?.removeEventListener('click', pressRoomAction);
+    nextButton?.removeEventListener('pointerdown', preventNextFocus);
+    nextButton?.removeEventListener('click', pressNextSubject);
     disposePaintingOverlay();
     roomOverlay?.remove();
     style?.remove();
@@ -1688,6 +1728,7 @@ export function createColoring(ctx) {
     roomOverlay = null;
     roomInstruction = null;
     actionButton = null;
+    nextButton = null;
     roomAction = null;
     style = null;
     favourite = null;

@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { insideSilhouette, silhouetteBounds } from './robotDefinition.js';
 import { PUPPET_HEIGHT } from './robotPuppet.js';
+import { restaurantPresentation, zooPresentation } from './subjectPresentation.js';
 import robot from './subjects/robot.js';
 import { TARGET_HEIGHT } from '../../systems/characters.js';
 import {
@@ -125,10 +127,11 @@ test('every subject declares cross-game eligibility and Restaurant presentation'
     }
     assert.ok(subject.presentation.restaurant.scale > 0);
     assert.ok(subject.presentation.restaurant.hitTargetScale > 0);
+    const sizeMultiplier = subject.id === 'snowman' ? 1.25 : 1;
     assert.ok(Math.abs(
       subject.presentation.restaurant.scale * PUPPET_HEIGHT * subject.liveScale
-        - TARGET_HEIGHT * 0.72,
-    ) < 1e-12, `${subject.id} is not normalized to Restaurant customer height`);
+        - TARGET_HEIGHT * 0.72 * sizeMultiplier,
+    ) < 1e-12, `${subject.id} has the wrong Restaurant customer height`);
   }
 
   const scale = TARGET_HEIGHT * 0.72 / PUPPET_HEIGHT;
@@ -142,6 +145,47 @@ test('every subject declares cross-game eligibility and Restaurant presentation'
     hitTargetY: 1.05 * hitTargetScale,
     hitTargetScale,
   });
+});
+
+test('presentation helper defaults preserve the shipped values', () => {
+  const restaurantScale = TARGET_HEIGHT * 0.72 / PUPPET_HEIGHT;
+  const hitTargetScale = 0.72 / restaurantScale;
+  assert.deepEqual(restaurantPresentation(1), {
+    scale: restaurantScale,
+    groundY: 0,
+    seatedY: 0.35,
+    bubbleOffsetY: 2.10,
+    dialogueOffsetY: 1.65,
+    hitTargetY: 1.05 * hitTargetScale,
+    hitTargetScale,
+  });
+  assert.deepEqual(zooPresentation(1), {
+    scale: TARGET_HEIGHT * 0.78 / PUPPET_HEIGHT,
+    groundY: 0.08,
+    dialogueOffsetY: 1.9,
+  });
+});
+
+test('the two-ball snowman is enlarged only by cross-game presentation metadata', () => {
+  const snowman = subjectById('snowman');
+  const bodyCircles = snowman.shapes.filter(({ piece, shape }) => (
+    piece === 'body' && shape.kind === 'circle'
+  ));
+  assert.equal(bodyCircles.length, 2);
+  assert.ok(!snowman.shapes.some(({ id }) => id === 'middleSnowball'));
+
+  assert.ok(snowman.presentation.restaurant.scale > restaurantPresentation(snowman.liveScale).scale);
+  assert.ok(snowman.presentation.zoo.scale > zooPresentation(snowman.liveScale).scale);
+  assert.equal(snowman.liveScale, 1.08);
+});
+
+test('coverage and line art derive snowman geometry from the shared subject definition', () => {
+  const coverageSource = readFileSync(new URL('./coverage.js', import.meta.url), 'utf8');
+  const rendererSource = readFileSync(new URL('./robotRenderer.js', import.meta.url), 'utf8');
+  assert.match(coverageSource, /insideSilhouette\(subject,/);
+  assert.match(rendererSource, /drawOrder\(subject\)/);
+  assert.doesNotMatch(coverageSource, /snowman/i);
+  assert.doesNotMatch(rendererSource, /snowman/i);
 });
 
 test('every subject is connected, centered and stands near the page baseline', () => {

@@ -251,6 +251,7 @@ export const UI = Object.freeze({
   restaurant: {
     roomName: 'レストラン',
     instruction: 'ボタンを おして、しつもんしよう',
+    askFoodHint: 'おきゃくさんに「What food do you like?」と きこう',
     walkToCustomer: 'おきゃくさんに ちかづこう',
     walkToConveyor: 'コンベアに ちかづこう',
     watchConveyor: 'コンベアを よくみよう',

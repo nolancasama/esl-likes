@@ -12,7 +12,9 @@ import {
   PAPER_PLANE_Z,
   PAPER_SIZE,
   PUPPET_START_Z,
+  subjectAfter,
 } from './index.js';
+import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './subjectRegistry.js';
 
 /**
  * Guards for the easel loop.
@@ -248,16 +250,56 @@ test('Done celebrates each fresh arrival at full power, never a held one', () =>
   assert.deepEqual(readiness.update(1), { ready: true, celebrate: true });
 });
 
-test('the first page of a visit is the robot, and every page after it varies', () => {
-  const round = between('function startRound()', 'async function openCanvas()');
-  // The child may already have met the robot; a first visit should not also be
-  // a surprise. After that the pool takes over.
-  assert.match(round, /roundsStarted === 0/);
-  assert.match(round, /subjectById\(DEFAULT_SUBJECT_ID\)/);
-  assert.match(round, /pickNextSubject\(\{ lastId/,
-    'later rounds do not draw from the subject pool');
+test('the first page is the robot and a round uses the subject it is given', () => {
+  const round = between('function startRound(subject = activeSubject)', 'async function openCanvas()');
+  assert.equal(subjectById(DEFAULT_SUBJECT_ID), SUBJECTS[0]);
+  assert.match(source,
+    /let activeSubject = subjectById\(DEFAULT_SUBJECT_ID\);\s*let previewSubject = subjectById\(DEFAULT_SUBJECT_ID\);/);
+  assert.match(round, /activeSubject = subject \?\? subjectById\(DEFAULT_SUBJECT_ID\)/);
+  assert.match(round, /roundsStarted \+= 1/);
+  assert.doesNotMatch(round, /pickNextSubject|Math\.random\(\).*subject/,
+    'opening a round still rerolls the subject');
   assert.match(round, /coverage = createCoverage\(\{ subject: activeSubject/,
     'power is not measured against the subject actually being drawn');
+});
+
+test('subjectAfter follows registry order, wraps, and defaults to the first entry', () => {
+  for (let index = 0; index < SUBJECTS.length; index += 1) {
+    assert.equal(subjectAfter(SUBJECTS[index]), SUBJECTS[(index + 1) % SUBJECTS.length]);
+  }
+  assert.equal(subjectAfter({ id: SUBJECTS[0].id }), SUBJECTS[0],
+    'an object outside the registry must return its first entry');
+  assert.equal(subjectAfter(null), SUBJECTS[0]);
+});
+
+test('the easel opens exactly its preview without rerolling', () => {
+  const open = between('async function openCanvas()', 'function beginCharging()');
+  assert.match(open,
+    /const subject = previewSubject \?\? activeSubject \?\? subjectById\(DEFAULT_SUBJECT_ID\)/);
+  assert.match(open, /activeSubject = subject/);
+  assert.match(open, /setEaselArt\('ready', \{ subject \}\);\s*startRound\(subject\);/);
+  assert.doesNotMatch(open, /pickNextSubject|Math\.random/);
+  assert.match(source, /previewSubject = subjectAfter\(activeSubject\);\s*setEaselArt\('blank'\);/,
+    'the next preview is not selected once before the blank-page drift');
+});
+
+test('Next only pages the preview and cannot keep keyboard focus', () => {
+  const next = between('function pressNextSubject()', '// --- the page');
+  assert.match(next, /if \(active && phase === 'room'\)/);
+  assert.match(next, /previewSubject = subjectAfter\(previewSubject \?\? activeSubject\)/);
+  assert.match(next, /setEaselArt\('ready', \{ subject: previewSubject \}\)/);
+  assert.doesNotMatch(next, /savedCreations|saveCompletedCreation|livingRobots/,
+    'paging the preview mutates saved or living creations');
+  assert.match(next, /nextButton\?\.blur\(\)/);
+  assert.match(source, /nextButton\.addEventListener\('pointerdown', preventNextFocus\)/);
+  assert.match(source, /function preventNextFocus\(event\) \{\s*event\.preventDefault\(\);\s*\}/);
+  assert.match(source, /nextButton\?\.removeEventListener\('click', pressNextSubject\)/);
+});
+
+test('debug snapshot exposes preview and active subject ids', () => {
+  const snapshot = between('function debugSnapshot()', '/** Dev tool.');
+  assert.match(snapshot, /previewSubjectId: previewSubject\?\.id \?\? null/);
+  assert.match(snapshot, /activeSubjectId: activeSubject\?\.id \?\? null/);
 });
 
 test('the visible power label no longer says robot', () => {

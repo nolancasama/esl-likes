@@ -12,6 +12,7 @@ import {
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { chooseAction } from './actionPriority.js';
+import { updateAskFoodHint } from './askFoodHint.js';
 import { RESTAURANT_OWNERS, RIVAL_MIN_SEATED_AGE, createCustomerClaimRegistry } from './claims.js';
 import {
   TABLES,
@@ -353,6 +354,7 @@ export function createRestaurant(ctx) {
   let combo = 0;
   let comboRemaining = 0;
   let phasePillRemaining = 0;
+  let lastAskFoodHintState = null;
   let clickQuestionCustomer = null;
   let questionCommitted = false;
   let debugRootCreated = false;
@@ -465,6 +467,16 @@ export function createRestaurant(ctx) {
     actionButton.hidden = false;
   }
 
+  function showAskFoodHint(visible) {
+    if (phasePillRemaining > 0) return;
+    lastAskFoodHintState = updateAskFoodHint({
+      pill: phasePill,
+      visible,
+      text: STRINGS.askFoodHint,
+      lastShownState: lastAskFoodHintState,
+    });
+  }
+
   function createOverlay() {
     style = document.createElement('style');
     style.textContent = `
@@ -492,7 +504,8 @@ export function createRestaurant(ctx) {
       /* Modal states (rival challenge): ordinary controls and notices step aside. */
       .restaurant-ui--modal .restaurant-ui__action,
       .restaurant-ui--modal .restaurant-ui__notice, .restaurant-ui--modal .restaurant-ui__combo,
-      .restaurant-ui--modal .restaurant-ui__temperature, .restaurant-ui--modal .listen-again { display: none; }
+      .restaurant-ui--modal .restaurant-ui__temperature, .restaurant-ui--modal .restaurant-ui__phase,
+      .restaurant-ui--modal .listen-again { display: none; }
       .restaurant-ui__score { position: absolute; left: 50%; top: 1rem; transform: translateX(-50%);
         white-space: nowrap; padding: .48rem .8rem;
         border: .18rem solid #fff; border-radius: 999px; background: #315d92; color: #fff;
@@ -578,6 +591,7 @@ export function createRestaurant(ctx) {
     notice = overlay.querySelector('.restaurant-ui__notice');
     comboPop = overlay.querySelector('.restaurant-ui__combo');
     phasePill = overlay.querySelector('.restaurant-ui__phase');
+    lastAskFoodHintState = null;
     scoreText = overlay.querySelector('.restaurant-ui__score');
     rivalTitle = overlay.querySelector('.restaurant-ui__title');
     rivalTitle.textContent = STRINGS.rivalTitle;
@@ -2613,6 +2627,7 @@ export function createRestaurant(ctx) {
 
   function updateContext() {
     if (speechCooldown > 0) {
+      showAskFoodHint(false);
       hideAction();
       setListenTarget(null);
       return;
@@ -2659,6 +2674,7 @@ export function createRestaurant(ctx) {
       beltDish: beltWins ? beltDish : null,
       deliverTarget,
     });
+    showAskFoodHint(chosenAction === 'talk');
 
     if (chosenAction === 'talk') {
       hideAction();

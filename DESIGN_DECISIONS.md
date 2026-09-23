@@ -2719,3 +2719,91 @@ memory-only, so Back, hub return, replay and browser close cannot erase a child'
 work; `clearSavedCreations()` exists for a deliberate wipe and is wired to no UI
 in this phase. Rejected: a student-facing Delete All, which in a shared classroom
 browser is a button one child presses to erase another child's drawings.
+
+## 2026-09-23 — The easel stops lying, and the child gets to choose
+
+**What is on the easel is what opens.** The room easel and the close-up now have
+separate identities: `activeSubject` is what is being coloured or coming alive,
+`previewSubject` is what the sheet shows and exactly what Space will open.
+Before this the easel drew `activeSubject` — the subject the child had *just
+finished* — and then `startRound()` rerolled at random when they pressed Space,
+so the page they walked up to was never the page they got. Rejected: keeping the
+random draw and merely redrawing the easel to match after opening, which fixes
+the picture and leaves the child's choice meaningless.
+
+**Subjects advance in registry order, not at random.** `subjectAfter()` steps
+through `SUBJECTS` and wraps. Deterministic order is what makes a つぎ ▶ button
+comprehensible — a child pressing it learns the sequence and can go back round to
+the one they wanted. Rejected: `pickNextSubject()`'s no-immediate-repeat random
+draw, which is right when the game is choosing but incoherent under a button the
+child controls; the helper is left in place for anything that still wants it.
+
+**One button, not a chooser.** つぎ ▶ pages the preview and nothing else: it does
+not save, spawn, alter living creations or start a round. Rejected: a subject
+selection screen, which turns a two-second decision into a menu a six-year-old
+has to read.
+
+**The Next button must never hold keyboard focus.** Space opens the easel, and a
+focused HTML button consumes Space as a click — so without `preventDefault` on
+pointerdown and a `blur()` after the click, pressing つぎ ▶ and then Space would
+page the preview again instead of opening it, with no visible reason why.
+
+## 2026-09-23 — Correcting the Zoo's visitor facing
+
+**The entrance is where the player spawns, and the visitors now face it.**
+Visitors are aimed with `faceToward(character, player.position.x, player.position.z)`.
+The 2026-09-23 entry above states that `faceToward(character, 0, 19)` aimed them
+at "the park entrance the child walks in from". That was wrong: the player spawns
+at z 33.8 and every visitor spot sits between z 24.3 and z 30.0, so (0, 19)
+pointed the entire waiting crowd deeper into the park, and the child arrived to a
+row of backs — and to blank cream paper where a creation's drawing should have
+been. Rejected: a hard-coded replacement angle, which would silently rot the next
+time the spawn or the benches move.
+
+**The facing test was asserting the bug.** `paperVisitorFacing.test.mjs` required
+`cos(worldYaw) < -0.5` on the reasoning that "someone at the entrance looks along
++Z". They look along −Z. The sign is now positive and the test additionally
+asserts that the visitors are aimed at the player rather than at any fixed point.
+The lesson kept: a test that derives its expectation from the same mistaken
+premise as the code will pass forever and protect nothing.
+
+## 2026-09-23 — The snowman is two balls, and bigger away from home
+
+**Two snowballs, not three.** The middle ball is gone; the snowman is one large
+body and one head that overlap. Three balls at picture scale left each one small,
+and the paint-by-area power meter rewarded scrubbing over a stack of thin bands.
+Rejected: keeping a third ball and shrinking the head, which makes the face — the
+part a child actually wants to colour — smaller still.
+
+**The face lives in the clear upper half of the head.** Two balls put the seam,
+the scarf and the arms all in one narrow band around y 0.42–0.55. The first
+attempt placed the smile at y 0.34 with the arms crossing it, and the result read
+as a mouth on the snowman's neck. Eyes, nose and mouth now sit above y 0.35 and
+the arms hang at y 0.50, below the head entirely.
+
+**The snowman is 1.25x human size in the Restaurant and the Zoo.** This reverses
+"Zoo visitors are normalised to human visitor height" from earlier today, which
+explicitly rejected letting a snowman loom over the people beside it. The owner
+asked for the loom: a snowman that reads as just another person in the queue
+reads as nothing at all. The reversal is deliberately narrow — an optional
+`sizeMultiplier` on `restaurantPresentation` and `zooPresentation` that defaults
+to 1, so every other subject keeps the normalisation exactly. Rejected: raising
+the snowman's `liveScale`, which would also change its size in the Coloring room,
+where the normalisation was never the problem.
+
+## 2026-09-23 — The Restaurant says which question to ask
+
+**The hint names the English question, in Japanese, only when asking is the
+action.** `おきゃくさんに「What food do you like?」と きこう` appears in the
+existing phase pill exactly when the contextual action is `talk`, and clears the
+moment it is anything else — collecting, delivering, returning or exchanging.
+Rejected: a permanent banner, which stops being read within a minute and then
+occupies the screen forever; and a second HUD element, when the pill at upper
+centre already exists for exactly this kind of cue.
+
+**Timed cues outrank the hint, and the live region is only written on change.**
+ラッシュ！ and round labels keep the pill while their window runs. Because
+`updateContext()` runs every frame and the pill is `aria-live="polite"`, writing
+the same text each frame would re-announce it to a screen reader endlessly, so
+the helper compares against both the last state and the live DOM before touching
+it — which also lets it recover on its own when a timed cue expires.

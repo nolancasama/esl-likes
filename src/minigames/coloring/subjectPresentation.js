@@ -9,15 +9,15 @@ const RESTAURANT_HUMAN_HEIGHT = TARGET_HEIGHT * RESTAURANT_HUMAN_SCALE;
  * The inverse hit-target scale keeps the clickable area at the shipped human
  * size after the paper character's outer scale is applied.
  */
-export function restaurantPresentation(liveScale) {
-  const scale = RESTAURANT_HUMAN_HEIGHT / (PUPPET_HEIGHT * liveScale);
+export function restaurantPresentation(liveScale, sizeMultiplier = 1) {
+  const scale = RESTAURANT_HUMAN_HEIGHT / (PUPPET_HEIGHT * liveScale) * sizeMultiplier;
   const hitTargetScale = RESTAURANT_HUMAN_SCALE / scale;
   return {
     scale,
     groundY: 0,
     seatedY: 0.35,
-    bubbleOffsetY: 2.10,
-    dialogueOffsetY: 1.65,
+    bubbleOffsetY: 2.10 * sizeMultiplier,
+    dialogueOffsetY: 1.65 * sizeMultiplier,
     hitTargetY: 1.05 * hitTargetScale,
     hitTargetScale,
   };
@@ -35,10 +35,10 @@ const ZOO_HUMAN_HEIGHT = TARGET_HEIGHT * ZOO_HUMAN_SCALE;
  * a visitor waiting to be spoken to should read as one of the crowd rather than
  * loom over it.
  */
-export function zooPresentation(liveScale) {
+export function zooPresentation(liveScale, sizeMultiplier = 1) {
   return {
-    scale: ZOO_HUMAN_HEIGHT / (PUPPET_HEIGHT * liveScale),
+    scale: ZOO_HUMAN_HEIGHT / (PUPPET_HEIGHT * liveScale) * sizeMultiplier,
     groundY: 0.08,
-    dialogueOffsetY: 1.9,
+    dialogueOffsetY: 1.9 * sizeMultiplier,
   };
 }
