@@ -22,6 +22,8 @@ const SCENARIOS = Object.freeze({
   preview: 'scripts/playthrough-preview.mjs',
   // Screenshot pass for the Zoo entrance facing and the Restaurant ask hint.
   'polish-visuals': 'scripts/playthrough-polish-visuals.mjs',
+  // The student run: Coloring -> Restaurant -> Zoo -> completion, Back and replay.
+  sequence: 'scripts/playthrough-sequence.mjs',
   // Runner self-tests (known-good / known-bad), not game checks:
   //   npm run build && npm run playthrough -- selftest-pass   -> exit 0
   //   npm run build && npm run playthrough -- selftest-fail   -> exit 1
@@ -29,6 +31,9 @@ const SCENARIOS = Object.freeze({
   'selftest-fail': 'scripts/selftest/fail.mjs',
 });
 const PREVIEW_TIMEOUT_MS = 30_000;
+// Students start in Coloring now. Every harness written before the three-stage
+// run walks the old five-door hub, which `?hub=1` still opens as free play.
+const SEQUENCE_SCENARIOS = new Set(['sequence']);
 
 let previewProcess = null;
 let scenarioProcess = null;
@@ -199,10 +204,11 @@ async function main() {
   const startedAt = new Date();
   try {
     await waitForPreview(url, () => previewError);
-    const result = await runScenario(script, url, relativePrefix, extraArgs);
+    const scenarioUrl = SEQUENCE_SCENARIOS.has(scenario) ? url : `${url}?hub=1`;
+    const result = await runScenario(script, scenarioUrl, relativePrefix, extraArgs);
     const endedAt = new Date();
     const screenshots = await collectScreenshots(runDirectory);
-    const command = `node ${script} ${url} ${relativePrefix}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`;
+    const command = `node ${script} ${scenarioUrl} ${relativePrefix}${extraArgs.length ? ` ${extraArgs.join(' ')}` : ''}`;
     let harnessReport = null;
     if (scenario === 'zoo' || scenario === 'restaurant') {
       try {

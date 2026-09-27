@@ -2895,3 +2895,40 @@ the permanent barn; the water tower was rebuilt from its collider radius. The
 well had no collider and simply went. The giant forest tree, the woodland
 landmark, was rebuilt with the new tree generator so the one tree a child
 navigates by is not the last smooth object in the park.
+
+## 2026-09-28 — One run instead of a room of doors
+
+**Students play Coloring -> Restaurant -> Zoo in a fixed order, and never see the
+five-door hub.** Startup opens Coloring; each finish records progress and wipes
+straight to the next stage; the Zoo ends on a small `ぜんぶ できた！` card whose
+`もういちど` restarts at Coloring. The order lives once, in
+`GAME_SEQUENCE` (`src/systems/gameSequence.js`), and a shell navigator owns every
+destination — startup, finish, Back, replay — through one routing path. No
+minigame knows what comes before or after it; each still only calls
+`ctx.finish(result)`. *Rejected:* letting each game name its successor, which
+would couple Coloring to the Restaurant and make reordering a multi-file change.
+
+**Back means "the previous stage", and a stage re-entered starts fresh.** Coloring
+has no Back at all (Escape does nothing there once local guards pass); the
+Restaurant goes back to Coloring and the Zoo to the Restaurant. The runtime state
+of the game being left is not frozen or restored — a Restaurant reopened from the
+Zoo is a new service — but everything durable stays: saved creations, stamps,
+best stars, answers and the Zoo photo. Finishing a stage again is allowed and
+simply carries the run forward. *Rejected:* restoring game state, which every
+minigame would have to learn to serialise for a one-step undo.
+
+**Drink Stand and Sports are switched off, not removed.** `available: false` in
+the lesson config; their factories stay registered in `main.js`, their code,
+assets and vocabulary untouched. The stamp book and completion card list only the
+three active stages; old stamps for the disabled games stay in saved data.
+
+**The hub stays, behind `?hub=1`, in every build.** It is the old free play — every
+finish and Back return to it — and the disabled doors show as もうすぐ through
+the hub's existing `lesson.available` logic. It is not DEV-only (as first
+proposed) because the playthrough harnesses run against a production `vite
+preview`; the runner now appends `?hub=1` to every scenario except `sequence`.
+There is no visible route to it for a student.
+
+**The completion card is a controller, not an overlay on the Zoo.** Routing to it
+through the same transition exits the Zoo properly behind it, so no park keeps
+running under the card.

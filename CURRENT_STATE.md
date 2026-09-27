@@ -9,7 +9,35 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-23) — new animals, and a park built from boxes
+## Latest pass (2026-09-28) — one run: Coloring -> Restaurant -> Zoo
+
+**Committed and pushed** to `main` at the owner's request. Done directly by
+Claude (owner: "not through a router"). `npm test` 708/708, `npm run build`,
+the new `sequence` playthrough 32/32 and the `preview` playthrough 16/16 (now
+under `?hub=1`).
+
+- **Students never see the hub.** Startup opens Coloring. Finish -> next stage;
+  the Zoo ends on a `ぜんぶ できた！` card whose `もういちど` restarts Coloring and
+  keeps every save. Back: none in Coloring, Restaurant -> Coloring, Zoo ->
+  Restaurant; the stage re-entered starts fresh. See DESIGN_DECISIONS 2026-09-28.
+- **The route lives in `src/systems/gameSequence.js`**: `GAME_SEQUENCE` and
+  `createShellNavigator` (startup, finish, Back, replay, one path). `main.js`
+  only builds stages. `src/ui/sequenceComplete.js` is the end card.
+- **Drink Stand and Sports are `available: false`**, still registered. Their
+  playthroughs cannot enter them now, even through the hub.
+- **`?hub=1` opens the old free-play hub in any build.** `playthrough-run.mjs`
+  appends it to every scenario except `sequence`, so the older harnesses still
+  walk the doors. Harnesses run directly (not via the runner) need it added.
+- **Dev hooks:** `__eslDebug.shell` (read-only stage) always; `__eslDebug.shellFinish(stars)`
+  only under DEV or `?editor`, the same gate as Coloring's dev hooks.
+
+### Not verified
+
+The Restaurant and Zoo were finished through `shellFinish` in the sequence run,
+not played to the end; their own harnesses (`restaurant`, `zoo`) were not rerun
+this pass. The Settings button sits under the completion card (z-index 40).
+
+## Previous pass (2026-09-23) — new animals, and a park built from boxes
 
 **Committed and pushed** to `main` at the owner's request, so it is live.
 `npm test` 693/693, `npm run build`, the `preview` playthrough 16/16 and the

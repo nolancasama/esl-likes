@@ -24,7 +24,8 @@ function isEditableTarget(target) {
 export const SHELL_MODAL_ESCAPE_PRIORITY = 10;
 
 /**
- * Creates the shell-owned route back to the hub and arbitrates Escape for
+ * Creates the shell-owned Back route (the previous stage, or the hub in free
+ * play) and arbitrates Escape for
  * local UIs that need to close before a minigame can be left.
  */
 export function createBackControl({ root, label, onBack }) {

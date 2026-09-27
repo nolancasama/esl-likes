@@ -146,6 +146,45 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .stamp-status { font-size: 0.85rem; }
 .stamp-photo { max-width: 100%; max-height: 90px; border-radius: 12px; margin-top: 8px; }
 
+/* The end of the Coloring -> Restaurant -> Zoo run. */
+.sequence-complete {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #76c7ff;
+  pointer-events: auto;
+}
+.sequence-complete__card {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: min(460px, 100%);
+  padding: 28px 24px;
+  border: 4px solid #ffbf2f;
+  border-radius: 28px;
+  background: #fff9e9;
+  box-shadow: 0 8px 0 rgb(48 68 93 / 24%);
+  text-align: center;
+}
+.sequence-complete__card h1 { margin: 0; font-size: 2rem; }
+.sequence-complete__stages { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sequence-complete__stages li { display: flex; align-items: center; gap: 12px; font-size: 1.15rem; font-weight: 900; }
+.sequence-complete__stars { color: #e5a000; letter-spacing: 2px; font-size: 1.4rem; }
+/* Scoped under #ui-layer to outrank its `font: inherit` for buttons. */
+#ui-layer .sequence-complete__replay {
+  min-width: 12rem;
+  min-height: 4rem;
+  border: 4px solid #e58b2e;
+  border-radius: 999px;
+  background: #ffcf4b;
+  color: #26384d;
+  font-size: 1.5rem;
+  font-weight: 900;
+}
+
 #scene-wipe {
   z-index: 1000;
   pointer-events: none;
