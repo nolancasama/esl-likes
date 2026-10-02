@@ -2944,9 +2944,15 @@ door, its frame, collider and Space action are gone, with no invisible blocker.
 *Rejected:* keeping the door alongside the button (two ways out, one of them
 hidden in 3D).
 
-**Painting again is said in plain words.** Room hint `もう1まい ぬる？ /
-イーゼルに ちかづこう`, easel action `スペースで もう1まい ぬる`. The preview-cycle
+**Painting again is said in plain words.** Room hint `もう1まい ぬる？`, easel
+action `スペースで もう1まい ぬる`. The preview-cycle
 button is `キャラを かえる ▶`, because `つぎ ▶` now reads as "next stage".
+
+**Painting again has three equivalent entrances.** A persistent `もう1まい ぬる`
+button and a direct click/tap on the easel now sit alongside the existing
+near-easel Space action. All three funnel through `openCanvas()`, preserving its
+synchronous double-entry guard and the exact subject currently previewed on the
+easel. *Rejected:* auto-walking the player to the easel after a pointer input.
 
 **The Coloring room is 18 × 16 (was 12.5 × 11.5)**, built at that size, not
 scaled; the easel moved back to z = -3 to keep the centre open. Layout lives in
@@ -2994,3 +3000,13 @@ while the HUD is hidden, and `hide()` resets the Talk state to READY while
 keeping the failure count. After the first stage opens, the shell calls
 `getUserMedia({ audio: true })` once (skipped in mic-free mode) and stops every
 track at once; nothing waits on it and any failure is ignored.
+
+**Carrying food hides the ask-food clue at once, whatever owns the pill.**
+`showAskFoodHint(false)` no longer waits for a phase cue to expire; it hides the
+pill only when it holds the ask-food text, so `ランチラッシュ！` and the round cues
+are never cut short. `updateContext` begins with `suppressTalkWhileCarrying()`
+(no clue, no click target, no new question, no Talk HUD); pickup hides the clue
+the same frame, and the rival's challenge scene, which skips `updateContext`,
+hides it too. The 🔊 replay of an order already taken still shows while carrying.
+*Rejected:* relying on `chooseAction` alone, which never runs during the
+challenge scene, so a clue shown just before it stayed up.

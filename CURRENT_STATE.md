@@ -2,14 +2,35 @@
 
 ## Usage watch
 
-Codex was **available and took both delegated orders** this pass. Gemini and all
+Codex was **available and took the delegated order** in the latest pass. Gemini and all
 four `agy-*` workers remained under the global coding readiness quarantine
 (`baseline-executor-unready [executor antigravity]`). Re-check with
 `node ~/.claude/workers/bin/route.js .ai/<order>.json`; these go stale in hours.
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-10-02) — clearer first steps in each stage
+## Latest pass (2026-10-02, follow-up) — paint again anywhere; no ask clue while carrying
+
+**Committed and pushed** to `main` at the owner's request. Coloring by Codex
+(`.ai/wo-coloring-paint-again.json`); Restaurant fix done directly.
+
+- **Coloring:** `もう1まい ぬる` (`[data-coloring-paint-again]`) sits beside
+  `レストランへ →` with the same visibility; tapping/clicking the easel from
+  anywhere also paints (invisible hit box on `easelGroup`, pointer cursor on
+  hover); near-easel Space unchanged. All three call `openCanvas()`. Room hint is
+  just `もう1まい ぬる？`. Debug: `paintAgainButtonVisible`, `easelScreenPosition`.
+- **Restaurant:** `suppressTalkWhileCarrying()` + `hideAskFoodHint` keep the
+  ask-food clue and Talk off while carrying, including during the rival scene.
+
+Validation: `npm test` 740/740, build passes. Browser (scratch scripts, not in
+the repo): Coloring 31/31 at 1366×768 and 800×600 (button, easel click and touch
+tap from afar, Space only near the easel, preview subject honoured, one screen on
+double input, buttons hidden outside `room`). Restaurant: a 40 ms monitor saw the
+clue/Talk 0 times while carrying across two orders, a click on an unasked
+customer and a walk past seated diners; Talk returned with empty hands. Not
+re-run: the `restaurant`/`coloring` playthrough harnesses.
+
+## Previous pass (2026-10-02) — clearer first steps in each stage
 
 **Committed and pushed** to `main` at the owner's request. Three Codex orders ran
 in parallel git worktrees (`.ai/wo-pass-{coloring,restaurant,zoo}.json`) and were

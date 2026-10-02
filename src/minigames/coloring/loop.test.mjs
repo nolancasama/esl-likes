@@ -8,6 +8,7 @@ import {
   buildColoringEasel,
   CAMERA,
   createCompletionReadiness,
+  isColoringEaselTarget,
   PAPER_CAMERA_GAP,
   PAPER_PLANE_Z,
   PAPER_SIZE,
@@ -157,6 +158,47 @@ test('the Restaurant button appears only in an ordinary room with a creation', (
   assert.match(source, /data-coloring-finish/);
   assert.match(source, /finishButton\.textContent = STRINGS\.restaurantButton/);
   assert.match(source, /finishButton\.addEventListener\('click', beginTurnaround\)/);
+});
+
+test('paint-again shares the Restaurant button eligibility and openCanvas guard', () => {
+  assert.match(source, /data-coloring-paint-again/);
+  assert.match(source, /paintAgainButton\.textContent = STRINGS\.paintAgain/);
+  assert.match(source, /paintAgainButton\.addEventListener\('click', pressPaintAgain\)/);
+  const sync = between('function syncRoomButtons()', 'function pressNextSubject()');
+  assert.match(sync, /finishButton\.hidden = !shown;[\s\S]*paintAgainButton\.hidden = !shown/);
+  assert.match(sync, /finishButton\.disabled = !shown;[\s\S]*paintAgainButton\.disabled = !shown/);
+  const press = between('function pressPaintAgain()', 'function setEaselCursor(');
+  assert.match(press, /if \(!active \|\| phase !== 'room' \|\| holdRemaining > 0\) return/);
+  assert.match(press, /void openCanvas\(\)/);
+  assert.doesNotMatch(press, /previewSubject\s*=|subjectAfter/,
+    'paint-again advances the preview instead of opening the visible subject');
+  assert.match(source, /paintAgainButton\?\.removeEventListener\('click', pressPaintAgain\)/);
+});
+
+test('easel target detection walks parents and respects its root boundary', () => {
+  const tagged = { userData: { coloringEaselTarget: true }, parent: null };
+  const child = { userData: {}, parent: tagged };
+  const grandchild = { parent: child };
+  assert.equal(isColoringEaselTarget(grandchild, tagged), true);
+  assert.equal(isColoringEaselTarget({ userData: {}, parent: null }, tagged), false);
+
+  const boundary = { userData: {}, parent: tagged };
+  assert.equal(isColoringEaselTarget({ userData: {}, parent: boundary }, boundary), false,
+    'target detection escaped the supplied easel boundary');
+});
+
+test('the easel pointer uses one guarded handler and balanced canvas listeners', () => {
+  const pointerHandler = between('function onEaselPointer(event)', 'function preventNextFocus(');
+  assert.match(pointerHandler, /active && phase === 'room' && holdRemaining <= 0/);
+  assert.match(pointerHandler, /event\.type === 'pointerdown' && hit/);
+  assert.match(pointerHandler, /pressPaintAgain\(\)/);
+  assert.match(source, /raycaster\.intersectObject\(easelHitMesh, true\)/);
+  for (const type of ['pointerdown', 'pointermove', 'pointerleave']) {
+    assert.equal([...source.matchAll(new RegExp(`addEventListener\\('${type}', onEaselPointer\\)`, 'g'))].length, 1);
+    assert.equal([...source.matchAll(new RegExp(`removeEventListener\\('${type}', onEaselPointer\\)`, 'g'))].length, 1);
+  }
+  assert.match(source, /setEaselCursor\(false\);\s*canvas\?\.removeEventListener/,
+    'teardown does not reset the canvas cursor before removing pointer listeners');
 });
 
 test('finishing keeps the player hidden through the celebration beat', () => {
@@ -494,13 +536,14 @@ test('both puppet placements derive from the paper plane', () => {
 
 test('the strings the new loop needs all exist', () => {
   for (const key of ['roomName', 'askRobot', 'canvasLabel', 'chooseColor', 'paintHint', 'readyHint',
-    'power', 'powerFull', 'alive', 'roomHint', 'easelAction', 'previewCycle', 'restaurantButton',
+    'power', 'powerFull', 'alive', 'roomHint', 'easelAction', 'paintAgain', 'previewCycle', 'restaurantButton',
     'turnaround', 'complete']) {
     assert.equal(typeof STRINGS[key], 'string', `UI.coloring.${key} is missing`);
     assert.ok(STRINGS[key].length > 0, `UI.coloring.${key} is empty`);
   }
-  assert.equal(STRINGS.roomHint, 'もう1まい ぬる？\nイーゼルに ちかづこう');
+  assert.equal(STRINGS.roomHint, 'もう1まい ぬる？');
   assert.equal(STRINGS.easelAction, 'スペースで もう1まい ぬる');
+  assert.equal(STRINGS.paintAgain, 'もう1まい ぬる');
   assert.equal(STRINGS.restaurantButton, 'レストランへ →');
 });
 

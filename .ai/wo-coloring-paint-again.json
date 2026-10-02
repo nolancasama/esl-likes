@@ -1,0 +1,54 @@
+{
+  "task": "Coloring room: three equivalent ways to paint another picture (persistent button, click/tap the easel, existing near-easel Space), all through the existing openCanvas()",
+  "requirements": [
+    "Inspect the current working tree first; much of the previous UX pass is already present (persistent レストランへ → button [data-coloring-finish], キャラを かえる ▶, syncRoomButtons, shouldShowRestaurantButton). Do not duplicate or revert it.",
+    "src/config/lesson.js UI.coloring: add paintAgain: 'もう1まい ぬる'; change roomHint to 'もう1まい ぬる？' (drop the 'イーゼルに ちかづこう' line). Keep easelAction 'スペースで もう1まい ぬる' unchanged.",
+    "src/minigames/coloring/index.js: add `let paintAgainButton = null;` and a <button class=\"coloring-room-ui__paint-again\" data-coloring-paint-again type=\"button\" hidden> in the room overlay; bind it once in the overlay builder (textContent = STRINGS.paintAgain, click -> pressPaintAgain).",
+    "pressPaintAgain(): return unless active && phase === 'room' && holdRemaining <= 0; then `void openCanvas()`. Never duplicate openCanvas()'s body; openCanvas already uses previewSubject ?? activeSubject ?? default, so the painted subject must be exactly the current easel preview. Do not advance the preview on paint-again.",
+    "Extend syncRoomButtons() so paintAgainButton uses the SAME eligibility as finishButton (shouldShowRestaurantButton: phase === 'room' && livingRobots.length > 0), setting hidden and disabled on both. They must be hidden in every non-room phase (to-canvas, canvas question, painting, activation, robot exit, room reveal, turnaround, finishing). Make sure every place that currently calls syncRoomButtons or hides finishButton also covers paintAgainButton.",
+    "Layout: place もう1まい ぬる and レストランへ → side by side at the bottom as a pair (keep creating / continue). もう1まい ぬる may match the existing blue action-button style; レストランへ → keeps its distinct style. They must not overlap Settings, Back, the speech HUD, キャラを かえる ▶, or the contextual Space action button, at Chromebook sizes (1366x768 and 1280x800) and a narrow 800x600. Adjust the existing .coloring-room-ui CSS in index.js only as needed.",
+    "Direct easel click/tap: mark the existing easelGroup as a pointer target (userData metadata on its meshes, or one invisible, somewhat larger hit mesh parented to easelGroup that does not render visibly, cast shadows, or add navigation collision). Add ONE Pointer Events handler on the 3D canvas (find how the renderer DOM element and camera are reachable — see how the Restaurant raycasts customer clicks and reuse the repo's convention) that raycasts against the easel target and, when hit, calls `void openCanvas()` under the same guard as pressPaintAgain (active, phase === 'room', holdRemaining <= 0). No proximity requirement for pointer input. It must not walk/teleport the player or simulate Space; if Coloring has any click-to-walk, an easel hit must not also trigger it. Clicks on DOM buttons must not reach it.",
+    "Hover feedback: on mouse hover over the easel in room phase, set the canvas cursor to pointer (and reset it otherwise / on exit). No tooltip, no modal, no continuous effect.",
+    "Space/proximity easel interaction (pressRoomAction / roomAction === 'easel') stays exactly as is: Space far from the easel does nothing.",
+    "Double input: openCanvas() already sets phase = 'to-canvas' synchronously before awaiting; confirm double-click on button or easel creates one round/overlay only.",
+    "Cleanup on exit: remove the paint-again click listener and the pointer listener(s); reset cursor; null paintAgainButton (and any hit mesh refs) alongside the other room refs. No listener leaks across re-entering Coloring.",
+    "Debug snapshot: next to restaurantButtonVisible add paintAgainButtonVisible: Boolean(paintAgainButton && !paintAgainButton.hidden). If convenient add a dev-only way for the harness to click the easel (e.g. a function returning the easel's screen position) so the browser check can do a real pointer click.",
+    "Tests: unit-test whatever pure logic you extract (e.g. the button eligibility, or an easel-hit predicate walking parents for the target metadata) in src/minigames/coloring/*.test.mjs.",
+    "Append a dated entry (2026-10-02) to DESIGN_DECISIONS.md: paint-again is a persistent button plus a direct easel tap, alongside Space; all three funnel through openCanvas; rejected: auto-walking to the easel."
+  ],
+  "constraints": [
+    "Touch only src/minigames/coloring/index.js, src/config/lesson.js (UI.coloring only), new/updated src/minigames/coloring/*.test.mjs, scripts/playthrough-coloring.mjs if you extend it, and DESIGN_DECISIONS.md.",
+    "Do NOT touch anything under src/minigames/restaurant/ — another change is in flight there.",
+    "No refactor of Coloring beyond what these requirements need.",
+    "Use Write/Edit tools for source edits; if a shell edit fails once on quoting/escaping, switch to Write/Edit.",
+    "Do not commit or push."
+  ],
+  "startingPoints": [
+    "src/minigames/coloring/index.js",
+    "src/config/lesson.js",
+    "src/minigames/restaurant/index.js (read-only: how customer click raycasting gets the camera/canvas)",
+    "scripts/playthrough-coloring.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "checks": [
+      "After the first creation enters the room, もう1まい ぬる and レストランへ → are both visible as a bottom pair, not overlapping other UI",
+      "Clicking もう1まい ぬる from far away opens Painting with the previewed subject (after キャラを かえる ▶)",
+      "Clicking/tapping the easel from far away opens Painting with the previewed subject; the player does not move",
+      "Space far from easel does nothing; near easel opens Painting",
+      "Both buttons hidden during painting/cinematics; double-click opens one round"
+    ]
+  },
+  "category": "ui-3d-interaction",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "notes": "The working tree already has uncommitted controller edits in src/minigames/restaurant/ (askFoodHint.js, index.js, askFoodHint.test.mjs). They are intentional; leave them untouched. Read DESIGN_DECISIONS.md entries for 2026-10-02 / 2026-09-28 for the Coloring room context. openCanvas() sets phase to to-canvas before awaiting transitions.run, which is the double-entry guard."
+}

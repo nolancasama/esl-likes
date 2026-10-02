@@ -16,7 +16,7 @@ import {
   RESTAURANT_ONBOARDING_STEPS,
   createRestaurantOnboarding,
 } from './onboarding.js';
-import { updateAskFoodHint } from './askFoodHint.js';
+import { hideAskFoodHint, updateAskFoodHint } from './askFoodHint.js';
 import { RESTAURANT_OWNERS, RIVAL_MIN_SEATED_AGE, createCustomerClaimRegistry } from './claims.js';
 import {
   TABLES,
@@ -478,6 +478,13 @@ export function createRestaurant(ctx) {
   }
 
   function showAskFoodHint(visible) {
+    // Hiding never waits for a phase cue: a stale hint could otherwise outlive
+    // the state that showed it (it stayed up while carrying through the rival
+    // intro, which skips updateContext).
+    if (!visible) {
+      lastAskFoodHintState = hideAskFoodHint({ pill: phasePill, text: STRINGS.askFoodHint });
+      return;
+    }
     if (phasePillRemaining > 0) return;
     lastAskFoodHintState = updateAskFoodHint({
       pill: phasePill,
@@ -1650,6 +1657,7 @@ export function createRestaurant(ctx) {
     if (questionCustomer && !questionCommitted) clearQuestion();
     clickQuestionCustomer = null;
     hud.hide();
+    showAskFoodHint(false);
     world.remove(dish.mesh);
     carryAnchor.add(dish.mesh);
     dish.mesh.position.set(0, 0, 0);
@@ -2788,8 +2796,18 @@ export function createRestaurant(ctx) {
     return dx * dx + dz * dz <= DISH_RETURN_RADIUS_SQ;
   }
 
+  // Hands full means no new question: no ask-food clue, no Talk HUD, no speech
+  // target. The 🔊 replay of an order already taken is separate and stays.
+  function suppressTalkWhileCarrying() {
+    if (!carried) return;
+    showAskFoodHint(false);
+    clickQuestionCustomer = null;
+    if (questionCustomer) clearQuestion();
+    else if (!hud.element.hidden) hud.hide();
+  }
+
   function updateContext() {
-    if (carried && !hud.element.hidden) hud.hide();
+    suppressTalkWhileCarrying();
     if (speechCooldown > 0 && !carried) {
       showAskFoodHint(false);
       hideAction();
@@ -2799,7 +2817,6 @@ export function createRestaurant(ctx) {
 
     // Once Talk is pressed, keep this customer locked through recognition and
     // retries. Mere proximity remains free to retarget before that commitment.
-    if (carried && questionCustomer) clearQuestion();
     const lockedQuestion = !carried && questionCommitted ? customerStillNear(questionCustomer) : null;
     if (questionCommitted && !lockedQuestion) clearQuestion();
 
@@ -4393,6 +4410,9 @@ export function createRestaurant(ctx) {
       updateConveyor(playDt);
       updateCarried(playDt);
       if (intro) {
+        // updateContext is skipped for the whole challenge scene, so a clue
+        // shown just before it would otherwise stay up until it ends.
+        showAskFoodHint(false);
         updateOnboardingGuidance();
         input.consumeInteract();
       }

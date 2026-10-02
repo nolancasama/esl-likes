@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { UI } from '../../config/lesson.js';
 import { chooseAction } from './actionPriority.js';
-import { updateAskFoodHint } from './askFoodHint.js';
+import { hideAskFoodHint, updateAskFoodHint } from './askFoodHint.js';
 
 const HINT = UI.restaurant.askFoodHint;
 
@@ -64,4 +64,33 @@ test('an unchanged hint state does not rewrite the live region', () => {
   state = update(pill, true, state);
   assert.equal(state, true);
   assert.deepEqual(pill.writes, { textContent: 1, hidden: 1 });
+});
+
+test('hiding removes a stale ask-food hint even while a phase cue timer runs', () => {
+  const pill = trackedPill({ textContent: HINT, hidden: false });
+  assert.equal(hideAskFoodHint({ pill, text: HINT }), false);
+  assert.equal(pill.hidden, true);
+});
+
+test('hiding the ask-food hint never hides a live phase cue', () => {
+  for (const cue of ['ランチラッシュ！', 'ラウンド 2！', 'ラストスパート！']) {
+    const pill = trackedPill({ textContent: cue, hidden: false });
+    hideAskFoodHint({ pill, text: HINT });
+    assert.equal(pill.hidden, false, cue);
+    assert.equal(pill.textContent, cue);
+  }
+});
+
+test('the hint can come back after it was force-hidden', () => {
+  const pill = trackedPill({ textContent: HINT, hidden: false });
+  const state = hideAskFoodHint({ pill, text: HINT });
+  assert.equal(update(pill, true, state), true);
+  assert.equal(pill.hidden, false);
+  assert.equal(pill.textContent, HINT);
+});
+
+test('hiding an already hidden hint does not rewrite the live region', () => {
+  const pill = trackedPill({ textContent: HINT, hidden: true });
+  hideAskFoodHint({ pill, text: HINT });
+  assert.equal(pill.writes.hidden, 0);
 });

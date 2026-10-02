@@ -196,10 +196,22 @@ export function shouldShowRestaurantButton({ currentPhase, creationCount }) {
   return currentPhase === 'room' && creationCount > 0;
 }
 
+/** True when an intersected mesh belongs to the easel's pointer target. */
+export function isColoringEaselTarget(object, root = null) {
+  let current = object;
+  while (current) {
+    if (current.userData?.coloringEaselTarget) return true;
+    if (current === root) break;
+    current = current.parent;
+  }
+  return false;
+}
+
 /** Coloring v3: the magical easel. One page, one robot, then another, forever. */
 export function createColoring(ctx) {
   const {
     scene,
+    camera,
     cameraRig,
     input,
     speech,
@@ -224,6 +236,7 @@ export function createColoring(ctx) {
   let world = null;
   let player = null;
   let easelGroup = null;
+  let easelHitMesh = null;
   let easelArtCanvas = null;
   let easelArtTexture = null;
   let easelArtMaterial = null;
@@ -232,6 +245,8 @@ export function createColoring(ctx) {
   let actionButton = null;
   let nextButton = null;
   let finishButton = null;
+  let paintAgainButton = null;
+  let canvas = null;
   let roomAction = null;
   let paintingOverlay = null;
   let paintingCanvas = null;
@@ -296,6 +311,9 @@ export function createColoring(ctx) {
   const materials = new Set();
   const textures = new Set();
   const move = new THREE.Vector2();
+  const pointer = new THREE.Vector2();
+  const easelScreenPoint = new THREE.Vector3();
+  const raycaster = new THREE.Raycaster();
 
   const ownGeometry = (geometry) => { geometries.add(geometry); return geometry; };
   const ownMaterial = (material) => { materials.add(material); return material; };
@@ -331,11 +349,22 @@ export function createColoring(ctx) {
         pointer-events: auto; border: .22rem solid #fff; border-radius: 1.2rem;
         background: #ed9b4a; color: #fff; box-shadow: 0 .32rem 0 rgb(32 49 75 / .28);
         font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
-      .coloring-room-ui__finish { position: absolute; right: 1.25rem; bottom: 6.25rem;
+      .coloring-room-ui__bottom-actions { position: absolute; right: 1.25rem; bottom: 6.25rem;
+        display: flex; align-items: stretch; gap: .65rem; pointer-events: none; }
+      .coloring-room-ui__paint-again, .coloring-room-ui__finish {
         min-height: calc(3.6rem * var(--ui-scale, 1)); padding: .65rem 1.15rem;
         pointer-events: auto; border: .24rem solid #fff; border-radius: 1.25rem;
-        background: #dc684f; color: #fff; box-shadow: 0 .36rem 0 rgb(32 49 75 / .3);
+        color: #fff; box-shadow: 0 .36rem 0 rgb(32 49 75 / .3);
         font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
+      .coloring-room-ui__paint-again { background: #5b67c8; }
+      .coloring-room-ui__finish { background: #dc684f; }
+      @media (max-width: 900px) {
+        .coloring-room-ui__next { left: 1.25rem; transform: none; }
+        .coloring-room-ui__bottom-actions { gap: .4rem; }
+        .coloring-room-ui__paint-again, .coloring-room-ui__finish {
+          min-height: calc(3.2rem * var(--ui-scale, 1)); padding: .5rem .75rem;
+          font-size: calc(.9rem * var(--ui-scale, 1)); }
+      }
       .coloring-room-ui .scene-card p { white-space: pre-line; }
       /* z-index 18, deliberately BELOW the HUD's 20. The question is asked on
          this screen now, so the Talk control has to be reachable — and the HUD
@@ -573,7 +602,10 @@ export function createColoring(ctx) {
       <div class="top-bar"><section class="scene-card"><h1></h1><p></p></section></div>
       <button class="coloring-room-ui__next" type="button"></button>
       <button class="coloring-room-ui__action" type="button" hidden></button>
-      <button class="coloring-room-ui__finish" data-coloring-finish type="button" hidden></button>
+      <div class="coloring-room-ui__bottom-actions">
+        <button class="coloring-room-ui__paint-again" data-coloring-paint-again type="button" hidden></button>
+        <button class="coloring-room-ui__finish" data-coloring-finish type="button" hidden></button>
+      </div>
     `;
     roomOverlay.querySelector('h1').textContent = STRINGS.roomName;
     roomInstruction = roomOverlay.querySelector('p');
@@ -584,6 +616,9 @@ export function createColoring(ctx) {
     nextButton.addEventListener('click', pressNextSubject);
     actionButton = roomOverlay.querySelector('.coloring-room-ui__action');
     actionButton.addEventListener('click', pressRoomAction);
+    paintAgainButton = roomOverlay.querySelector('[data-coloring-paint-again]');
+    paintAgainButton.textContent = STRINGS.paintAgain;
+    paintAgainButton.addEventListener('click', pressPaintAgain);
     finishButton = roomOverlay.querySelector('[data-coloring-finish]');
     finishButton.textContent = STRINGS.restaurantButton;
     finishButton.addEventListener('click', beginTurnaround);
@@ -681,6 +716,18 @@ export function createColoring(ctx) {
       artMaterial: easelArtMaterial,
     });
     easelGroup = easel.group;
+    easelGroup.userData.coloringEaselTarget = true;
+    easelHitMesh = new THREE.Mesh(box, makeMaterial(0xffffff, {
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    }));
+    easelHitMesh.name = 'coloring-easel-pointer-target';
+    easelHitMesh.position.set(0, 1.55, 0.05);
+    easelHitMesh.scale.set(2.5, 3.25, 0.8);
+    easelHitMesh.castShadow = false;
+    easelHitMesh.receiveShadow = false;
+    easelGroup.add(easelHitMesh);
     world.add(easelGroup);
     setEaselArt('ready');
 
@@ -732,18 +779,58 @@ export function createColoring(ctx) {
     if (roomAction === 'easel') void openCanvas();
   }
 
+  function pressPaintAgain() {
+    if (!active || phase !== 'room' || holdRemaining > 0) return;
+    void openCanvas();
+  }
+
+  function setEaselCursor(overEasel = false) {
+    if (canvas) canvas.style.cursor = overEasel ? 'pointer' : '';
+  }
+
+  function pointerHitsEasel(event) {
+    if (!canvas || !easelHitMesh) return false;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return false;
+    pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.intersectObject(easelHitMesh, true)
+      .some((intersection) => isColoringEaselTarget(intersection.object, easelGroup));
+  }
+
+  /** One canvas Pointer Events handler owns click, hover and leave feedback. */
+  function onEaselPointer(event) {
+    const eligible = active && phase === 'room' && holdRemaining <= 0;
+    if (!eligible || event.type === 'pointerleave') {
+      setEaselCursor(false);
+      return;
+    }
+    const hit = pointerHitsEasel(event);
+    setEaselCursor(hit);
+    if (event.type === 'pointerdown' && hit) {
+      setEaselCursor(false);
+      pressPaintAgain();
+    }
+  }
+
   function preventNextFocus(event) {
     event.preventDefault();
   }
 
   function syncRoomButtons() {
-    if (!finishButton) return;
+    if (!finishButton || !paintAgainButton) return;
     const shown = shouldShowRestaurantButton({
       currentPhase: phase,
       creationCount: livingRobots.length,
     });
     finishButton.hidden = !shown;
     finishButton.disabled = !shown;
+    paintAgainButton.hidden = !shown;
+    paintAgainButton.disabled = !shown;
+    if (!shown) setEaselCursor(false);
   }
 
   function pressNextSubject() {
@@ -1477,6 +1564,8 @@ export function createColoring(ctx) {
       canAct: phase === 'room' && holdRemaining <= 0,
       nearEasel: player && phase === 'room' ? nearEasel() : false,
       restaurantButtonVisible: Boolean(finishButton && !finishButton.hidden),
+      paintAgainButtonVisible: Boolean(paintAgainButton && !paintAgainButton.hidden),
+      easelScreenPosition: easelScreenPosition(),
       player: player ? { x: player.position.x, z: player.position.z } : null,
       robots: livingRobots.map((robot) => ({
         id: robot.id,
@@ -1495,6 +1584,18 @@ export function createColoring(ctx) {
         // read only by the harness.
         art: robot.puppet.fingerprint(24),
       })),
+    };
+  }
+
+  function easelScreenPosition() {
+    if (!canvas || !easelGroup) return null;
+    easelGroup.getWorldPosition(easelScreenPoint);
+    easelScreenPoint.y += 1.55;
+    easelScreenPoint.project(camera);
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.left + (easelScreenPoint.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-easelScreenPoint.y * 0.5 + 0.5) * rect.height,
     };
   }
 
@@ -1576,6 +1677,10 @@ export function createColoring(ctx) {
     // it is not shown: the first thing the child sees is the drawing.
     buildWorld();
     restoreSavedRobots();
+    canvas = document.querySelector('#game-canvas');
+    canvas?.addEventListener('pointerdown', onEaselPointer);
+    canvas?.addEventListener('pointermove', onEaselPointer);
+    canvas?.addEventListener('pointerleave', onEaselPointer);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
@@ -1656,7 +1761,12 @@ export function createColoring(ctx) {
     hud.hide();
     dialogue.hide();
     cameraRig.setTarget(null);
+    setEaselCursor(false);
+    canvas?.removeEventListener('pointerdown', onEaselPointer);
+    canvas?.removeEventListener('pointermove', onEaselPointer);
+    canvas?.removeEventListener('pointerleave', onEaselPointer);
     actionButton?.removeEventListener('click', pressRoomAction);
+    paintAgainButton?.removeEventListener('click', pressPaintAgain);
     finishButton?.removeEventListener('click', beginTurnaround);
     nextButton?.removeEventListener('pointerdown', preventNextFocus);
     nextButton?.removeEventListener('click', pressNextSubject);
@@ -1691,6 +1801,7 @@ export function createColoring(ctx) {
     world = null;
     player = null;
     easelGroup = null;
+    easelHitMesh = null;
     easelArtCanvas = null;
     easelArtTexture = null;
     easelArtMaterial = null;
@@ -1699,6 +1810,8 @@ export function createColoring(ctx) {
     actionButton = null;
     nextButton = null;
     finishButton = null;
+    paintAgainButton = null;
+    canvas = null;
     roomAction = null;
     style = null;
     favourite = null;
