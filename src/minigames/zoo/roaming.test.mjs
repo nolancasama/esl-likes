@@ -1,10 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canOccupy } from './layout.js';
 import {
   ANIMAL_IDS,
-  ANIMAL_RADIUS,
   AREAS,
   TERRITORIES,
   TERRITORY_BY_ID,
@@ -81,14 +79,6 @@ test('every territory is internally reachable', () => {
       });
     }
     assert.equal(seen.size, points.length, `${territory.id} has unreachable waypoints`);
-  }
-});
-
-test('the pig never has to cross the cove pool', () => {
-  const pig = TERRITORY_BY_ID.pig;
-  for (const point of pig.waypoints) {
-    assert.ok(canOccupy(point.x, point.z, ANIMAL_RADIUS.pig),
-      `pig waypoint (${point.x}, ${point.z}) is in the water`);
   }
 });
 
@@ -188,20 +178,6 @@ test('no animal roams across the whole park', () => {
       maxX = Math.max(maxX, animal.x);
     }
     assert.ok(maxX - minX <= 23, `${id} ranged ${(maxX - minX).toFixed(1)} units across`);
-  }
-});
-
-test('a blocked destination is rejected rather than walked through', () => {
-  // The cove pool sits between waypoints, so it rejects some straight lines.
-  const pig = TERRITORY_BY_ID.pig;
-  const blocked = pig.waypoints.flatMap((from) => pig.waypoints
-    .filter((to) => from !== to && !canWalkBetween('pig', from, to)));
-  assert.ok(blocked.length > 0, 'the pool blocks nothing, so the check is not exercised');
-
-  const animal = createRoamingAnimal('pig', { rng: createRng(13) });
-  for (let t = 0; t < 400; t += 1 / 30) {
-    animal.update(1 / 30);
-    assert.ok(canStand('pig', animal.x, animal.z), 'the pig entered the pool');
   }
 });
 

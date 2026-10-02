@@ -47,6 +47,7 @@ const gingerbread = {
     hop: { root: { hopHeightScale: 1.22, tilt: 0.2 }, rotations: { leftArm: { lagAir: -0.82 }, rightArm: { lagAir: 0.82 }, leftLeg: { air: -0.22 }, rightLeg: { air: 0.22 } }, blink: true },
     celebrate: { root: { hopHeightScale: 1.35, tilt: 0.18 }, rotations: { leftArm: { lagAir: -1.05 }, rightArm: { lagAir: 1.05 }, leftLeg: { air: -0.28 }, rightLeg: { air: 0.28 } }, rotationScale: 1.12, blink: false },
   },
+  motionProfile: { speed: 1.12, idleMin: 0.8, idleMax: 1.35 },
   liveScale: LIVE_SCALE,
 };
 

@@ -1,0 +1,37 @@
+{
+  "task": "esl-likes Restaurant: in-world first-order onboarding (one gated first customer, approach marker, ask -> conveyor -> deliver guidance, then normal service) and a root-state fix so carrying a dish always outranks starting a new customer Talk.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game. The Restaurant (src/minigames/restaurant/index.js, ~4400 lines) is a conveyor-sushi style service game: customers sit, the player asks 'What food do you like?', the customer answers, the player picks the dish from the conveyor and delivers it. After 3 player deliveries a rival challenger arrives (Round 1/2/3, rematches, result stage). Read DESIGN_DECISIONS.md entries on the Restaurant first. Do not touch the shell, HUD (src/ui/hud.js), Coloring or Zoo.",
+    "ONBOARDING GATE (src/minigames/restaurant/director.js): add a small gate API (name it well, e.g. holdAfterFirstSeat / releaseOnboarding) so that on the initial service opening of a fresh Restaurant controller the director seats exactly ONE first customer and pauses further seat events until the controller releases the gate after the first successful correct PLAYER delivery. Then ordinary scheduling resumes. The gate must not apply to rival rounds or rematches. The first customer is a normal customer: real order/food logic, counts toward shift progress, player delivery total and the 3-delivery rival trigger, normal patience rules (if patience could expire during the tutorial before the child understands, it is acceptable to give only that customer generous/paused patience until the order is taken - decide and report). If the first customer leaves unserved or is served by a rival, the gate must not deadlock: release it or seat a replacement - decide and report. Add director unit tests.",
+    "FIRST CUSTOMER GUIDANCE (tutorial customer only): when seated show hint 'おきゃくさんに ちかづこう' and a strong temporary in-world target (bouncing arrow or pulsing ring, simple geometry, no new assets) above/around that customer. The marker disappears when the player enters talk range / begins asking. Near the customer the existing contextual question clue appears (おきゃくさんに「What food do you like?」と きこう) with the Talk HUD available. After the customer answers, show conveyor guidance reusing existing strings walkToConveyor / watchConveyor (src/config/lesson.js) rather than adding duplicates, plus a brief temporary emphasis on the conveyor (arrow/pulse) - never highlight the correct dish. When the player picks up a dish: hint 'おきゃくさんに とどけよう' and the marker returns above the tutorial customer; existing 'スペースで とどける' action near them. After the first correct delivery: existing ありがとう！/できた！ feedback, clear all tutorial markers and hints, release the director gate, normal gameplay. Later customers never get the marker. Do not tutorialize the rival. No modal tutorial.",
+    "CARRY PRIORITY (root state, not text): today questionCandidate can win over carried-dish actions. Fix the interaction selection so that while carrying a dish: no new customer Talk action, no 'What food do you like?' clue, no Talk HUD, Space never opens a microphone interaction for a new customer. Priority while carrying: near dish return -> return; near belt dish -> exchange; near the appropriate player-owned customer -> deliver; otherwise no Space action. Any uncommitted Talk target is cleared on pickup and the HUD hidden. The separate '🔊 もういちど きく' Listen Again reminder may stay. Once hands are empty, Talk becomes available again. Also make src/minigames/restaurant/actionPriority.js (or wherever action priority lives) rank carried-item actions above Talk defensively if conflicting data is passed. The comment near the settings subscription ('setMicFree re-shows Talk') is now stale: setMicFree no longer re-shows a hidden HUD (fixed in src/ui/hud.js already) - keep syncHud() there but fix the comment.",
+    "TESTS: unit tests for the director gate (only one seat until release; release resumes; not applied to rival rounds; no deadlock), action priority with carried + question candidate, and the onboarding step machine if you extract it as a pure module (recommended: a small restaurant/onboarding.js state machine: approach -> ask -> toConveyor -> deliver -> done). Update scripts/playthrough-restaurant.mjs if it assumes several customers seat immediately or relies on the old priority.",
+    "Do NOT edit DESIGN_DECISIONS.md or CURRENT_STATE.md (the controller merges three parallel branches and records decisions). List product decisions you made in your final summary."
+  ],
+  "constraints": [
+    "Touch only src/minigames/restaurant/**, the restaurant section of src/config/lesson.js, Restaurant-specific CSS (prefer the module's own styles; if editing src/styles.css, add rules next to existing restaurant rules, never at end of file), and scripts/playthrough-restaurant.mjs.",
+    "Do not regress: fixed difficulty design, conveyor behaviour, dish exchange/return, contextual action button, customer ownership, patience, temperature, Listen Again, rival entrance, Round 1/2/3, rematches, score/result stage, final turnaround.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/director.js",
+    "src/minigames/restaurant/director.test.mjs",
+    "src/minigames/restaurant/actionPriority.js",
+    "src/config/lesson.js",
+    "scripts/playthrough-restaurant.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller plays the first order in the browser and runs the restaurant playthrough."
+  },
+  "category": "feature-gameplay",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "high",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning"
+}

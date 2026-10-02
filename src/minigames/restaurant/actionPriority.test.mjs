@@ -3,19 +3,26 @@ import assert from 'node:assert/strict';
 
 import { chooseAction } from './actionPriority.js';
 
-test('speech cooldown and a locked question block every world action', () => {
-  const all = { carried: true, questionCandidate: {}, nearReturn: true, beltDish: {}, deliverTarget: {} };
-  assert.equal(chooseAction({ ...all, speechCooldown: true }), 'none');
-  assert.equal(chooseAction({ ...all, lockedQuestion: {} }), 'none');
+test('speech cooldown and a locked question block empty-handed world actions', () => {
+  assert.equal(chooseAction({ speechCooldown: true, beltDish: {} }), 'none');
+  assert.equal(chooseAction({ lockedQuestion: {}, beltDish: {} }), 'none');
 });
 
-test('a question candidate owns Talk when the belt does not win', () => {
+test('a question candidate owns Talk only with empty hands', () => {
   assert.equal(chooseAction({ questionCandidate: {} }), 'talk');
-  assert.equal(chooseAction({ carried: true, questionCandidate: {}, nearReturn: true }), 'talk');
+  assert.equal(chooseAction({ carried: true, questionCandidate: {} }), 'none');
 });
 
 test('carrying priority is return, then exchange, then delivery', () => {
-  const base = { carried: true, nearReturn: true, beltDish: {}, deliverTarget: {} };
+  const base = {
+    carried: true,
+    questionCandidate: {},
+    lockedQuestion: {},
+    speechCooldown: true,
+    nearReturn: true,
+    beltDish: {},
+    deliverTarget: {},
+  };
   assert.equal(chooseAction(base), 'return');
   assert.equal(chooseAction({ ...base, nearReturn: false }), 'exchange');
   assert.equal(chooseAction({ ...base, nearReturn: false, beltDish: null }), 'deliver');

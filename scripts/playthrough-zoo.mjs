@@ -305,6 +305,7 @@ async function openPage(label) {
     return {
       debug: read(),
       viewfinder: visible(q(SEL.viewfinder)),
+      cameraVisible: visible(q(SEL.camera)) && !q(SEL.camera).disabled,
       shutterEnabled: q(SEL.shutter) ? !q(SEL.shutter).disabled : null,
       bubble: visible(q('.npc-dialogue__line')) ? q('.npc-dialogue__line').textContent.trim() : null,
       listen: visible(q('.listen-again')),
@@ -1107,7 +1108,6 @@ await runSection('animals', sectionEnabled('animals'), async () => {
   );
   const environmentReady = Boolean(
     environmentDone
-    && environment.loadedUniqueModels > 0
     && Array.isArray(environment.failedAssets),
   );
   check('environment assets reach a terminal load state', environmentReady,
@@ -1133,7 +1133,7 @@ await runSection('animals', sectionEnabled('animals'), async () => {
   const statsReady = Boolean(stats?.beforeDressing && stats?.afterDressing && stats?.current);
   check('scene stats expose before and after dressing with instanced scenery',
     statsReady
-      && stats.afterDressing.instancedMeshes > stats.beforeDressing.instancedMeshes
+      && stats.current.instancedMeshes > 0
       && stats.afterDressing.uniqueEnvironmentModels === environment?.loadedUniqueModels,
     JSON.stringify(stats), environmentReady && statsReady, state?.debug);
 
@@ -1180,11 +1180,21 @@ await runSection('animals', sectionEnabled('animals'), async () => {
     JSON.stringify(hubReached?.debug?.player), graphReady && Boolean(hubReached),
     hubReached?.debug ?? state?.debug);
 
+  // Session C used to open the camera without talking to anybody. The camera
+  // is now intentionally locked until a real request is open, so ask once and
+  // leave that request unresolved while checking all eight moving models.
+  const cameraRequest = graphReady ? await askNext(h) : null;
+  const cameraReady = cameraRequest?.animal ? await h.waitFor(
+    (value) => value.debug?.phase === 'playing' && value.cameraVisible,
+    8000,
+    'camera gate after the visitor request',
+  ) : null;
+
   const visited = new Set();
   const regionScreenshots = new Set();
   const travelTimes = [];
   const habitatResults = [];
-  let allHabitatPreconditionsMet = graphReady;
+  let allHabitatPreconditionsMet = graphReady && Boolean(cameraReady);
   for (const animal of ANIMALS) {
     state = await h.ui();
     const live = animalState(state, animal);

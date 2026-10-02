@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RING_RADIUS, createCrowd } from './robotCrowd.js';
+import { RING_RADIUS, createCrowd, createNewcomerReaction } from './robotCrowd.js';
 import { ROAM_POINTS, insideSafeArea } from './robotPuppet.js';
 
 /** A seeded RNG, so "they differ" is a fact about the crowd and not about luck. */
@@ -68,6 +68,52 @@ test('saved personality values are reused when a robot rejoins', () => {
   assert.equal(member.idlePause, saved.idlePause);
   assert.equal(member.stateTime, saved.stateTime);
   assert.ok(member.points.length > 0, 'rejoining did not receive live roam points');
+});
+
+test('a subject motion profile controls cadence without overriding saved pauses', () => {
+  const crowd = createCrowd({ random: () => 0.5 });
+  const profile = { speed: 1.28, idleMin: 0.6, idleMax: 1 };
+  const fresh = crowd.join({}, profile);
+  assert.equal(fresh.speed, profile.speed);
+  assert.equal(fresh.idlePause, 0.8);
+
+  const restored = crowd.join({ idlePause: 2.17, stateTime: 0.83 }, profile);
+  assert.equal(restored.speed, profile.speed);
+  assert.equal(restored.idlePause, 2.17);
+  assert.equal(restored.stateTime, 0.83);
+});
+
+test('the newcomer reaction celebrates once and always resumes previous roaming', () => {
+  function fakePuppet(x, z) {
+    const calls = [];
+    const puppet = {
+      group: { position: { x, z } },
+      calls,
+      pauseRoaming() { calls.push('pause'); return puppet; },
+      resumeRoaming() { calls.push('resume'); return puppet; },
+      setHeading(value) { calls.push(['heading', value]); return puppet; },
+      setState(value) { calls.push(['state', value]); return puppet; },
+    };
+    return puppet;
+  }
+
+  const nearby = fakePuppet(1, 0);
+  const far = fakePuppet(20, 20);
+  const newcomer = { puppet: fakePuppet(0, 0) };
+  const reaction = createNewcomerReaction({ duration: 1.25, radius: 6.5 });
+
+  assert.equal(reaction.start([{ puppet: nearby }, { puppet: far }], newcomer), 1);
+  assert.equal(reaction.active, true);
+  assert.deepEqual(nearby.calls[0], 'pause');
+  assert.deepEqual(nearby.calls.at(-1), ['state', 'celebrate']);
+  assert.deepEqual(far.calls, []);
+
+  assert.equal(reaction.update(0.5), true);
+  assert.deepEqual(nearby.calls.at(-1), ['state', 'idle']);
+  assert.equal(reaction.update(0.74), true);
+  assert.equal(reaction.update(0.02), false);
+  assert.equal(reaction.active, false);
+  assert.equal(nearby.calls.filter((call) => call === 'resume').length, 1);
 });
 
 test('a member that never asks for randomness still differs in its route', () => {

@@ -9,7 +9,41 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-09-28) — one run: Coloring -> Restaurant -> Zoo
+## Latest pass (2026-10-02) — clearer first steps in each stage
+
+**Committed and pushed** to `main` at the owner's request. Three Codex orders ran
+in parallel git worktrees (`.ai/wo-pass-{coloring,restaurant,zoo}.json`) and were
+merged by the controller; the HUD fix and mic warm-up were done directly. See
+DESIGN_DECISIONS 2026-10-02.
+
+- **Coloring:** door gone; `レストランへ →` button (`[data-coloring-finish]`)
+  starts the turnaround; room 18 × 16 (`coloring/roomLayout.js`); paint-again
+  wording; `キャラを かえる ▶`; per-subject `motionProfile`; newcomer greeting.
+- **Restaurant:** first order is gated to one customer with ring/arrow guidance
+  (`restaurant/onboarding.js`, `director.releaseOnboarding`); carrying a dish
+  removes Talk entirely.
+- **Zoo:** camera gated on open requests (`zoo/cameraGate.js`); `どうぶつずかん`
+  guide (`zoo/animalGuide.js`); booth, barn, tower, terrace, fountain and cove
+  removed; 80 trees scattered evenly.
+- **Shell:** `src/ui/hud.js` no longer re-shows a hidden HUD (stale `できた！`);
+  `src/systems/micWarmup.js` asks for the mic once after startup
+  (`__eslDebug.micWarmup` reports the outcome once it settles).
+
+### Validation
+
+`npm test` and `npm run build` pass. `sequence` playthrough 32/32; `restaurant`
+73/73. A scripted first Restaurant order (approach → ask → belt → carry → deliver
+→ release) passed 13/13 in the browser; the Zoo gate, guide (8 thumbnails, Escape
+closes it first, cache reused on reopen) and park were checked from screenshots.
+
+### Known harness debt
+
+`playthrough-coloring` fails 18 checks that assume a fresh room each visit — the
+counts include creations restored by the persistence pass (same failures on the
+pre-pass baseline). Every check for this pass's features passes. The harness's
+silhouette calls were also updated to the subject-taking API this pass.
+
+## Previous pass (2026-09-28) — one run: Coloring -> Restaurant -> Zoo
 
 **Committed and pushed** to `main` at the owner's request. Done directly by
 Claude (owner: "not through a router"). `npm test` 708/708, `npm run build`,

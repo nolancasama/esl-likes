@@ -6,6 +6,12 @@ import ninja from './subjects/ninja.js';
 
 export const DEFAULT_SUBJECT_ID = 'robot';
 
+export const DEFAULT_MOTION_PROFILE = Object.freeze({
+  speed: 1,
+  idleMin: 1.1,
+  idleMax: 2.3,
+});
+
 export const SUBJECTS = Object.freeze([
   robot,
   snowman,
@@ -17,6 +23,12 @@ export const subjectRegistry = SUBJECTS;
 
 export function subjectById(id) {
   return SUBJECTS.find((subject) => subject.id === id) ?? null;
+}
+
+/** Roaming personality is optional so old and future subjects stay playable. */
+export function motionProfileFor(subjectOrId) {
+  const subject = typeof subjectOrId === 'string' ? subjectById(subjectOrId) : subjectOrId;
+  return subject?.motionProfile ?? DEFAULT_MOTION_PROFILE;
 }
 
 /**

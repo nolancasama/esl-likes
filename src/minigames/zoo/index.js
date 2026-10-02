@@ -19,9 +19,16 @@ import { DEFAULT_SUBJECT_ID, subjectById } from '../coloring/subjectRegistry.js'
 import { disposeSharedPaperAssets } from '../coloring/paperPuppet.js';
 import { chooseCreationSlots, pickCreation } from '../../systems/creationCasting.js';
 import { createPaperCharacter } from '../../systems/paperCharacter.js';
+import {
+  createThumbnailCache,
+  deriveAnimalGuideEntries,
+  renderAnimalThumbnails,
+} from './animalGuide.js';
+import { canOpenZooCamera } from './cameraGate.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
+const ANIMAL_GUIDE_ENTRIES = deriveAnimalGuideEntries(LESSON.vocabulary, STRINGS.animalNames);
 const MOVE_SPEED = 13.5;
 const VIEWFINDER_FOV = 34;
 const TALK_RADIUS_SQ = 3.2 * 3.2;
@@ -83,6 +90,9 @@ export function createZoo(ctx) {
   let instruction = null;
   let notice = null;
   let cameraButton = null;
+  let guideButton = null;
+  let animalGuide = null;
+  let animalGuideClose = null;
   let carriedIndicator = null;
   let viewfinder = null;
   let viewfinderGuide = null;
@@ -139,6 +149,17 @@ export function createZoo(ctx) {
   const viewfinderEye = new THREE.Vector3();
   const viewfinderLook = new THREE.Vector3();
   const viewfinderRay = new THREE.Vector3();
+  const guideThumbnailCache = createThumbnailCache(async (entries) => {
+    const currentWorld = zooWorld;
+    if (!currentWorld) return new Map();
+    await currentWorld.loadAnimals();
+    if (!active || zooWorld !== currentWorld) return new Map();
+    return renderAnimalThumbnails({
+      renderer,
+      entries,
+      cloneModel: (id) => currentWorld.cloneAnimalModel(id),
+    });
+  });
 
   function setInstruction(text) {
     if (instruction) instruction.textContent = text;
@@ -164,7 +185,13 @@ export function createZoo(ctx) {
         min-width: min(76vw, 18rem); min-height: 3.9rem; padding: .7rem 1.2rem; pointer-events: auto;
         border: .23rem solid #fff; border-radius: 1.35rem; background: #3377d5; color: #fff;
         box-shadow: 0 .36rem 0 rgb(31 50 77 / .3); font: 900 calc(1.1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
-      .zoo-ui__camera:focus-visible, .zoo-viewfinder button:focus-visible { outline: 4px solid #ffcf33; outline-offset: 3px; }
+      .zoo-ui__camera:disabled { filter: saturate(.55); opacity: .72; }
+      .zoo-ui__guide { position: absolute; right: 1rem; bottom: 1.15rem; min-height: 3.7rem;
+        padding: .65rem 1.15rem; pointer-events: auto; border: .22rem solid #fff; border-radius: 1.2rem;
+        background: #277d58; color: #fff; box-shadow: 0 .34rem 0 rgb(31 50 77 / .3);
+        font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .zoo-ui__camera:focus-visible, .zoo-ui__guide:focus-visible, .zoo-viewfinder button:focus-visible,
+      .zoo-animal-guide button:focus-visible { outline: 4px solid #ffcf33; outline-offset: 3px; }
       .zoo-ui__carried { position: absolute; left: 1rem; bottom: 1rem; width: 14.5rem; min-height: 4.5rem;
         display: grid; grid-template-columns: 4.6rem 1fr; gap: .65rem; align-items: center; padding: .55rem;
         border: .2rem solid #fff; border-radius: 1rem; background: rgb(32 50 72 / .9); color: #fff;
@@ -191,8 +218,34 @@ export function createZoo(ctx) {
       .zoo-viewfinder__shutter { background: #e54f43; }
       .zoo-viewfinder__shutter:disabled { background: #71818c; color: #dbe1e4; }
       .zoo-viewfinder__close { background: #30445d; }
+      .zoo-animal-guide { position: absolute; inset: 0; z-index: 17; display: grid; place-items: center;
+        padding: 1.2rem; pointer-events: auto; background: rgb(12 24 33 / .66); }
+      .zoo-animal-guide[hidden] { display: none; }
+      .zoo-animal-guide__panel { width: min(66rem, 94vw); max-height: 92vh; overflow: auto;
+        padding: 1rem 1.2rem 1.25rem; border: .28rem solid #fff; border-radius: 1.4rem;
+        background: #f7f3dc; box-shadow: 0 .55rem 0 rgb(20 32 48 / .35); }
+      .zoo-animal-guide__header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      .zoo-animal-guide__header h2 { margin: 0; color: #263e32;
+        font: 900 calc(1.65rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .zoo-animal-guide__close { min-height: 3rem; padding: .45rem 1rem; border: .18rem solid #fff;
+        border-radius: 999px; background: #40566d; color: #fff;
+        font: 900 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .zoo-animal-guide__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: .8rem; margin-top: .85rem; }
+      .zoo-animal-guide__card { min-width: 0; padding: .55rem; border: .16rem solid #b6c99b;
+        border-radius: 1rem; background: #fff; text-align: center; }
+      .zoo-animal-guide__picture { height: clamp(6.4rem, 16vh, 8.2rem); display: grid; place-items: center;
+        overflow: hidden; border-radius: .7rem; background: #eaf4dc; }
+      .zoo-animal-guide__picture img { width: 100%; height: 100%; object-fit: contain; }
+      .zoo-animal-guide__fallback { font-size: 3.4rem; line-height: 1; }
+      .zoo-animal-guide__english { display: block; margin-top: .35rem; color: #263e32;
+        font: 900 calc(1.3rem * var(--ui-scale, 1)) system-ui, sans-serif; }
+      .zoo-animal-guide__japanese { display: block; color: #526457;
+        font: 800 calc(1rem * var(--ui-scale, 1)) system-ui, sans-serif; }
       .zoo-dialogue .npc-dialogue__replay { display: none; }
-      @media (max-width: 48rem) { .zoo-ui__carried { width: 12.5rem; } .zoo-viewfinder__frame { inset: 12% 6% 19%; } }
+      @media (max-width: 48rem) { .zoo-ui__carried { width: 12.5rem; } .zoo-viewfinder__frame { inset: 12% 6% 19%; }
+        .zoo-animal-guide__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .zoo-ui__guide { right: .65rem; } }
     `;
     document.head.append(style);
 
@@ -201,8 +254,18 @@ export function createZoo(ctx) {
     overlay.innerHTML = `
       <div class="top-bar"><section class="scene-card"><h1></h1><p class="zoo-ui__instruction"></p></section></div>
       <div class="zoo-ui__notice" role="status" aria-live="polite" hidden></div>
-      <button class="zoo-ui__camera" type="button"></button>
+      <button class="zoo-ui__camera" type="button" hidden></button>
+      <button class="zoo-ui__guide" type="button"></button>
       <div class="zoo-ui__carried" role="status"></div>
+      <section class="zoo-animal-guide" role="dialog" aria-modal="true" aria-labelledby="zoo-animal-guide-title" hidden>
+        <div class="zoo-animal-guide__panel">
+          <div class="zoo-animal-guide__header">
+            <h2 id="zoo-animal-guide-title"></h2>
+            <button class="zoo-animal-guide__close" type="button"></button>
+          </div>
+          <div class="zoo-animal-guide__grid"></div>
+        </div>
+      </section>
       <section class="zoo-viewfinder" aria-label="${STRINGS.cameraOpen}" hidden>
         <div class="zoo-viewfinder__instruction" role="status"></div>
         <div class="zoo-viewfinder__frame"></div>
@@ -216,6 +279,9 @@ export function createZoo(ctx) {
     instruction = overlay.querySelector('.zoo-ui__instruction');
     notice = overlay.querySelector('.zoo-ui__notice');
     cameraButton = overlay.querySelector('.zoo-ui__camera');
+    guideButton = overlay.querySelector('.zoo-ui__guide');
+    animalGuide = overlay.querySelector('.zoo-animal-guide');
+    animalGuideClose = overlay.querySelector('.zoo-animal-guide__close');
     carriedIndicator = overlay.querySelector('.zoo-ui__carried');
     viewfinder = overlay.querySelector('.zoo-viewfinder');
     viewfinderGuide = overlay.querySelector('.zoo-viewfinder__frame');
@@ -226,7 +292,30 @@ export function createZoo(ctx) {
     cameraButton.title = STRINGS.cameraKeyHint;
     shutterButton.textContent = STRINGS.shutter;
     closeButton.textContent = STRINGS.cameraClose;
+    guideButton.textContent = STRINGS.animalGuide;
+    animalGuide.querySelector('h2').textContent = STRINGS.animalGuide;
+    animalGuideClose.textContent = STRINGS.guideClose;
+    const guideGrid = animalGuide.querySelector('.zoo-animal-guide__grid');
+    for (const entry of ANIMAL_GUIDE_ENTRIES) {
+      const card = document.createElement('article');
+      card.className = 'zoo-animal-guide__card';
+      card.dataset.animalId = entry.id;
+      card.innerHTML = `
+        <div class="zoo-animal-guide__picture">
+          <img alt="" hidden>
+          <span class="zoo-animal-guide__fallback" aria-hidden="true">🐾</span>
+        </div>
+        <strong class="zoo-animal-guide__english"></strong>
+        <span class="zoo-animal-guide__japanese"></span>
+      `;
+      card.querySelector('.zoo-animal-guide__english').textContent = entry.english;
+      card.querySelector('.zoo-animal-guide__japanese').textContent = entry.japanese;
+      guideGrid.append(card);
+    }
     cameraButton.addEventListener('click', openViewfinder);
+    guideButton.addEventListener('click', openAnimalGuide);
+    animalGuideClose.addEventListener('click', closeAnimalGuide);
+    animalGuide.addEventListener('click', onAnimalGuideBackdrop);
     shutterButton.addEventListener('click', takePhoto);
     closeButton.addEventListener('click', closeViewfinder);
     listenAgain = createListenAgain({ root: overlay, label: UI.listenAgain, onPress: replayWaitingVisitors });
@@ -234,6 +323,7 @@ export function createZoo(ctx) {
     dialogue.element?.classList.add('zoo-dialogue');
     setInstruction(STRINGS.walkToVisitor);
     renderCarriedPhoto();
+    syncOverlayControls();
   }
 
   function buildCharacters() {
@@ -344,7 +434,7 @@ export function createZoo(ctx) {
    *
    * Only the big-bodied animals push, and they push softly: a hard collider on
    * something that walks toward you is how a child gets shoved into scenery or
-   * pinned against the pool. Standing shoulder to shoulder with a horse is
+   * pinned against scenery. Standing shoulder to shoulder with a horse is
    * fine; standing inside it is not.
    */
   const PUSH_RADIUS = Object.freeze({ horse: 1.3, wolf: 1.1, sheep: 1.0, pig: 1.0, dog: 0.9 });
@@ -365,7 +455,7 @@ export function createZoo(ctx) {
       const nextX = player.position.x + nx * step;
       const nextZ = player.position.z + nz * step;
       // Never push the player into scenery; being inside the animal is better
-      // than being pushed through the fountain wall.
+      // than being pushed through a retained prop.
       if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
       if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
     }
@@ -496,6 +586,7 @@ export function createZoo(ctx) {
     setTwoShot(visitor.character);
     answerRemaining = 2.5;
     phase = 'answering';
+    syncOverlayControls();
   }
 
   function targetQuestion(visitor) {
@@ -538,6 +629,67 @@ export function createZoo(ctx) {
 
   function openRequests() {
     return visitors.filter((visitor) => visitor.state === 'waiting' && visitor.asked && !visitor.served);
+  }
+
+  function cameraCanOpen() {
+    return canOpenZooCamera({ active, phase, openRequestCount: openRequests().length });
+  }
+
+  function syncOverlayControls() {
+    if (cameraButton) {
+      const requestOpen = active && openRequests().length > 0;
+      const covered = phase === 'viewfinder' || phase === 'opening-viewfinder'
+        || phase === 'closing-viewfinder' || phase === 'animal-guide';
+      cameraButton.hidden = !requestOpen || covered;
+      cameraButton.disabled = !cameraCanOpen();
+    }
+    if (guideButton) {
+      guideButton.hidden = !active || phase === 'viewfinder' || phase === 'opening-viewfinder'
+        || phase === 'closing-viewfinder' || phase === 'animal-guide';
+    }
+  }
+
+  function applyGuideThumbnails(thumbnails) {
+    if (!active || !animalGuide) return;
+    for (const entry of ANIMAL_GUIDE_ENTRIES) {
+      const card = [...animalGuide.querySelectorAll('.zoo-animal-guide__card')]
+        .find((candidate) => candidate.dataset.animalId === entry.id);
+      const image = card?.querySelector('img');
+      const fallback = card?.querySelector('.zoo-animal-guide__fallback');
+      const source = thumbnails.get(entry.id);
+      if (!image || !fallback || !source) continue;
+      image.src = source;
+      image.alt = `${entry.english}（${entry.japanese}）`;
+      image.hidden = false;
+      fallback.hidden = true;
+    }
+  }
+
+  function openAnimalGuide() {
+    if (!active || phase !== 'playing' || !animalGuide) return;
+    clearQuestion();
+    phase = 'animal-guide';
+    animalGuide.hidden = false;
+    listenAgain?.hide();
+    hud.hide();
+    dialogue.hide();
+    input.clear();
+    syncOverlayControls();
+    animalGuideClose?.focus();
+    void guideThumbnailCache.load(ANIMAL_GUIDE_ENTRIES).then(applyGuideThumbnails);
+  }
+
+  function closeAnimalGuide() {
+    if (!active || phase !== 'animal-guide' || !animalGuide) return;
+    animalGuide.hidden = true;
+    phase = 'playing';
+    input.clear();
+    syncOverlayControls();
+    guideButton?.focus();
+  }
+
+  function onAnimalGuideBackdrop(event) {
+    if (event.target === animalGuide) closeAnimalGuide();
   }
 
   function updateContext() {
@@ -600,9 +752,10 @@ export function createZoo(ctx) {
   }
 
   async function openViewfinder() {
-    if (!active || phase !== 'playing') return;
+    if (!cameraCanOpen()) return;
     clearQuestion();
     phase = 'opening-viewfinder';
+    syncOverlayControls();
     // Framing state is stale from the previous shot until the first frame of
     // this session is judged. Leaving the shutter lit through the opening wipe
     // meant an early press hit takePhoto's phase guard and did nothing at all.
@@ -610,7 +763,6 @@ export function createZoo(ctx) {
     const changed = await transitions.run(() => {
       if (!active) return;
       viewfinder.hidden = false;
-      cameraButton.hidden = true;
       listenAgain?.hide();
       hud.hide();
       dialogue.hide();
@@ -624,6 +776,7 @@ export function createZoo(ctx) {
     } else if (!changed && active && phase === 'opening-viewfinder') {
       phase = 'playing';
     }
+    syncOverlayControls();
   }
 
   function resetFraming() {
@@ -639,17 +792,18 @@ export function createZoo(ctx) {
   async function closeViewfinder() {
     if (!active || phase !== 'viewfinder') return;
     phase = 'closing-viewfinder';
+    syncOverlayControls();
     resetFraming();
     const changed = await transitions.run(() => {
       if (!active) return;
       viewfinder.hidden = true;
-      cameraButton.hidden = false;
       player.visible = true;
       input.clear();
       restoreFollowCamera();
     });
     if (changed && active && phase === 'closing-viewfinder') phase = 'playing';
     else if (!changed && active && phase === 'closing-viewfinder') phase = 'viewfinder';
+    syncOverlayControls();
   }
 
   function evaluateFraming() {
@@ -852,9 +1006,8 @@ export function createZoo(ctx) {
     if (!active || phase !== 'round-end') return;
     phase = 'turnaround';
     keeper.visible = true;
-    // Out on the open plaza, clear of the entrance arch at z 32.15 and the
-    // fountain at x 3.45: standing in the gateway filled the shot with striped
-    // posts and hid the keeper behind the answer buttons.
+    // Keep the pair on the open plaza so neither character hides behind the
+    // answer buttons.
     keeper.position.set(clamp(player.position.x + 1.8, -2.4, 1.9), 0.08, clamp(player.position.z - 1.1, 25.2, 28.4));
     faceToward(keeper, player.position.x, player.position.z);
     faceToward(player, keeper.position.x, keeper.position.z);
@@ -896,7 +1049,7 @@ export function createZoo(ctx) {
       return;
     }
     if (sceneEditor?.enabled) return;
-    if ((event.key === 'c' || event.key === 'C') && phase === 'playing') {
+    if ((event.key === 'c' || event.key === 'C') && cameraCanOpen()) {
       event.preventDefault();
       openViewfinder();
     }
@@ -1081,10 +1234,17 @@ export function createZoo(ctx) {
     installDebugHook();
     window.addEventListener('keydown', onKeyDown);
     unregisterEscapeGuard = registerEscapeGuard?.(() => {
-      if (!active || phase !== 'viewfinder') return false;
-      closeViewfinder();
-      return true;
-    }) ?? null;
+      if (!active) return false;
+      if (phase === 'viewfinder') {
+        closeViewfinder();
+        return true;
+      }
+      if (phase === 'animal-guide') {
+        closeAnimalGuide();
+        return true;
+      }
+      return false;
+    }, { priority: 1 }) ?? null;
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       hud.setMicFree(next.micFree);
@@ -1162,6 +1322,7 @@ export function createZoo(ctx) {
       }
       if (visitor.character.visible) visitor.character.updateAnimation?.(safeDt);
     }
+    syncOverlayControls();
   }
 
   function exit() {
@@ -1190,6 +1351,9 @@ export function createZoo(ctx) {
     listenAgain = null;
     removeDebugHook();
     cameraButton?.removeEventListener('click', openViewfinder);
+    guideButton?.removeEventListener('click', openAnimalGuide);
+    animalGuideClose?.removeEventListener('click', closeAnimalGuide);
+    animalGuide?.removeEventListener('click', onAnimalGuideBackdrop);
     shutterButton?.removeEventListener('click', takePhoto);
     closeButton?.removeEventListener('click', closeViewfinder);
     player?.disposeCharacter?.();
@@ -1209,6 +1373,9 @@ export function createZoo(ctx) {
     instruction = null;
     notice = null;
     cameraButton = null;
+    guideButton = null;
+    animalGuide = null;
+    animalGuideClose = null;
     carriedIndicator = null;
     viewfinder = null;
     viewfinderGuide = null;

@@ -12,6 +12,7 @@
  */
 
 import { pieceBounds } from './robotDefinition.js';
+import { EASEL, ROOM_DEPTH, ROOM_WIDTH } from './roomLayout.js';
 
 export const STATES = Object.freeze({
   IDLE: 'idle',
@@ -278,12 +279,17 @@ export const poseRotationKeys = (subject) => [...subject.pieces];
  * clear of the walls. The obstacle discs match `canOccupy` in `index.js`.
  *
  * There is only one obstacle now. The art table, the paint pots and the artist
- * are gone — the room is one easel and the child's creations, and the easel
- * stands in the middle of it.
+ * are gone — the room is one easel and the child's creations, with the easel
+ * toward the back so the enlarged centre stays open.
  */
-export const SAFE_AREA = Object.freeze({ minX: -4.6, maxX: 4.6, minZ: -3.6, maxZ: 3.6 });
+export const SAFE_AREA = Object.freeze({
+  minX: -ROOM_WIDTH / 2 + 1.35,
+  maxX: ROOM_WIDTH / 2 - 1.35,
+  minZ: -ROOM_DEPTH / 2 + 1.35,
+  maxZ: ROOM_DEPTH / 2 - 1.35,
+});
 export const OBSTACLES = Object.freeze([
-  Object.freeze({ x: 0, z: -1.6, radius: 1.35 }), // the easel
+  Object.freeze({ x: EASEL.x, z: EASEL.z, radius: 1.35 }),
 ]);
 
 /**
@@ -295,15 +301,16 @@ export const OBSTACLES = Object.freeze([
  * to be a good spread, not a seating plan.
  */
 export const ROAM_POINTS = Object.freeze([
-  Object.freeze({ x: -3.4, z: -2.2 }),
-  Object.freeze({ x: -2.4, z: 0.4 }),
-  Object.freeze({ x: -3.6, z: 2.4 }),
-  Object.freeze({ x: -1.0, z: 2.9 }),
-  Object.freeze({ x: 1.2, z: 2.4 }),
-  Object.freeze({ x: 3.5, z: 2.6 }),
-  Object.freeze({ x: 3.8, z: 0.2 }),
-  Object.freeze({ x: 2.6, z: -2.4 }),
-  Object.freeze({ x: 0.2, z: 1.0 }),
+  Object.freeze({ x: -5.8, z: -4.7 }),
+  Object.freeze({ x: -6.2, z: -0.8 }),
+  Object.freeze({ x: -5.5, z: 4.8 }),
+  Object.freeze({ x: -2.4, z: 5.5 }),
+  Object.freeze({ x: 2.1, z: 5.2 }),
+  Object.freeze({ x: 5.9, z: 4.6 }),
+  Object.freeze({ x: 6.3, z: 0.3 }),
+  Object.freeze({ x: 5.6, z: -4.8 }),
+  Object.freeze({ x: 2.7, z: -0.5 }),
+  Object.freeze({ x: -2.8, z: 1.5 }),
 ]);
 
 export function insideSafeArea(point) {
@@ -330,7 +337,7 @@ export const IDLE_PAUSE = 1.5;
 export function createRoamPlan(
   points = ROAM_POINTS,
   start = 0,
-  { idlePause = IDLE_PAUSE, stateTime = 0, from } = {},
+  { idlePause = IDLE_PAUSE, stateTime = 0, from, speed = 1 } = {},
 ) {
   const usable = points.filter(insideSafeArea);
   if (usable.length < 2) throw new Error('a roam plan needs at least two safe points');
@@ -347,6 +354,7 @@ export function createRoamPlan(
     // Per plan, not per module: a roomful of robots idling for the same 1.5 s
     // hops in unison, which reads as one robot copied rather than a crowd.
     idlePause: Math.max(0.1, idlePause),
+    speed: Math.max(0.25, speed),
     state: STATES.IDLE,
     stateTime,
     position: { x: position.x, z: position.z },
@@ -381,7 +389,7 @@ export function stepRoam(plan, dt) {
     return plan;
   }
 
-  const duration = DURATIONS[STATES.HOP];
+  const duration = DURATIONS[STATES.HOP] / plan.speed;
   plan.hop = plan.stateTime / duration;
   const target = legTarget(plan);
   // Travel is measured in whole hops plus this hop's progress, so the puppet

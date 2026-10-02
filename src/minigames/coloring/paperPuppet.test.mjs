@@ -308,12 +308,33 @@ test('the texture size is small enough for a roomful of robots', () => {
 test('startRoaming takes the crowd variation through to the plan', () => {
   disposeSharedPaperAssets();
   const puppet = createPaperPuppet({ paint: paint(801) });
-  puppet.startRoaming(undefined, { start: 2, idlePause: 1.9, stateTime: 0.7 });
+  puppet.startRoaming(undefined, { start: 2, idlePause: 1.9, stateTime: 0.7, speed: 1.25 });
   const plan = puppet.roamPlan;
   assert.equal(plan.index, 2, 'the start index was dropped');
   assert.equal(plan.idlePause, 1.9, 'the idle pause was dropped, so hops stay in unison');
   assert.equal(plan.stateTime, 0.7, 'the phase offset was dropped');
+  assert.equal(plan.speed, 1.25, 'the subject cadence was dropped');
   assert.equal(puppet.stateTime, 0.7);
+  puppet.dispose();
+});
+
+test('a reaction pauses and resumes the exact same roaming plan', () => {
+  disposeSharedPaperAssets();
+  const puppet = createPaperPuppet({ paint: paint(804) });
+  puppet.startRoaming(undefined, { idlePause: 0.1, stateTime: 0.1 });
+  const plan = puppet.roamPlan;
+  const before = { ...plan.position };
+
+  puppet.pauseRoaming().setState(STATES.CELEBRATE);
+  for (let i = 0; i < 30; i += 1) puppet.update(1 / 60);
+  assert.equal(puppet.roamPlan, null);
+  assert.deepEqual({ x: puppet.group.position.x, z: puppet.group.position.z }, before);
+
+  puppet.resumeRoaming();
+  assert.equal(puppet.roamPlan, plan, 'the reaction replaced the previous route');
+  for (let i = 0; i < 120; i += 1) puppet.update(1 / 60);
+  assert.notDeepEqual({ x: puppet.group.position.x, z: puppet.group.position.z }, before,
+    'the puppet stayed permanently stopped after welcoming the newcomer');
   puppet.dispose();
 });
 

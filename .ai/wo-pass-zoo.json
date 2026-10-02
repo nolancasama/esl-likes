@@ -1,0 +1,40 @@
+{
+  "task": "esl-likes Zoo: lock the camera until a visitor has an open photo request, add a どうぶつずかん animal reference card with real-model thumbnails, and simplify the park (remove buildings, fountain and the cold cove; scatter ~80 trees evenly).",
+  "requirements": [
+    "CONTEXT: Three.js ESL game. Zoo = roaming animal park: player asks a visitor 'What animal do you like?', visitor answers, player photographs that animal with a viewfinder (C key / camera button), returns the photo. Roster (8): cat, chicken, dog, horse, pig, raccoon, sheep, wolf (Quaternius Cube World gltf). Trees and rocks are procedural boxes with seeded placement (blockyTree.js etc.), InstancedMesh batched. Read DESIGN_DECISIONS.md entries about the Zoo first. Do not touch the shell, HUD, Coloring or Restaurant.",
+    "CAMERA GATE: before any visitor has an open photo request, the camera button is hidden, the C shortcut does nothing, and openViewfinder() itself returns early (guard: !active || phase !== 'playing' || openRequests().length === 0, adapted). When a visitor answers and a request opens, the button appears and C works. When the last open request is resolved, the button hides and C is blocked again. Use the existing request data (openRequests()), no redundant flag.",
+    "ANIMAL GUIDE: a persistent button 'どうぶつずかん' visible from Zoo start (before speaking to anyone) that opens a simple modal grid: one card per animal derived from the current roster/config (not a hand-copied list): picture, English name (Cat, Chicken, Dog, Horse, Pig, Raccoon, Sheep, Wolf), Japanese name (ねこ, にわとり, いぬ, うま, ぶた, あらいぐま, ひつじ, おおかみ - put Japanese names in roster/config data or the zoo section of src/config/lesson.js, wherever animal display data already lives). Pictures: render real in-game model thumbnails ONCE, lazily on first open (or after models load), cache as data URLs/canvases in memory, reuse on reopen. Reuse the already-loaded model sources (clone with SkeletonUtils.clone for skinned models - Object3D.clone() drops the skeleton). Prefer rendering with the existing main WebGLRenderer into a WebGLRenderTarget/small viewport and reading back, instead of creating a second WebGL context (school Chromebooks); if you must create a temporary renderer, dispose it and call forceContextLoss. Models face +z. Failed model -> harmless fallback card (name only/emoji). Do not run continuous 3D previews. Card UX: large readable text on a 1366x768 Chromebook, close button, backdrop click closes, Escape closes the guide FIRST via a registered Escape guard with a local priority higher than shell Back (see how the viewfinder registers its guard and src/ui/backControl.js). While open: camera shortcut, Talk and world Space actions are ignored. Never highlight the requested animal, never show locations. When the viewfinder is open the guide button must be hidden or inert and must not overlap; Escape closes the viewfinder first (existing). The guide button must not sit under/over the shell Settings button.",
+    "PARK SIMPLIFICATION (src/minigames/zoo/world.js, layout.js, scenery/navigation data): remove the ticket booth, barn, water tower, cafe terrace/building terrace area, the central fountain (base, water, column, jet, its animation entry, collider, and the fountainHub runtime dependency where no longer required), and the cold/cove area (blue/grey ground patch, water pool, blue bridge, pale pool-edge blocks, pool-edge colliders, other cove-only remnants -> ordinary green park). Remove their colliders/navigation blockers too - no invisible walls or circular empty collision zones. Clean stale landmark records/references at runtime, but do not delete scene-editor asset definitions merely because runtime no longer uses them. Animal territories may keep existing as roaming data. Do not re-add imported environment dressing; SCENERY_GROUPS stays empty/disabled.",
+    "TREES: replace the per-biome uneven counts (grassland 24, woodland 42, farm 8, cove 6) with ~80 trees scattered across the whole usable park with roughly uniform spatial probability, using seeded deterministic rejection/Poisson-style sampling (not a grid). Keep variants (tall-narrow, short-wide, two-tier, chunky-round), height/scale variation and InstancedMesh batching. Exclusions: entrance spawn/visitor interaction area, player-critical navigation points, minimum distance from animal roaming waypoints (existing guarantee: nearest tree to any waypoint >= 2.6 units), retained props, minimum tree-tree spacing. Rocks keep their blocky system and may scatter into freed regions; do not add so many obstacles that photography becomes frustrating.",
+    "TESTS: unit tests for the camera gate (pure function or controller-level with fakes), the guide roster derivation (8 entries, correct EN/JA), thumbnail cache (render called once across two opens; failure fallback), removed landmarks absent from runtime layout + colliders (player can occupy former booth/barn/tower/terrace/fountain/pool positions), tree distribution (counts per left/centre/right and upper/lower region roughly balanced across a few seeds; exclusions hold). Update scripts/playthrough-zoo.mjs if it presses C before talking or relies on removed landmarks.",
+    "Do NOT edit DESIGN_DECISIONS.md or CURRENT_STATE.md (the controller merges three parallel branches and records decisions). List product decisions in your final summary."
+  ],
+  "constraints": [
+    "Touch only src/minigames/zoo/**, the zoo section of src/config/lesson.js, Zoo-specific CSS (prefer the module's own styles; if editing src/styles.css, add rules next to existing zoo rules, never at end of file), and scripts/playthrough-zoo.mjs.",
+    "Do not regress: eight-animal roster, embedded animation handling, roaming, visitor question flow, animal-request matching, photo framing, occlusion checks, carried photo, wrong-photo refusal, correct-photo delivery, final turnaround, paper creation visitors.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/layout.js",
+    "src/minigames/zoo/blockyTree.js",
+    "src/minigames/zoo/roaming.js",
+    "src/ui/backControl.js",
+    "src/config/lesson.js",
+    "scripts/playthrough-zoo.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller screenshots the simplified park, the guide grid with thumbnails, and checks the camera gate in the browser."
+  },
+  "category": "feature-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning"
+}

@@ -8,8 +8,10 @@ import { restaurantPresentation, zooPresentation } from './subjectPresentation.j
 import robot from './subjects/robot.js';
 import { TARGET_HEIGHT } from '../../systems/characters.js';
 import {
+  DEFAULT_MOTION_PROFILE,
   DEFAULT_SUBJECT_ID,
   SUBJECTS,
+  motionProfileFor,
   pickNextSubject,
   subjectById,
 } from './subjectRegistry.js';
@@ -84,6 +86,25 @@ test('every subject satisfies the shared frozen data contract', () => {
     }
     assertDeepFrozen(subject);
   }
+});
+
+test('every subject has a declarative roaming profile with a neutral fallback', () => {
+  assert.equal(motionProfileFor('missing'), DEFAULT_MOTION_PROFILE);
+  assert.equal(motionProfileFor(null), DEFAULT_MOTION_PROFILE);
+  assert.equal(motionProfileFor({ id: 'future' }), DEFAULT_MOTION_PROFILE);
+  assertDeepFrozen(DEFAULT_MOTION_PROFILE);
+
+  for (const subject of SUBJECTS) {
+    assert.equal(motionProfileFor(subject.id), subject.motionProfile);
+    assert.equal(motionProfileFor(subject), subject.motionProfile);
+    assert.ok(subject.motionProfile.speed > 0);
+    assert.ok(subject.motionProfile.idleMin >= 0.1);
+    assert.ok(subject.motionProfile.idleMax >= subject.motionProfile.idleMin);
+  }
+
+  assert.ok(motionProfileFor('ninja').speed > motionProfileFor('snowman').speed);
+  assert.ok(motionProfileFor('hero').idleMin > DEFAULT_MOTION_PROFILE.idleMin);
+  assert.ok(motionProfileFor('snowman').idleMax > DEFAULT_MOTION_PROFILE.idleMax);
 });
 
 test('only the four overlapping circular heads occlude earlier outlines', () => {

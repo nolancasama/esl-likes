@@ -12,6 +12,10 @@ import {
   PAPER_PLANE_Z,
   PAPER_SIZE,
   PUPPET_START_Z,
+  ROOM_DEPTH,
+  ROOM_WIDTH,
+  canOccupy,
+  shouldShowRestaurantButton,
   subjectAfter,
 } from './index.js';
 import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './subjectRegistry.js';
@@ -107,7 +111,7 @@ test('finished robots are saved before teardown and rebuilt after the world', ()
   const restore = source.indexOf('restoreSavedRobots();', world);
   assert.ok(world > 0 && restore > world, 'saved robots are not rebuilt after the room exists');
   assert.match(source, /createPaperPuppet\(\{ subject, paint: record\.artwork/);
-  assert.match(source, /crowd\.join\(record\.crowd\)/);
+  assert.match(source, /crowd\.join\(record\.crowd, motionProfileFor\(subject\)\)/);
 });
 
 test('there is exactly one call to finish, and it is the turnaround', () => {
@@ -119,20 +123,18 @@ test('there is exactly one call to finish, and it is the turnaround', () => {
 
 test('the final turnaround frames only the newest creation without moving the player', () => {
   const begin = between('function beginTurnaround()', 'function completeTurnaround(');
-  const withCreation = begin.slice(begin.indexOf('if (newest) {'), begin.indexOf('} else {'));
-  const withoutCreation = begin.slice(begin.indexOf('} else {'));
-  assert.doesNotMatch(begin, /player\.position/, 'the turnaround teleports the player away from the door');
-  assert.match(withCreation, /newest\.puppet\.stopRoaming\(\)\.setState\(STATES\.IDLE\)/);
-  assert.match(withCreation, /player\.visible = false/);
-  assert.match(withCreation, /newest\.puppet\.setHeading\(0\)/);
-  assert.match(withCreation,
+  assert.doesNotMatch(begin, /player\.position/, 'the turnaround teleports the player');
+  assert.match(begin, /livingRobots\.length === 0/,
+    'the turnaround can start without a creation to ask the question');
+  assert.match(begin, /newest\.puppet\.stopRoaming\(\)\.setState\(STATES\.IDLE\)/);
+  assert.match(begin, /player\.visible = false/);
+  assert.match(begin, /newest\.puppet\.setHeading\(0\)/);
+  assert.match(begin,
     /dialogue\.show\(\{ text: LESSON\.question, anchor: newest\.puppet\.group, offsetY: 2\.1 \}\)/);
-  assert.match(withoutCreation, /player\.visible = true/,
-    'the no-creation fallback can inherit a hidden player');
 });
 
 test('the page-forward button is taken away for the closing question', () => {
-  // The room overlay stays up through the turnaround, so つぎ ▶ does not hide
+  // The room overlay stays up through the turnaround, so its controls do not hide
   // itself. Left visible it offers the child a way out of being asked
   // something, which is the one moment the game is actually teaching.
   const begin = between('function beginTurnaround()', 'function completeTurnaround(');
@@ -140,6 +142,21 @@ test('the page-forward button is taken away for the closing question', () => {
   const reveal = between('function revealRoom()', 'function debugSnapshot()');
   assert.match(reveal, /nextButton\.hidden = false/,
     'the button never comes back for the next round');
+});
+
+test('the Restaurant button appears only in an ordinary room with a creation', () => {
+  for (const currentPhase of PHASES) {
+    assert.equal(
+      shouldShowRestaurantButton({ currentPhase, creationCount: 1 }),
+      currentPhase === 'room',
+      currentPhase,
+    );
+  }
+  assert.equal(shouldShowRestaurantButton({ currentPhase: 'room', creationCount: 0 }), false);
+  assert.equal(shouldShowRestaurantButton({ currentPhase: 'room', creationCount: 2 }), true);
+  assert.match(source, /data-coloring-finish/);
+  assert.match(source, /finishButton\.textContent = STRINGS\.restaurantButton/);
+  assert.match(source, /finishButton\.addEventListener\('click', beginTurnaround\)/);
 });
 
 test('finishing keeps the player hidden through the celebration beat', () => {
@@ -314,7 +331,7 @@ test('the easel opens exactly its preview without rerolling', () => {
     'the next preview is not selected once before the blank-page drift');
 });
 
-test('Next only pages the preview and cannot keep keyboard focus', () => {
+test('the preview-cycle button only pages the preview and cannot keep keyboard focus', () => {
   const next = between('function pressNextSubject()', '// --- the page');
   assert.match(next, /if \(active && phase === 'room'\)/);
   assert.match(next, /previewSubject = subjectAfter\(previewSubject \?\? activeSubject\)/);
@@ -325,6 +342,8 @@ test('Next only pages the preview and cannot keep keyboard focus', () => {
   assert.match(source, /nextButton\.addEventListener\('pointerdown', preventNextFocus\)/);
   assert.match(source, /function preventNextFocus\(event\) \{\s*event\.preventDefault\(\);\s*\}/);
   assert.match(source, /nextButton\?\.removeEventListener\('click', pressNextSubject\)/);
+  assert.equal(STRINGS.previewCycle, 'キャラを かえる ▶');
+  assert.match(source, /nextButton\.textContent = STRINGS\.previewCycle/);
 });
 
 test('debug snapshot exposes preview and active subject ids', () => {
@@ -390,17 +409,27 @@ test('the emergence retreats the player clear of the landing and holds the view'
   assert.match(source, /startRoaming\(member\.points, \{ \.\.\.member, from \}\)/);
 });
 
-test('room dimensions and all three wall heights come from shared constants', () => {
-  for (const name of ['ROOM_WIDTH', 'ROOM_DEPTH', 'WALL_HEIGHT', 'WALL_THICKNESS',
-    'DOOR_WIDTH', 'DOOR_HEIGHT']) {
-    assert.match(source, new RegExp(`const ${name} =`), `${name} is missing`);
+test('the enlarged room has one solid back wall and derived movement bounds', () => {
+  assert.equal(ROOM_WIDTH, 18);
+  assert.equal(ROOM_DEPTH, 16);
+  assert.match(source, /wallMaterial, 0, wallCentreY, backWallZ,[\s\S]*?ROOM_WIDTH, WALL_HEIGHT/);
+  assert.equal([...source.matchAll(/wallMaterial,[^\n]*\n?[^;]*WALL_HEIGHT/g)].length, 3,
+    'the solid back wall and two side walls do not share WALL_HEIGHT');
+  assert.equal(canOccupy(3.6, -11.5 / 2 + 1.2), true,
+    'an invisible collider remains where the old doorway stood');
+  assert.equal(canOccupy(8.1, 0), true);
+  assert.equal(canOccupy(8.21, 0), false);
+  assert.equal(canOccupy(0, 7.2), true);
+  assert.equal(canOccupy(0, 7.21), false);
+  assert.equal(canOccupy(0, -3), false, 'the easel collider disappeared');
+});
+
+test('the physical exit door and all of its state are gone', () => {
+  for (const gone of ['DOOR_', 'nearDoor', "roomAction === 'door'", 'coloring-room-ui__action--door']) {
+    assert.ok(!source.includes(gone), `${gone} survives in the controller`);
   }
-  assert.equal([...source.matchAll(/wallMaterial,[^\n]*\n?[^;]*WALL_HEIGHT/g)].length, 4,
-    'the full-height back and side wall pieces do not share WALL_HEIGHT');
-  assert.match(source, /lintelHeight = WALL_HEIGHT - DOOR_HEIGHT/,
-    'the doorway lintel does not reach the shared wall top');
-  assert.ok(!source.includes('5.55'), 'the old hand-tuned back wall remains');
-  assert.ok(!source.includes('3.6, 11.5'), 'the short side-wall dimensions remain');
+  assert.equal(STRINGS.doorLabel, undefined);
+  assert.equal(STRINGS.doorAction, undefined);
 });
 
 test('the easel canvas planes share one leaned group', () => {
@@ -465,11 +494,14 @@ test('both puppet placements derive from the paper plane', () => {
 
 test('the strings the new loop needs all exist', () => {
   for (const key of ['roomName', 'askRobot', 'canvasLabel', 'chooseColor', 'paintHint', 'readyHint',
-    'power', 'powerFull', 'alive', 'roomHint', 'easelAction', 'doorLabel', 'doorAction',
+    'power', 'powerFull', 'alive', 'roomHint', 'easelAction', 'previewCycle', 'restaurantButton',
     'turnaround', 'complete']) {
     assert.equal(typeof STRINGS[key], 'string', `UI.coloring.${key} is missing`);
     assert.ok(STRINGS[key].length > 0, `UI.coloring.${key} is empty`);
   }
+  assert.equal(STRINGS.roomHint, 'もう1まい ぬる？\nイーゼルに ちかづこう');
+  assert.equal(STRINGS.easelAction, 'スペースで もう1まい ぬる');
+  assert.equal(STRINGS.restaurantButton, 'レストランへ →');
 });
 
 test('the strings the old design needed are gone, not orphaned', () => {

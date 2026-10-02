@@ -8,13 +8,13 @@ export function chooseAction({
   beltDish = null,
   deliverTarget = null,
 } = {}) {
-  if (speechCooldown || lockedQuestion) return 'none';
-  if (questionCandidate) return 'talk';
   if (carried) {
     if (nearReturn) return 'return';
     if (beltDish) return 'exchange';
     if (deliverTarget) return 'deliver';
     return 'none';
   }
+  if (speechCooldown || lockedQuestion) return 'none';
+  if (questionCandidate) return 'talk';
   return beltDish ? 'collect' : 'none';
 }

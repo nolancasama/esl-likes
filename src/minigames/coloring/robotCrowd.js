@@ -22,7 +22,7 @@
  * accepted price.
  */
 
-import { ROAM_POINTS, insideSafeArea } from './robotPuppet.js';
+import { DURATIONS, ROAM_POINTS, STATES, insideSafeArea } from './robotPuppet.js';
 
 /** How far a member's roam points may sit from the authored ones, in world units. */
 export const RING_RADIUS = 0.62;
@@ -76,16 +76,19 @@ export function createCrowd({ points = ROAM_POINTS, random = Math.random } = {})
     get size() { return members.size; },
 
     /** Enrols a new robot and returns the variation it should roam with. */
-    join(variation = {}) {
+    join(variation = {}, motionProfile = {}) {
       const index = joinCount;
       joinCount += 1;
-      const idlePause = IDLE_MIN + random() * (IDLE_MAX - IDLE_MIN);
+      const idleMin = motionProfile.idleMin ?? IDLE_MIN;
+      const idleMax = Math.max(idleMin, motionProfile.idleMax ?? IDLE_MAX);
+      const idlePause = idleMin + random() * (idleMax - idleMin);
       const stateTime = random() * PHASE_SPREAD;
       const member = Object.freeze({
         id: nextId,
         start: variation.start ?? index % Math.max(1, points.length),
         idlePause: variation.idlePause ?? idlePause,
         stateTime: variation.stateTime ?? stateTime,
+        speed: motionProfile.speed ?? 1,
         points: displacedPoints(index),
       });
       nextId += 1;
@@ -101,4 +104,58 @@ export function createCrowd({ points = ROAM_POINTS, random = Math.random } = {})
   };
 
   return api;
+}
+
+/**
+ * A single welcoming beat: nearby creations face the newcomer, celebrate once,
+ * settle, then continue the exact roam plans they paused.
+ */
+export function createNewcomerReaction({ duration = 1.25, radius = 6.5 } = {}) {
+  let elapsed = 0;
+  let reactors = [];
+  let settled = false;
+
+  function resume() {
+    for (const entry of reactors) entry.puppet.resumeRoaming();
+    reactors = [];
+    elapsed = 0;
+    settled = false;
+  }
+
+  return {
+    get active() { return reactors.length > 0; },
+
+    start(entries, newcomer) {
+      resume();
+      if (!newcomer?.puppet?.group) return 0;
+      const target = newcomer.puppet.group.position;
+      reactors = entries.filter(({ puppet }) => {
+        const at = puppet.group.position;
+        return Math.hypot(at.x - target.x, at.z - target.z) <= radius;
+      });
+      for (const { puppet } of reactors) {
+        const at = puppet.group.position;
+        puppet.pauseRoaming()
+          .setHeading(Math.atan2(target.x - at.x, target.z - at.z))
+          .setState(STATES.CELEBRATE);
+      }
+      return reactors.length;
+    },
+
+    update(dt) {
+      if (!reactors.length) return false;
+      elapsed += Math.max(0, dt || 0);
+      if (!settled && elapsed >= DURATIONS[STATES.CELEBRATE]) {
+        settled = true;
+        for (const { puppet } of reactors) puppet.setState(STATES.IDLE);
+      }
+      if (elapsed >= duration) {
+        resume();
+        return false;
+      }
+      return true;
+    },
+
+    cancel() { resume(); },
+  };
 }

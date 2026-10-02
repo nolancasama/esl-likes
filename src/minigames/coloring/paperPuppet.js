@@ -58,7 +58,7 @@ const LEAN = 0.17;
  * The picture size a puppet's pieces are cut at.
  *
  * 900 was sized for a close-up that no longer happens: the puppet is 1.75 world
- * units tall in a room seen from 8.5 up and 10.5 back, which is a couple of
+ * units tall in a room seen from 10.5 up and 13.5 back, which is a couple of
  * hundred screen pixels. Five cropped pieces plus five cream silhouettes at 900
  * is roughly 4 MB of canvas per robot, and the room now keeps every robot the
  * child makes. At 640 the artwork is still finer than the screen can show.
@@ -208,6 +208,7 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
   const disposables = { geometries: new Set(), materials: new Set(), textures: new Set(), canvases: [] };
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
   let disposed = false;
+  let pausedRoam = null;
   const liveScale = PUPPET_HEIGHT * subject.liveScale;
   const feet = silhouetteBounds(subject).maxY;
   const rootPiece = subject.pieces[0];
@@ -477,16 +478,34 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
      */
     startRoaming(
       points = ROAM_POINTS,
-      { start = 0, idlePause, stateTime: phase = 0, from } = {},
+      { start = 0, idlePause, stateTime: phase = 0, from, speed = 1 } = {},
     ) {
-      roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from });
+      roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from, speed });
+      pausedRoam = null;
       if (from === undefined) api.placeAt(roam.position.x, roam.position.z, roam.facing);
       state = roam.state;
       stateTime = phase;
       return api;
     },
 
-    stopRoaming() { roam = null; return api; },
+    stopRoaming() { roam = null; pausedRoam = null; return api; },
+
+    /** Temporarily yields the roam clock to a reaction without losing its route. */
+    pauseRoaming() {
+      if (roam) pausedRoam = roam;
+      roam = null;
+      return api;
+    },
+
+    resumeRoaming() {
+      if (pausedRoam) {
+        roam = pausedRoam;
+        pausedRoam = null;
+        state = roam.state;
+        stateTime = roam.stateTime * roam.speed;
+      }
+      return api;
+    },
 
     update(dt) {
       const safeDt = Math.min(Math.max(dt || 0, 0), 0.05);
@@ -496,8 +515,9 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
         stepRoam(roam, safeDt);
         // The roam plan owns the state while roaming; a cinematic takes it back
         // by calling stopRoaming first.
-        if (roam.state !== state) { state = roam.state; stateTime = roam.stateTime; }
-        else stateTime = roam.stateTime;
+        const poseTime = roam.stateTime * roam.speed;
+        if (roam.state !== state) { state = roam.state; stateTime = poseTime; }
+        else stateTime = poseTime;
         root.position.x = roam.position.x;
         root.position.z = roam.position.z;
         api.setHeading(roam.facing);
@@ -526,6 +546,7 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
       disposables.geometries.clear();
       disposables.canvases.length = 0;
       roam = null;
+      pausedRoam = null;
     },
   };
 

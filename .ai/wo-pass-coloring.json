@@ -1,0 +1,44 @@
+{
+  "task": "esl-likes Coloring UX pass: remove the physical exit door, add a persistent 'レストランへ →' button that starts the existing final turnaround, enlarge the room to ~18x16, make 'paint again' obvious, rename the preview-cycle button, and give living creations light personality plus a short reaction when a newcomer arrives.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game for Japanese elementary students. The shell already runs Coloring -> Restaurant -> Zoo (src/systems/gameSequence.js); Coloring only calls ctx.finish(result). Do not touch the shell, the HUD (src/ui/hud.js), Restaurant or Zoo. Read DESIGN_DECISIONS.md entries about Coloring before changing behaviour.",
+    "DOOR REMOVAL (src/minigames/coloring/index.js): keep the room, its visual identity, the easel, player movement and roaming creations, but delete the exit door completely: door geometry, frame/jamb/lintel/sign specific to the door (back wall becomes a solid wall with the same style), door collision, nearDoor(), DOOR_* constants, DOOR_RADIUS_SQ, roomAction === 'door', the door Space action, door-only debug fields, and stale comments describing 'one easel and a door'. No invisible door collider may remain. Leave the door strings in src/config/lesson.js only if still referenced elsewhere; otherwise remove doorLabel/doorAction.",
+    "PERSISTENT BUTTON: in the ordinary 3D room phase, whenever at least one creation exists in the room (painted this session or restored from save), show a DOM button 'レストランへ →' (string in the coloring section of src/config/lesson.js). Clicking it begins the EXISTING final turnaround that the door used to trigger: newest creation in close-up, player hidden (not teleported), creation asks 'What color do you like?', existing speech/fallback, accepted answer -> normal ctx.finish. It must be hidden during painting, activation/reveal cinematics, the final turnaround and finishing. Do not place it under/over the shell Settings button (top-right area); check where Settings sits and pick a clear corner (e.g. bottom-right above the HUD area is fine if it does not collide with the Talk HUD, which is bottom-centre). Clicking it must not be possible twice (guard re-entry).",
+    "PAINT AGAIN: after a creation comes alive and room control returns, the main room guidance reads 'もう1まい ぬる？' with a second line 'イーゼルに ちかづこう'. Near the easel the contextual Space action reads 'スペースで もう1まい ぬる' (replace easelAction 'スペースで つぎの えを かく').",
+    "RENAME the easel preview-cycle button currently 'つぎ ▶' (hard-coded near index.js:572; move it to lesson.js) to 'キャラを かえる ▶'. It only advances the preview subject and updates the easel preview; it must not start painting, save, or leave. The subject the child previews must remain exactly the subject they then paint (truthful preview, existing behaviour; keep its tests passing).",
+    "ROOM SIZE: ROOM_WIDTH 12.5 -> about 18, ROOM_DEPTH 11.5 -> about 16 (roughly 1.5-2x floor area). Do not scale a parent group. Update walls, floor, trim, movement bounds, canOccupy(), camera framing (must still frame well on a 1366x768 Chromebook), easel placement if needed, crowd/roaming waypoints in robotCrowd.js or wherever they live, and any other hard-coded extents. Keep the centre of the floor open.",
+    "PERSONALITY: living creations are procedural paper puppets (paperPuppet.js / robotPuppet.js / robotCrowd.js) - first find out which motion capabilities actually exist (walk, idle, hop/celebrate, turning, speed, pause duration, bob/wobble). Using ONLY those, add a per-subject motion profile as data on the subject metadata (src/minigames/coloring/subjects/* or subjectRegistry.js), e.g. ninja quicker with short pauses, snowman slower with gentle wobble, penguin stronger side-to-side waddle if the puppet supports sway, hero longer pauses with an occasional existing celebrate, chicken quick short segments, robot regular/stiff cadence. Unknown subjects get a neutral default. No subject-specific if-chains in the crowd logic; gameplay must not depend on personality. Do not invent clips (sit, salute, slide, stretch).",
+    "NEWCOMER REACTION: when a newly painted creation comes alive and joins the room, existing creations (all, or those within a reasonable radius) briefly stop roaming, turn toward the newcomer, play the existing hop/celebrate, hold a short beat (~1-1.5 s total) and then resume their previous roaming. No social AI; never leave a creation permanently stopped. Respect the existing quiet-hop throttling for many creations.",
+    "TESTS: add/adjust unit tests: no door state/collision remains (canOccupy true where the doorway used to be at the old bounds; bounds reflect the new room size), motion-profile lookup with default fallback, newcomer reaction resumes roaming, button-visibility rule per phase if that logic is testable as a pure function (extract one if it helps). Update scripts/playthrough-coloring.mjs and scripts/playthrough-sequence.mjs (and any other script) that walk to the door or read door debug fields so they press the new button instead (expose a debug hook or button selector as the existing __eslDebug pattern does).",
+    "Do NOT edit DESIGN_DECISIONS.md or CURRENT_STATE.md (the controller merges three parallel branches and records decisions). Instead, list any product decisions you made in your final summary."
+  ],
+  "constraints": [
+    "Touch only Coloring files (src/minigames/coloring/**), the coloring section of src/config/lesson.js, Coloring-specific CSS (prefer the module's own injected styles; if you must edit src/styles.css, add rules next to existing coloring rules, never at end of file), and the playthrough scripts named above.",
+    "Do not regress: manual できた！, favorite-color POWER, exact artwork persistence, truthful preview, subject cycling, paper puppets, Snowman geometry, Ninja/Snowman outline occlusion, cross-game creation casting, final turnaround showing only the creation.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/robotCrowd.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/robotPuppet.js",
+    "src/minigames/coloring/subjectRegistry.js",
+    "src/minigames/coloring/subjects/",
+    "src/config/lesson.js",
+    "scripts/playthrough-coloring.mjs",
+    "scripts/playthrough-sequence.mjs",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller runs the coloring and sequence playthroughs and judges screenshots of the larger room, the button, the reaction beat and the turnaround."
+  },
+  "category": "feature-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning"
+}

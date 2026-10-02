@@ -11,10 +11,11 @@ import {
   pathEdges,
   pathNodes,
   regions,
+  retainedProps,
   shortestPath,
 } from './layout.js';
 
-const AREA_IDS = ['grassland', 'woodland', 'farm', 'cove'];
+const AREA_IDS = ['grassland', 'woodland', 'farm'];
 const nodesById = new Map(pathNodes.map((node) => [node.id, node]));
 
 test('the park has no enclosures, viewpoints or habitat colliders left', () => {
@@ -33,6 +34,34 @@ test('the broad areas are named and nothing is called a zoo region', () => {
   const ids = regions.map(({ id }) => id);
   for (const area of AREA_IDS) assert.ok(ids.includes(area), `${area} is missing`);
   assert.ok(!ids.includes('savanna'));
+  assert.ok(!ids.includes('cove'));
+});
+
+test('removed park features leave no runtime records or invisible collision', () => {
+  const removedLandmarks = ['ticketBooth', 'fountainHub', 'barn', 'waterTower', 'coveBridge'];
+  const removedColliderIds = [
+    'fountain', 'ticket-booth', 'barn', 'water-tower',
+    'cove-pool-west', 'cove-pool-east', 'cove-pool-north', 'cove-pool-south',
+  ];
+  for (const id of removedLandmarks) {
+    assert.equal(landmarks.some((landmark) => landmark.id === id), false, `${id} landmark remains`);
+  }
+  for (const id of removedColliderIds) {
+    assert.equal(colliders.some((collider) => collider.id === id), false, `${id} collider remains`);
+  }
+  assert.equal(colliders.some((collider) => collider.role === 'poolEdge'), false);
+
+  for (const point of [
+    { name: 'ticket booth', x: 5.8, z: 35.8 },
+    { name: 'cafe terrace', x: 7.8, z: 32.2 },
+    { name: 'fountain', x: 3.2, z: 10 },
+    { name: 'barn', x: 32.5, z: 23.5 },
+    { name: 'water tower', x: 38.5, z: 28 },
+    { name: 'pool centre', x: 35, z: -14 },
+    { name: 'pool west edge', x: 31.65, z: -14 },
+  ]) {
+    assert.ok(canOccupy(point.x, point.z, PLAYER_RADIUS), `${point.name} is still blocked`);
+  }
 });
 
 test('the map is the size it always was', () => {
@@ -142,21 +171,21 @@ test('the path network still reaches every corner of the park from the plaza', (
   }
 });
 
-test('the entrance still bends rather than running straight to the fountain', () => {
+test('the entrance still bends rather than running straight to the central hub', () => {
   const plaza = nodesById.get('plaza');
   const bend = nodesById.get('entrance-bend');
-  const hub = nodesById.get('fountain-hub');
+  const hub = nodesById.get('central-hub');
   const crossProduct = (bend.x - plaza.x) * (hub.z - bend.z)
     - (bend.z - plaza.z) * (hub.x - bend.x);
-  assert.ok(Math.abs(crossProduct) >= 5, 'the plaza-to-fountain route is still straight');
+  assert.ok(Math.abs(crossProduct) >= 5, 'the plaza-to-hub route is still straight');
 
   const degree = (id) => pathEdges.filter(([a, b]) => a === id || b === id).length;
   assert.ok(degree('plaza') >= 3 && degree('plaza') <= 4);
-  assert.ok(degree('fountain-hub') >= 3 && degree('fountain-hub') <= 4);
+  assert.ok(degree('central-hub') >= 3 && degree('central-hub') <= 4);
 });
 
 test('layout navigation data is frozen and never refers to a current request', () => {
-  for (const value of [regions, pathNodes, pathEdges, colliders, bounds, landmarks]) {
+  for (const value of [regions, pathNodes, pathEdges, colliders, bounds, landmarks, retainedProps]) {
     assert.ok(Object.isFrozen(value));
   }
   assert.doesNotMatch(JSON.stringify({ landmarks }), /current[ _-]?request|requested|targetAnimal/i);

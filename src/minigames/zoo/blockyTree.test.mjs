@@ -5,46 +5,57 @@ import * as THREE from 'three';
 import {
   BLOCKY_ROCK_VARIANTS,
   BLOCKY_TREE_VARIANTS,
+  ENTRANCE_TREE_EXCLUSION,
+  TREE_COUNT,
+  TREE_MIN_SPACING,
+  WAYPOINT_CLEARANCE,
   createBlockyRock,
   createBlockyTree,
   createParkScatter,
+  isScatterPointAllowed,
 } from './blockyTree.js';
-import { bounds, colliders, landmarks } from './layout.js';
+import { bounds, colliders, landmarks, pathNodes, retainedProps } from './layout.js';
 import { createRng } from './roaming.js';
 import { TERRITORIES } from './territories.js';
 
-test('park scatter is deterministic and keeps the intended open-area density', () => {
+test('park scatter is deterministic with whole-park tree probability', () => {
   const first = createParkScatter(24680);
   const second = createParkScatter(24680);
   assert.deepEqual(first, second);
   assert.notDeepEqual(first, createParkScatter(24681));
-  assert.equal(first.trees.length, 80);
+  assert.equal(first.trees.length, TREE_COUNT);
   assert.equal(first.rocks.length, 60);
-
-  const treeCounts = Object.groupBy(first.trees, (tree) => tree.area);
-  assert.ok(treeCounts.woodland.length > treeCounts.grassland.length);
-  assert.ok(treeCounts.grassland.length > treeCounts.farm.length);
-  assert.ok(treeCounts.grassland.length > treeCounts.cove.length);
   assert.ok(new Set(first.rocks.map((rock) => rock.clusterId)).size < first.rocks.length);
+
+  const samples = [101, 202, 303, 404, 505].flatMap((seed) => createParkScatter(seed).trees);
+  const third = (bounds.maxX - bounds.minX) / 3;
+  const leftEdge = bounds.minX + third;
+  const rightEdge = bounds.maxX - third;
+  const horizontal = [0, 0, 0];
+  const vertical = [0, 0];
+  const middleZ = (bounds.minZ + bounds.maxZ) / 2;
+  for (const tree of samples) {
+    horizontal[tree.x < leftEdge ? 0 : tree.x > rightEdge ? 2 : 1] += 1;
+    vertical[tree.z < middleZ ? 0 : 1] += 1;
+  }
+  for (const count of horizontal) {
+    assert.ok(count >= 90 && count <= 175, `tree thirds are too uneven: ${horizontal}`);
+  }
+  for (const count of vertical) {
+    assert.ok(count >= 155 && count <= 245, `tree halves are too uneven: ${vertical}`);
+  }
 });
 
-test('every scatter point obeys the real layout and territory exclusions', () => {
+test('every tree obeys navigation, prop, waypoint, and tree-spacing exclusions', () => {
   const { trees, rocks } = createParkScatter(97531);
-  const poolEdges = colliders.filter((collider) => collider.role === 'poolEdge');
-  const pool = {
-    minX: Math.min(...poolEdges.map((edge) => edge.x - edge.hw)),
-    maxX: Math.max(...poolEdges.map((edge) => edge.x + edge.hw)),
-    minZ: Math.min(...poolEdges.map((edge) => edge.z - edge.hd)),
-    maxZ: Math.max(...poolEdges.map((edge) => edge.z + edge.hd)),
-  };
   const waypoints = TERRITORIES.flatMap((territory) => territory.waypoints);
 
   for (const point of [...trees, ...rocks]) {
+    assert.ok(isScatterPointAllowed(point), `${point.x}, ${point.z} violates a scatter exclusion`);
     assert.ok(point.x >= bounds.minX && point.x <= bounds.maxX);
     assert.ok(point.z >= bounds.minZ && point.z <= bounds.maxZ);
-    assert.ok(point.z < 22, `${point.area} scatter entered the plaza`);
     for (const waypoint of waypoints) {
-      assert.ok(Math.hypot(point.x - waypoint.x, point.z - waypoint.z) >= 2.5);
+      assert.ok(Math.hypot(point.x - waypoint.x, point.z - waypoint.z) >= WAYPOINT_CLEARANCE);
     }
     for (const landmark of landmarks) {
       assert.ok(Math.hypot(point.x - landmark.x, point.z - landmark.z) >= 2);
@@ -64,8 +75,24 @@ test('every scatter point obeys the real layout and territory exclusions', () =>
       const outsideZ = Math.max(Math.abs(localZ) - collider.hd, 0);
       assert.ok(Math.hypot(outsideX, outsideZ) >= 2, `${collider.id} clearance`);
     }
-    assert.equal(point.x >= pool.minX && point.x <= pool.maxX
-      && point.z >= pool.minZ && point.z <= pool.maxZ, false, 'scatter entered cove pool');
+  }
+
+  for (let index = 0; index < trees.length; index += 1) {
+    const tree = trees[index];
+    assert.ok(Math.hypot(tree.x - ENTRANCE_TREE_EXCLUSION.x, tree.z - ENTRANCE_TREE_EXCLUSION.z)
+      >= ENTRANCE_TREE_EXCLUSION.radius, 'tree entered the visitor/spawn area');
+    for (const node of pathNodes) {
+      assert.ok(Math.hypot(tree.x - node.x, tree.z - node.z) >= 2.35,
+        `tree blocked navigation point ${node.id}`);
+    }
+    for (const prop of retainedProps) {
+      assert.ok(Math.hypot(tree.x - prop.x, tree.z - prop.z) >= prop.clearance,
+        `tree covered retained prop ${prop.id}`);
+    }
+    for (let other = index + 1; other < trees.length; other += 1) {
+      assert.ok(Math.hypot(tree.x - trees[other].x, tree.z - trees[other].z) >= TREE_MIN_SPACING,
+        `trees ${index} and ${other} are too close`);
+    }
   }
 });
 

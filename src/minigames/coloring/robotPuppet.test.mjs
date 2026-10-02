@@ -308,12 +308,33 @@ test('every authored roam point is somewhere the puppet may actually go', () => 
   }
 });
 
-test('the safe area excludes the walls, the table, the easel and the artist', () => {
+test('the enlarged safe area excludes the walls and the easel', () => {
+  assert.ok(SAFE_AREA.maxX >= 7.5 && SAFE_AREA.minX <= -7.5);
+  assert.ok(SAFE_AREA.maxZ >= 6.5 && SAFE_AREA.minZ <= -6.5);
   assert.ok(!insideSafeArea({ x: SAFE_AREA.minX - 0.1, z: 0 }));
   assert.ok(!insideSafeArea({ x: 0, z: SAFE_AREA.maxZ + 0.1 }));
   for (const obstacle of OBSTACLES) {
     assert.ok(!insideSafeArea({ x: obstacle.x, z: obstacle.z }), `${obstacle.x},${obstacle.z}`);
   }
+});
+
+test('motion speed changes hop cadence without changing the route', () => {
+  const slow = createRoamPlan(ROAM_POINTS, 0, { idlePause: 0.1, stateTime: 0.1, speed: 0.5 });
+  const quick = createRoamPlan(ROAM_POINTS, 0, { idlePause: 0.1, stateTime: 0.1, speed: 1.5 });
+  for (let i = 0; i < 30; i += 1) {
+    stepRoam(slow, 1 / 60);
+    stepRoam(quick, 1 / 60);
+  }
+  const slowTravel = Math.hypot(
+    slow.position.x - slow.origin.x,
+    slow.position.z - slow.origin.z,
+  );
+  const quickTravel = Math.hypot(
+    quick.position.x - quick.origin.x,
+    quick.position.z - quick.origin.z,
+  );
+  assert.ok(quickTravel > slowTravel, `${quickTravel} is not quicker than ${slowTravel}`);
+  assert.deepEqual(quick.points, slow.points);
 });
 
 test('the roam loop hops between points and pauses in between', () => {

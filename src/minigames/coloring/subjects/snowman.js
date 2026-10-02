@@ -49,6 +49,7 @@ const snowman = {
     hop: { root: { hopHeightScale: 0.48, tilt: 0.18 }, rotations: { leftArm: { lagAir: -0.28 }, rightArm: { lagAir: 0.28 } }, blink: true },
     celebrate: { root: { hopHeightScale: 0.66, tilt: 0.22 }, rotations: { leftArm: { lagAir: -0.5 }, rightArm: { lagAir: 0.5 } }, blink: false },
   },
+  motionProfile: { speed: 0.72, idleMin: 1.8, idleMax: 2.7 },
   liveScale: LIVE_SCALE,
 };
 

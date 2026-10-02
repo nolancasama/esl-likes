@@ -8,37 +8,28 @@ import { drawBlankBody, drawLineArt, PAPER } from './robotRenderer.js';
 import { createCoverage, sessionStars } from './coverage.js';
 import { createPaperPuppet, disposeSharedPaperAssets } from './paperPuppet.js';
 import { STATES } from './robotPuppet.js';
-import { createCrowd } from './robotCrowd.js';
+import { createCrowd, createNewcomerReaction } from './robotCrowd.js';
 import { creationPersistenceStatus, saveCompletedCreation, savedCreations } from './coloringSession.js';
-import { DEFAULT_SUBJECT_ID, SUBJECTS, subjectById } from './subjectRegistry.js';
+import { DEFAULT_SUBJECT_ID, SUBJECTS, motionProfileFor, subjectById } from './subjectRegistry.js';
+import {
+  EASEL,
+  ROOM_DEPTH,
+  ROOM_WIDTH,
+  canOccupyColoringRoom as canOccupy,
+} from './roomLayout.js';
+
+export { ROOM_DEPTH, ROOM_WIDTH, canOccupyColoringRoom as canOccupy } from './roomLayout.js';
 
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
 const MOVE_SPEED = 5;
 
-const ROOM_WIDTH = 12.5;
-const ROOM_DEPTH = 11.5;
 const WALL_HEIGHT = 5.2;
 const WALL_THICKNESS = 0.3;
-const DOOR_WIDTH = 1.7;
-const DOOR_HEIGHT = 3.1;
 const FLOOR_THICKNESS = WALL_THICKNESS * (5 / 3);
 const TRIM_HEIGHT = WALL_THICKNESS * 1.13;
 const TRIM_DEPTH = WALL_THICKNESS * 0.4;
-const DOOR_JAMB_WIDTH = WALL_THICKNESS * 0.6;
-const DOOR_FRAME_DEPTH = WALL_THICKNESS * 0.87;
-
-/**
- * The room is one easel and a door, and both are Space.
- *
- * They are far enough apart that no position is inside both radii, so no
- * priority rule is needed — which matters, because one of them ends the
- * session and the other does not.
- */
-const EASEL = Object.freeze({ x: 0, z: -1.6 });
 const EASEL_RADIUS_SQ = 2.15 * 2.15;
-const DOOR = Object.freeze({ x: 3.6, z: -ROOM_DEPTH / 2 + 1.2 });
-const DOOR_RADIUS_SQ = 1.5 * 1.5;
 const PLAYER_REVEAL_Z = EASEL.z + 2.15;
 const PLAYER_RETREAT_Z = EASEL.z + 3.4;
 /**
@@ -77,7 +68,7 @@ export const PUPPET_START_Z = PAPER_PLANE_Z + 0.16;
 export const CAMERA = Object.freeze({
   paper: Object.freeze({ offset: [0, PAPER_CENTRE_Y, PAPER_PLANE_Z + PAPER_CAMERA_GAP], lookOffset: [0, PAPER_CENTRE_Y, 0], damping: 2.4 }),
   easel: Object.freeze({ offset: [1.5, 2.75, 5.9], lookOffset: [0, 1.15, 0.9], damping: 2.1 }),
-  room: Object.freeze({ offset: [0, 8.5, 10.5], lookOffset: [0, 1.05, -2.2], damping: 5 }),
+  room: Object.freeze({ offset: [0, 10.5, 13.5], lookOffset: [0, 1.05, -2.7], damping: 5 }),
 });
 
 /**
@@ -201,6 +192,10 @@ export function subjectAfter(subject) {
   return SUBJECTS[index < 0 || index === SUBJECTS.length - 1 ? 0 : index + 1] ?? null;
 }
 
+export function shouldShowRestaurantButton({ currentPhase, creationCount }) {
+  return currentPhase === 'room' && creationCount > 0;
+}
+
 /** Coloring v3: the magical easel. One page, one robot, then another, forever. */
 export function createColoring(ctx) {
   const {
@@ -236,6 +231,7 @@ export function createColoring(ctx) {
   let roomInstruction = null;
   let actionButton = null;
   let nextButton = null;
+  let finishButton = null;
   let roomAction = null;
   let paintingOverlay = null;
   let paintingCanvas = null;
@@ -269,6 +265,7 @@ export function createColoring(ctx) {
   /** Every robot the child has made, in the order they made them. Never pruned. */
   const livingRobots = [];
   let crowd = null;
+  let newcomerReaction = null;
   let pendingPuppet = null;
   let pendingMember = null;
   let lastLandAt = -Infinity;
@@ -328,13 +325,18 @@ export function createColoring(ctx) {
         border-radius: 1.4rem; background: #5b67c8; color: #fff;
         box-shadow: 0 .38rem 0 rgb(32 49 75 / .3);
         font: 900 calc(1.15rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
-      .coloring-room-ui__action--door { background: #b4785f; }
       .coloring-room-ui__next { position: absolute; left: 50%; bottom: 6.25rem;
         transform: translateX(-50%); min-width: calc(8rem * var(--ui-scale, 1));
         min-height: calc(3.2rem * var(--ui-scale, 1)); padding: .55rem 1rem;
         pointer-events: auto; border: .22rem solid #fff; border-radius: 1.2rem;
         background: #ed9b4a; color: #fff; box-shadow: 0 .32rem 0 rgb(32 49 75 / .28);
         font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
+      .coloring-room-ui__finish { position: absolute; right: 1.25rem; bottom: 6.25rem;
+        min-height: calc(3.6rem * var(--ui-scale, 1)); padding: .65rem 1.15rem;
+        pointer-events: auto; border: .24rem solid #fff; border-radius: 1.25rem;
+        background: #dc684f; color: #fff; box-shadow: 0 .36rem 0 rgb(32 49 75 / .3);
+        font: 900 calc(1.05rem * var(--ui-scale, 1)) system-ui, sans-serif; cursor: pointer; }
+      .coloring-room-ui .scene-card p { white-space: pre-line; }
       /* z-index 18, deliberately BELOW the HUD's 20. The question is asked on
          this screen now, so the Talk control has to be reachable — and the HUD
          is appended before this overlay, so an equal z-index puts the page on
@@ -569,17 +571,22 @@ export function createColoring(ctx) {
     roomOverlay.className = 'coloring-room-ui';
     roomOverlay.innerHTML = `
       <div class="top-bar"><section class="scene-card"><h1></h1><p></p></section></div>
-      <button class="coloring-room-ui__next" type="button">つぎ ▶</button>
+      <button class="coloring-room-ui__next" type="button"></button>
       <button class="coloring-room-ui__action" type="button" hidden></button>
+      <button class="coloring-room-ui__finish" data-coloring-finish type="button" hidden></button>
     `;
     roomOverlay.querySelector('h1').textContent = STRINGS.roomName;
     roomInstruction = roomOverlay.querySelector('p');
     roomInstruction.textContent = STRINGS.roomHint;
     nextButton = roomOverlay.querySelector('.coloring-room-ui__next');
+    nextButton.textContent = STRINGS.previewCycle;
     nextButton.addEventListener('pointerdown', preventNextFocus);
     nextButton.addEventListener('click', pressNextSubject);
     actionButton = roomOverlay.querySelector('.coloring-room-ui__action');
     actionButton.addEventListener('click', pressRoomAction);
+    finishButton = roomOverlay.querySelector('[data-coloring-finish]');
+    finishButton.textContent = STRINGS.restaurantButton;
+    finishButton.addEventListener('click', beginTurnaround);
     roomOverlay.hidden = true;
     document.querySelector('#ui-layer').append(roomOverlay);
   }
@@ -633,72 +640,32 @@ export function createColoring(ctx) {
     const floorMaterial = makeMaterial(0xf1e5d1);
     const wallMaterial = makeMaterial(0xcbb8d9);
     const trimMaterial = makeMaterial(0x75b6a1);
-    const woodMaterial = makeMaterial(0x9b6946);
     const easelMaterial = makeMaterial(0xd49362);
     const paperMaterial = makeMaterial(PAPER);
 
-    const roomLeft = -ROOM_WIDTH / 2;
-    const roomRight = ROOM_WIDTH / 2;
     const backWallZ = -ROOM_DEPTH / 2 + WALL_THICKNESS / 2;
     const wallCentreY = WALL_HEIGHT / 2;
     const sideWallX = ROOM_WIDTH / 2 - WALL_THICKNESS / 2;
-    const doorLeft = DOOR.x - DOOR_WIDTH / 2;
-    const doorRight = DOOR.x + DOOR_WIDTH / 2;
-    const leftWallWidth = doorLeft - roomLeft;
-    const rightWallWidth = roomRight - doorRight;
-    const leftWallX = roomLeft + leftWallWidth / 2;
-    const rightWallX = doorRight + rightWallWidth / 2;
-    const lintelHeight = WALL_HEIGHT - DOOR_HEIGHT;
     const trimY = TRIM_HEIGHT / 2;
     const backTrimZ = backWallZ + WALL_THICKNESS / 2 + TRIM_DEPTH / 2;
     const sideTrimX = sideWallX - WALL_THICKNESS / 2 - TRIM_DEPTH / 2;
 
     addPart(world, box, floorMaterial, 0, -FLOOR_THICKNESS / 2, 0,
       ROOM_WIDTH, FLOOR_THICKNESS, ROOM_DEPTH);
-    // One shared top height, with the back wall split around the doorway. The
-    // full-width back span overlaps both side walls by WALL_THICKNESS.
-    addPart(world, box, wallMaterial, leftWallX, wallCentreY, backWallZ,
-      leftWallWidth, WALL_HEIGHT, WALL_THICKNESS);
-    addPart(world, box, wallMaterial, rightWallX, wallCentreY, backWallZ,
-      rightWallWidth, WALL_HEIGHT, WALL_THICKNESS);
-    // The lintel overlaps both spans instead of abutting them. Meeting exactly
-    // at doorLeft/doorRight left a hairline seam running from the door's head
-    // to the ceiling on each side — two faint vertical lines, clearly visible
-    // in a room screenshot and invisible to every test. It sits above the
-    // opening, so widening it costs the doorway nothing.
-    addPart(world, box, wallMaterial, DOOR.x, DOOR_HEIGHT + lintelHeight / 2, backWallZ,
-      DOOR_WIDTH + WALL_THICKNESS, lintelHeight, WALL_THICKNESS);
+    addPart(world, box, wallMaterial, 0, wallCentreY, backWallZ,
+      ROOM_WIDTH, WALL_HEIGHT, WALL_THICKNESS);
     addPart(world, box, wallMaterial, -sideWallX, wallCentreY, 0,
       WALL_THICKNESS, WALL_HEIGHT, ROOM_DEPTH);
     addPart(world, box, wallMaterial, sideWallX, wallCentreY, 0,
       WALL_THICKNESS, WALL_HEIGHT, ROOM_DEPTH);
-    addPart(world, box, trimMaterial, leftWallX, trimY, backTrimZ,
-      leftWallWidth, TRIM_HEIGHT, TRIM_DEPTH);
-    addPart(world, box, trimMaterial, rightWallX, trimY, backTrimZ,
-      rightWallWidth, TRIM_HEIGHT, TRIM_DEPTH);
+    addPart(world, box, trimMaterial, 0, trimY, backTrimZ,
+      ROOM_WIDTH, TRIM_HEIGHT, TRIM_DEPTH);
     addPart(world, box, trimMaterial, -sideTrimX, trimY, 0,
       TRIM_DEPTH, TRIM_HEIGHT, ROOM_DEPTH - WALL_THICKNESS * 2);
     addPart(world, box, trimMaterial, sideTrimX, trimY, 0,
       TRIM_DEPTH, TRIM_HEIGHT, ROOM_DEPTH - WALL_THICKNESS * 2);
 
-    // The way out: a plain doorway in the back wall with dark beyond it. This
-    // is the only thing in the room that is not the easel, and the only action
-    // that ends the session.
-    const doorwayZ = backWallZ - WALL_THICKNESS / 4;
-    const frameZ = backWallZ + WALL_THICKNESS / 2 + DOOR_FRAME_DEPTH / 2;
-    addPart(world, box, makeMaterial(0x2b2334), DOOR.x, DOOR_HEIGHT / 2, doorwayZ,
-      DOOR_WIDTH, DOOR_HEIGHT, WALL_THICKNESS / 2);
-    addPart(world, box, woodMaterial, DOOR.x,
-      DOOR_HEIGHT + DOOR_JAMB_WIDTH / 2, frameZ,
-      DOOR_WIDTH + DOOR_JAMB_WIDTH * 2, DOOR_JAMB_WIDTH, DOOR_FRAME_DEPTH);
-    addPart(world, box, woodMaterial, doorLeft - DOOR_JAMB_WIDTH / 2,
-      DOOR_HEIGHT / 2, frameZ,
-      DOOR_JAMB_WIDTH, DOOR_HEIGHT, DOOR_FRAME_DEPTH);
-    addPart(world, box, woodMaterial, doorRight + DOOR_JAMB_WIDTH / 2,
-      DOOR_HEIGHT / 2, frameZ,
-      DOOR_JAMB_WIDTH, DOOR_HEIGHT, DOOR_FRAME_DEPTH);
-
-    // ONE easel, in the middle of the room, and the room is built around it.
+    // The easel sits toward the back, leaving the enlarged floor centre open.
     easelArtCanvas = document.createElement('canvas');
     easelArtCanvas.width = 700;
     easelArtCanvas.height = 700;
@@ -728,14 +695,6 @@ export function createColoring(ctx) {
     world.visible = false;
   }
 
-  function canOccupy(x, z) {
-    if (x < -5.45 || x > 5.45 || z < -4.8 || z > 4.85) return false;
-    const easelDx = x - EASEL.x;
-    const easelDz = z - EASEL.z;
-    if (easelDx * easelDx + easelDz * easelDz < 1.15 * 1.15) return false;
-    return true;
-  }
-
   // Copied from Restaurant: same movement feel and verified Kenney +z facing convention.
   function updateMovement(dt) {
     input.getMovement(move);
@@ -759,31 +718,32 @@ export function createColoring(ctx) {
     return dx * dx + dz * dz <= EASEL_RADIUS_SQ;
   };
 
-  const nearDoor = () => {
-    const dx = player.position.x - DOOR.x;
-    const dz = player.position.z - DOOR.z;
-    return dx * dx + dz * dz <= DOOR_RADIUS_SQ;
-  };
-
   /** Which Space action is offered right now, if any. */
   function setRoomAction(next) {
     if (roomAction === next) return;
     roomAction = next;
     if (!actionButton) return;
     actionButton.hidden = next === null;
-    actionButton.classList.toggle('coloring-room-ui__action--door', next === 'door');
     if (next === 'easel') actionButton.textContent = STRINGS.easelAction;
-    else if (next === 'door') actionButton.textContent = STRINGS.doorAction;
   }
 
   function pressRoomAction() {
     if (!active || phase !== 'room' || holdRemaining > 0) return;
     if (roomAction === 'easel') void openCanvas();
-    else if (roomAction === 'door') beginTurnaround();
   }
 
   function preventNextFocus(event) {
     event.preventDefault();
+  }
+
+  function syncRoomButtons() {
+    if (!finishButton) return;
+    const shown = shouldShowRestaurantButton({
+      currentPhase: phase,
+      creationCount: livingRobots.length,
+    });
+    finishButton.hidden = !shown;
+    finishButton.disabled = !shown;
   }
 
   function pressNextSubject() {
@@ -1183,6 +1143,7 @@ export function createColoring(ctx) {
   async function openCanvas() {
     if (!active || phase !== 'room') return;
     phase = 'to-canvas';
+    syncRoomButtons();
     setRoomAction(null);
     const changed = await transitions.run(() => {
       if (!active) return;
@@ -1200,7 +1161,10 @@ export function createColoring(ctx) {
       setEaselArt('ready', { subject });
       startRound(subject);
     });
-    if (!changed && active && phase === 'to-canvas') phase = 'room';
+    if (!changed && active && phase === 'to-canvas') {
+      phase = 'room';
+      syncRoomButtons();
+    }
   }
 
   /**
@@ -1254,7 +1218,7 @@ export function createColoring(ctx) {
 
     // Both consumers copy the live paint before teardown: the puppet into its
     // piece textures, and the session store into one detached canvas.
-    pendingMember = crowd.join();
+    pendingMember = crowd.join({}, motionProfileFor(activeSubject));
     pendingPuppet = createPaperPuppet({ subject: activeSubject, paint: surface.paint, onLand: landTap });
     saveCompletedCreation({
       subjectId: activeSubject.id,
@@ -1350,7 +1314,9 @@ export function createColoring(ctx) {
       z: pendingPuppet.group.position.z,
     };
     pendingPuppet.startRoaming(member.points, { ...member, from });
-    livingRobots.push({ id: member.id, puppet: pendingPuppet, member });
+    const newcomer = { id: member.id, puppet: pendingPuppet, member };
+    newcomerReaction.start(livingRobots, newcomer);
+    livingRobots.push(newcomer);
     pendingPuppet = null;
     pendingMember = null;
 
@@ -1367,6 +1333,7 @@ export function createColoring(ctx) {
     setEaselArt('blank');
     holdRemaining = ROOM_HOLD;
     phase = 'room';
+    syncRoomButtons();
     input.clear();
   }
 
@@ -1384,37 +1351,32 @@ export function createColoring(ctx) {
     }
   }
 
-  // --- the turnaround, and the way out -------------------------------------
+  // --- the final turnaround -------------------------------------------------
 
   /**
    * The child's newest robot turns the question around.
    *
-   * `finish()` is the only exit from a minigame, and SPEC freezes one
-   * turnaround per minigame, so the door carries both. The robot asking is the
-   * child's own creation, which is a better fiction than the artist NPC this
-   * replaces.
+   * `finish()` is the only exit from a minigame, and the child's newest
+   * creation asks the required closing question.
    */
   function beginTurnaround() {
-    if (!active || phase !== 'room') return;
+    if (!active || phase !== 'room' || livingRobots.length === 0) return;
     phase = 'turnaround';
+    syncRoomButtons();
+    newcomerReaction.cancel();
     setRoomAction(null);
     // The room overlay stays up for the closing question, so the page-forward
     // button has to be taken away by hand: offering "next picture" while the
     // creation is asking the child something reads as a way out of answering.
     if (nextButton) nextButton.hidden = true;
     const newest = livingRobots.at(-1);
-    if (newest) {
-      newest.puppet.stopRoaming().setState(STATES.IDLE);
-      player.visible = false;
-      newest.puppet.setHeading(0);
-      cameraRig
-        .setTarget(newest.puppet.group)
-        .setPreset('closeup', { offset: [0, 2.2, 3.6], lookOffset: [0, 1, 0], damping: 4 });
-      dialogue.show({ text: LESSON.question, anchor: newest.puppet.group, offsetY: 2.1 });
-    } else {
-      player.visible = true;
-      dialogue.show({ text: LESSON.question, anchor: player, offsetY: 1.8 });
-    }
+    newest.puppet.stopRoaming().setState(STATES.IDLE);
+    player.visible = false;
+    newest.puppet.setHeading(0);
+    cameraRig
+      .setTarget(newest.puppet.group)
+      .setPreset('closeup', { offset: [0, 2.2, 3.6], lookOffset: [0, 1, 0], damping: 4 });
+    dialogue.show({ text: LESSON.question, anchor: newest.puppet.group, offsetY: 2.1 });
     roomInstruction.textContent = STRINGS.turnaround;
     promptAnswer(ctx, LESSON, { isActive: () => active && phase === 'turnaround', onAccepted: completeTurnaround });
   }
@@ -1423,6 +1385,7 @@ export function createColoring(ctx) {
     if (!active || phase !== 'turnaround') return;
     acceptedAnswer = answer || LESSON.answers[0];
     phase = 'finishing';
+    syncRoomButtons();
     speech.clearTarget();
     hud.setTalkState('accepted');
     roomInstruction.textContent = STRINGS.complete;
@@ -1513,7 +1476,7 @@ export function createColoring(ctx) {
       action: roomAction ?? null,
       canAct: phase === 'room' && holdRemaining <= 0,
       nearEasel: player && phase === 'room' ? nearEasel() : false,
-      nearDoor: player && phase === 'room' ? nearDoor() : false,
+      restaurantButtonVisible: Boolean(finishButton && !finishButton.hidden),
       player: player ? { x: player.position.x, z: player.position.z } : null,
       robots: livingRobots.map((robot) => ({
         id: robot.id,
@@ -1539,7 +1502,7 @@ export function createColoring(ctx) {
   function spawnRobots(count = 10, paint = null) {
     if (!world) return 0;
     for (let i = 0; i < count; i += 1) {
-      const member = crowd.join();
+      const member = crowd.join({}, motionProfileFor(activeSubject));
       const puppet = createPaperPuppet({
         subject: activeSubject,
         paint: paint ?? surface?.paint ?? null,
@@ -1557,7 +1520,7 @@ export function createColoring(ctx) {
     for (const record of savedCreations()) {
       const subject = subjectById(record.subjectId ?? DEFAULT_SUBJECT_ID);
       if (!subject) continue;
-      const member = crowd.join(record.crowd);
+      const member = crowd.join(record.crowd, motionProfileFor(subject));
       const puppet = createPaperPuppet({ subject, paint: record.artwork, onLand: landTap });
       world.add(puppet.group);
       puppet.startRoaming(member.points, member);
@@ -1606,6 +1569,7 @@ export function createColoring(ctx) {
     pendingPuppet = null;
     pendingMember = null;
     crowd = createCrowd();
+    newcomerReaction = createNewcomerReaction();
     installStyle();
     createRoomOverlay();
     // The room is built now so that the pull-back has something to reveal, but
@@ -1651,8 +1615,7 @@ export function createColoring(ctx) {
       } else {
         updateMovement(safeDt);
         const easel = nearEasel();
-        const door = !easel && nearDoor();
-        setRoomAction(easel ? 'easel' : door ? 'door' : null);
+        setRoomAction(easel ? 'easel' : null);
         if (roomAction && input.consumeInteract()) pressRoomAction();
       }
       updateEaselArt(safeDt);
@@ -1673,6 +1636,7 @@ export function createColoring(ctx) {
     // Every robot the child has made keeps living, through every room phase.
     // The close-up pauses them, which is both cheaper and invisible.
     if (world?.visible) {
+      newcomerReaction?.update(safeDt);
       for (const robot of livingRobots) robot.puppet.update(safeDt);
       pendingPuppet?.update(safeDt);
       player?.updateAnimation?.(safeDt);
@@ -1693,12 +1657,15 @@ export function createColoring(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     actionButton?.removeEventListener('click', pressRoomAction);
+    finishButton?.removeEventListener('click', beginTurnaround);
     nextButton?.removeEventListener('pointerdown', preventNextFocus);
     nextButton?.removeEventListener('click', pressNextSubject);
     disposePaintingOverlay();
     roomOverlay?.remove();
     style?.remove();
 
+    newcomerReaction?.cancel();
+    newcomerReaction = null;
     // Every accumulated robot, and then the assets they were sharing. The
     // order matters: a puppet must not outlive the quad it draws with.
     for (const robot of livingRobots) robot.puppet.dispose();
@@ -1731,6 +1698,7 @@ export function createColoring(ctx) {
     roomInstruction = null;
     actionButton = null;
     nextButton = null;
+    finishButton = null;
     roomAction = null;
     style = null;
     favourite = null;

@@ -5,10 +5,10 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   bounds as campusBounds,
-  colliders,
   landmarks,
   pathNodes,
   regions,
+  retainedProps,
 } from './layout.js';
 import { AREAS, TERRITORIES } from './territories.js';
 import {
@@ -19,8 +19,6 @@ import {
 import { createRng, spawnAnimals } from './roaming.js';
 import { createAnimalAnimator, resolveAnimalClips } from './animalAnimator.js';
 import { createBlockyRock, createBlockyTree, createParkScatter } from './blockyTree.js';
-
-const TAU = Math.PI * 2;
 
 // Ground tints used where an area wants a hint of its animals' colouring.
 // Nothing here fences anything: the park is one continuous space.
@@ -56,7 +54,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   const textures = new Set();
   const canvases = new Set();
   const modelSources = new Set();
-  const animations = [];
   const animators = [];
   // A seeded generator when one is supplied, so a test or a harness run can
   // reproduce an exact park; otherwise the animals start somewhere new.
@@ -73,7 +70,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   const failedEnvironmentAssets = [];
   let beforeDressingStats = null;
   let afterDressingStats = null;
-  let elapsed = 0;
   let disposed = false;
 
   const ownGeometry = (geometry) => {
@@ -123,28 +119,18 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   // to read without turning those patches into raised terrain.
   const grass = makeMaterial(0x74ad3d);
   const plazaMaterial = makeMaterial(0xd9cab3);
-  const stone = makeMaterial(0xb0a79d);
-  const stoneDark = makeMaterial(0x777b83);
-  const water = makeMaterial(0x4bb9d1, { transparent: true, opacity: 0.8 });
-  const bridgeBlue = makeMaterial(0x3f86b7);
   const leaf = makeMaterial(0x4f9955);
   const leafLight = makeMaterial(0x72b85d);
   const leafDark = makeMaterial(0x397a43);
   const bark = makeMaterial(0x765137);
-  const gateRed = makeMaterial(0xe95b55);
-  const gateWhite = makeMaterial(0xfff7df);
   const dark = makeMaterial(0x29384a);
   const regionMaterials = Object.freeze({
     grassland: makeMaterial(0x8cbd4e),
     woodland: makeMaterial(0x3f7a2a),
     farm: makeMaterial(0x7fb340),
-    cove: makeMaterial(0x8faeb2),
   });
-  const barnRed = makeMaterial(0xb94e42);
-  const barnTrim = makeMaterial(0xf4e6cb);
   const timber = makeMaterial(0x9d7448);
   const hay = makeMaterial(0xd7af50);
-  const paleRock = makeMaterial(0xbec9c7);
 
   const worldWidth = campusBounds.maxX - campusBounds.minX;
   const worldDepth = campusBounds.maxZ - campusBounds.minZ;
@@ -159,7 +145,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     grassland: [34, 28],
     woodland: [34, 28],
     farm: [30, 26],
-    cove: [20, 20],
   });
   for (const region of regions) {
     const material = regionMaterials[region.id];
@@ -179,34 +164,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     plazaPosition.x, 0.025, plazaPosition.z, 7, 0.14, 6);
   plaza.name = 'zoo-entrance-plaza';
   plaza.rotation.y = Math.PI / 16;
-
-  // The plaza reads as an entrance even before any optional model arrives.
-  const boothPosition = landmarkById.get('ticketBooth') ?? { x: 5.8, z: 35.8 };
-  const booth = new THREE.Group();
-  booth.name = 'zoo-ticket-booth';
-  group.add(booth);
-  markPhotoOccluder(addMesh(booth, box, gateWhite, boothPosition.x, 1.35, boothPosition.z, 2.7, 2.7, 2.15));
-  markPhotoOccluder(addMesh(booth, box, gateRed, boothPosition.x, 2.86, boothPosition.z, 3.15, 0.35, 2.55));
-  addMesh(booth, box, dark, boothPosition.x + 0.75, 1.48, boothPosition.z + 1.085, 0.85, 0.78, 0.08);
-
-  const terrace = addMesh(group, lowCylinder, plazaMaterial, 7.8, 0.04, 32.2, 5.6, 0.1, 4.9);
-  terrace.name = 'zoo-cafe-terrace';
-
-  const fountainPosition = landmarkById.get('fountainHub')
-    ?? pathNodes.find((node) => node.kind === 'hub')
-    ?? { x: 0, z: 0 };
-  markPhotoOccluder(addMesh(group, lowCylinder, stone,
-    fountainPosition.x, 0.25, fountainPosition.z, 2.05, 0.5, 2.05));
-  addMesh(group, lowCylinder, water, fountainPosition.x, 0.51, fountainPosition.z, 1.67, 0.08, 1.67);
-  markPhotoOccluder(addMesh(group, cylinder, stoneDark,
-    fountainPosition.x, 1.35, fountainPosition.z, 0.36, 2.25, 0.36));
-  addMesh(group, lowCylinder, stone, fountainPosition.x, 2.25, fountainPosition.z, 1.05, 0.22, 1.05);
-  addMesh(group, lowCylinder, water, fountainPosition.x, 2.39, fountainPosition.z, 0.84, 0.08, 0.84);
-  const fountainTop = addMesh(group, sphere, water,
-    fountainPosition.x, 3.12, fountainPosition.z, 0.25, 1.25, 0.25);
-  fountainTop.userData.baseY = 3.12;
-  fountainTop.name = 'zoo-central-fountain-jet';
-  animations.push({ kind: 'fountain', object: fountainTop });
 
   const treeResources = {
     boxGeometry: box,
@@ -239,8 +196,8 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     markPhotoOccluder(instances);
   }
 
-  // Rocks get their own cool greys rather than the plaza/fountain `stone`,
-  // which is a pale warm beige: scattered across green grass it read as
+  // Rocks get their own cool greys rather than the plaza's warm beige:
+  // scattered across green grass, the beige version read as
   // cardboard boxes, and at distance it was nearly the colour of the white
   // sheep the child is sent out to photograph.
   const rockMid = makeMaterial(0x8f959d);
@@ -279,96 +236,25 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     });
   }
 
-  const forestLog = markPhotoOccluder(addMesh(group, cylinder, bark, -30, 0.48, -19, 0.72, 3.2, 0.72));
+  const propById = new Map(retainedProps.map((prop) => [prop.id, prop]));
+  const forestLogPosition = propById.get('forestLog');
+  const forestLog = markPhotoOccluder(addMesh(group, cylinder, bark,
+    forestLogPosition.x, 0.48, forestLogPosition.z, 0.72, 3.2, 0.72));
   forestLog.name = 'zoo-forest-fallen-log';
   forestLog.rotation.z = Math.PI / 2;
   forestLog.rotation.y = 0.35;
 
-  for (const [x, z, scaleAmount] of [[27, 27, 1], [28.2, 27.1, 0.78]]) {
+  for (const [id, scaleAmount] of [['farmHayA', 1], ['farmHayB', 0.78]]) {
+    const { x, z } = propById.get(id);
     const bale = addMesh(group, box, hay, x, 0.55 * scaleAmount, z,
       1.2 * scaleAmount, 1.1 * scaleAmount, 1.1 * scaleAmount);
     bale.name = 'zoo-farm-hay-bale';
     bale.rotation.y = 0.12;
   }
-  const trough = addMesh(group, box, timber, 20.2, 0.45, 27, 2.6, 0.65, 0.8);
+  const troughPosition = propById.get('farmTrough');
+  const trough = addMesh(group, box, timber, troughPosition.x, 0.45, troughPosition.z, 2.6, 0.65, 0.8);
   trough.name = 'zoo-farm-trough';
-  addMesh(group, box, dark, 20.2, 0.7, 27, 2.2, 0.1, 0.58);
-
-  const barnPosition = landmarkById.get('barn');
-  if (barnPosition) {
-    const barn = new THREE.Group();
-    barn.name = 'zoo-barn-procedural';
-    group.add(barn);
-    const barnCollider = colliders.find((collider) => collider.landmarkId === 'barn');
-    const barnWidth = (barnCollider?.hw ?? 2.7) * 2;
-    const barnDepth = (barnCollider?.hd ?? 2.1) * 2;
-    const barnBody = addMesh(barn, box, barnRed,
-      barnPosition.x, 2, barnPosition.z, barnWidth, 4, barnDepth);
-    markPhotoOccluder(barnBody);
-    barnBody.rotation.y = barnCollider?.rotation ?? 0;
-    const roof = addMesh(barn, box, barnTrim, barnPosition.x, 4.35, barnPosition.z,
-      barnWidth * 1.04, 0.75, barnDepth * 1.04);
-    markPhotoOccluder(roof);
-    roof.rotation.y = barnCollider?.rotation ?? 0;
-    markPhotoOccluder(addMesh(barn, box, dark,
-      barnPosition.x, 1.4, barnPosition.z + barnDepth * 0.5, 1.8, 2.8, 0.12));
-  }
-
-  const waterTowerPosition = landmarkById.get('waterTower');
-  if (waterTowerPosition) {
-    const tower = new THREE.Group();
-    tower.name = 'zoo-water-tower-procedural';
-    group.add(tower);
-    const towerCollider = colliders.find((collider) => collider.landmarkId === 'waterTower');
-    const radius = towerCollider?.r ?? 1.35;
-    const legOffset = radius * 0.48;
-    const legHeight = radius * 3.25;
-    const legWidth = radius * 0.2;
-    for (const xOffset of [-legOffset, legOffset]) {
-      for (const zOffset of [-legOffset, legOffset]) {
-        markPhotoOccluder(addMesh(tower, box, timber,
-          waterTowerPosition.x + xOffset, legHeight * 0.5, waterTowerPosition.z + zOffset,
-          legWidth, legHeight, legWidth));
-      }
-    }
-    markPhotoOccluder(addMesh(tower, box, stoneDark,
-      waterTowerPosition.x, legHeight + radius * 0.72, waterTowerPosition.z,
-      radius * 1.85, radius * 1.4, radius * 1.85));
-  }
-
-  const bridgePosition = landmarkById.get('coveBridge');
-  if (bridgePosition) {
-    markPhotoOccluder(addMesh(group, box, bridgeBlue,
-      bridgePosition.x, 0.42, bridgePosition.z, 5.6, 0.35, 1.5));
-    for (const zOffset of [-0.8, 0.8]) {
-      markPhotoOccluder(addMesh(group, box, bridgeBlue,
-        bridgePosition.x, 1.05, bridgePosition.z + zOffset, 5.8, 0.18, 0.18));
-      for (const xOffset of [-2.65, 0, 2.65]) {
-        addMesh(group, cylinder, paleRock,
-          bridgePosition.x + xOffset, 0.75, bridgePosition.z + zOffset, 0.15, 1.3, 0.15);
-      }
-    }
-  }
-
-  // Pale pool-edge blocks make every solid cove boundary visible and use the
-  // exact boxes that navigation tests and player collision use.
-  for (const edge of colliders.filter((collider) => collider.role === 'poolEdge')) {
-    const rockEdge = addMesh(group, box, paleRock, edge.x, 0.32, edge.z,
-      edge.hw * 2, 0.64, edge.hd * 2);
-    markPhotoOccluder(rockEdge);
-    rockEdge.rotation.y = edge.rotation;
-  }
-
-  // The cove water fills the rectangle the pool-edge colliders enclose, so the
-  // visible water and the navigable bank cannot drift apart.
-  const poolEdges = colliders.filter((collider) => collider.role === 'poolEdge');
-  if (poolEdges.length) {
-    const xs = poolEdges.map((edge) => edge.x);
-    const zs = poolEdges.map((edge) => edge.z);
-    addMesh(group, lowCylinder, water,
-      (Math.min(...xs) + Math.max(...xs)) / 2, 0.01, (Math.min(...zs) + Math.max(...zs)) / 2,
-      6.65, 0.06, 6.1);
-  }
+  addMesh(group, box, dark, troughPosition.x, 0.7, troughPosition.z, 2.2, 0.1, 0.58);
 
   // Stand-in shown until an animal's model arrives, so the park is never empty.
   const placeholderMaterial = makeMaterial(0x91a0aa, { transparent: true, opacity: 0.82 });
@@ -670,7 +556,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
    */
   function anchorFor(group) {
     if (!group.anchor) return { x: 0, z: 0 };
-    if (group.anchor === 'ticketBooth') return { x: boothPosition.x, z: boothPosition.z };
     const landmark = landmarkById.get(group.anchor);
     return landmark ? { x: landmark.x, z: landmark.z } : null;
   }
@@ -842,6 +727,12 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     return loadPromise;
   }
 
+  /** A normalized, skeleton-safe copy for one-shot UI rendering. */
+  function cloneAnimalModel(id) {
+    const model = habitatById.get(id)?.model;
+    return model ? cloneSkinned(model) : null;
+  }
+
   /** Per-animal state for the debug panel and the playthrough harness. */
   function getAnimalDebug() {
     return habitats.map((subject) => ({
@@ -865,10 +756,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   function update(dt) {
     if (disposed) return;
     const step = Math.max(0, Math.min(Number.isFinite(dt) ? dt : 0, 0.1));
-    elapsed += step;
-    for (const animation of animations) {
-      animation.object.position.y = animation.object.userData.baseY + Math.sin(elapsed * 2.2) * 0.08;
-    }
     // Roam first, then copy the result onto the models, then drive the clips
     // from the state that produced the movement, so what an animal is doing and
     // what it looks like can never disagree.
@@ -903,7 +790,6 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
     geometries.clear();
     canvases.clear();
     modelSources.clear();
-    animations.length = 0;
     for (const animator of animators) animator.dispose();
     animators.length = 0;
   }
@@ -995,7 +881,7 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   beforeDressingStats = collectSceneStats();
 
   return {
-    group, habitats, loadAnimals, loadEnvironment, update, getSceneStats, getSceneStatsReport,
+    group, habitats, loadAnimals, cloneAnimalModel, loadEnvironment, update, getSceneStats, getSceneStatsReport,
     getEnvironmentState, getAnimalDebug, dispose,
     countBlockedSamples, occluderDistances, visibilitySampleCount: VISIBILITY_OFFSETS.length,
     // Editor-only. Gameplay never touches these; see scenery.js.

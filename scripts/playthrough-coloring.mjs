@@ -12,6 +12,7 @@ import {
   insideSilhouette,
   silhouetteBounds,
 } from '../src/minigames/coloring/robotDefinition.js';
+import { DEFAULT_SUBJECT_ID, subjectById } from '../src/minigames/coloring/subjectRegistry.js';
 import { PALETTE } from '../src/minigames/coloring/palette.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from '../src/minigames/coloring/brushes.js';
 import { FAVOURITE_POWER_THRESHOLD } from '../src/minigames/coloring/coverage.js';
@@ -146,7 +147,8 @@ async function openPage(label, {
       screen: visible(screen),
       canvas: visible(q('.coloring-canvas')),
       action: text('.coloring-room-ui__action'),
-      actionIsDoor: visible(q('.coloring-room-ui__action--door')),
+      finishButtonVisible: visible(q('[data-coloring-finish]')),
+      finishButtonText: text('[data-coloring-finish]'),
       roomInstruction: text('.coloring-room-ui .scene-card p'),
       pageBubble: text('.coloring-screen .coloring-bubble'),
       pageBubbleAnchored: visible(q('.coloring-screen .coloring-bubble')),
@@ -470,7 +472,7 @@ async function assertPowerSemantics(h, box, favourite, ordinary) {
   await resetPainting(h);
   await selectColour(page, ordinary);
   await selectBrush(page, 'large');
-  const bounds = silhouetteBounds();
+  const bounds = await activeSilhouetteBounds(page);
   const rowStep = (BRUSHES.large.diameter / PICTURE_SIZE) * 0.58;
   for (const points of sweeps(bounds.minY, bounds.maxY, rowStep)) await stroke(page, box, points);
   const ignoredFavourite = await h.ui();
@@ -617,7 +619,7 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
     `${beforeDecoration} -> ${state.debug?.power}`);
 
   await selectColour(page, favourite);
-  const bounds = silhouetteBounds();
+  const bounds = await activeSilhouetteBounds(page);
   const rowStep = (BRUSHES[style.brush].diameter / PICTURE_SIZE) * 0.64;
   const phaseStart = h.observedPhases.length;
   let strokesUsed = 0;
@@ -873,44 +875,31 @@ async function sampleCrowd(h) {
     worstCloseRun < 8, `longest <0.1-unit run ${worstCloseRun} samples${worstPair ? ` (${worstPair})` : ''}`);
 }
 
-async function walkToDoor(h) {
-  await h.pulseUntil(['KeyD'], (state) => (state.debug?.player?.x ?? -Infinity) >= 3.25,
-    18, 'door x coordinate');
-  return h.pulseUntil(['KeyW'], (state) => state.debug?.action === 'door', 32, 'door action');
-}
-
-async function leaveThroughDoor(h, label, { screenshot = false } = {}) {
+async function leaveViaFinishButton(h, label, { screenshot = false } = {}) {
   const { page } = h;
-  await h.waitFor((state) => state.debug?.phase === 'room' && state.debug?.canAct,
+  const roomState = await h.waitFor((state) => state.debug?.phase === 'room'
+      && state.debug?.canAct
+      && state.finishButtonVisible,
     5000, `${label} room controls`);
-  const atDoor = await walkToDoor(h);
-  check(`${label}: approaching the doorway offers only the door action`,
-    atDoor?.debug?.action === 'door' && atDoor.actionIsDoor,
-    JSON.stringify({ debug: atDoor?.debug?.action, cue: atDoor?.action, class: atDoor?.actionIsDoor }));
-  const newestBefore = atDoor?.debug?.robots?.at(-1) ?? null;
-  await page.keyboard.press('Space');
+  check(`${label}: the Restaurant button is visible in the room`,
+    roomState?.finishButtonVisible && roomState.finishButtonText === 'レストランへ →',
+    JSON.stringify({ visible: roomState?.finishButtonVisible, text: roomState?.finishButtonText }));
+  const newestBefore = roomState?.debug?.robots?.at(-1) ?? null;
+  await page.locator('[data-coloring-finish]').click();
   let state = await h.waitFor((next) => next.debug?.phase === 'turnaround', 4000, `${label} turnaround`);
-  check(`${label}: door Space enters turnaround instead of another round`,
+  check(`${label}: the Restaurant button enters turnaround instead of another round`,
     state?.debug?.phase === 'turnaround', state?.debug?.phase);
   const newestDuring = state?.debug?.robots?.find((robot) => robot.id === newestBefore?.id);
-  const askerGeometry = newestDuring && state.debug?.player
-    ? {
-      dx: state.debug.player.x - newestDuring.position.x,
-      dz: state.debug.player.z - newestDuring.position.z,
-    }
-    : null;
   check(`${label}: the newest robot is the turnaround asker`,
     Boolean(newestDuring
       && newestDuring.id === state.debug.robots.at(-1)?.id
       && newestDuring.state === 'idle'
-      && Math.abs(askerGeometry.dx - 1.5) < 0.08
-      && Math.abs(askerGeometry.dz - 1.3) < 0.08
       && /what color do you like/i.test(state.dialogueBubble ?? '')),
-    JSON.stringify({ newest: newestDuring?.id, state: newestDuring?.state, askerGeometry, bubble: state?.dialogueBubble }));
+    JSON.stringify({ newest: newestDuring?.id, state: newestDuring?.state, bubble: state?.dialogueBubble }));
   check(`${label}: session stars equal min(3, robotsCompleted) before finishing`,
     state?.debug?.stars === Math.min(3, state?.debug?.robotsCompleted ?? 0),
     JSON.stringify({ stars: state?.debug?.stars, robots: state?.debug?.robotsCompleted }));
-  if (screenshot) await page.screenshot({ path: `${OUT}-door-turnaround.png` });
+  if (screenshot) await page.screenshot({ path: `${OUT}-finish-button-turnaround.png` });
 
   state = await openFallback(h, 3);
   check(`${label}: turnaround fallback offers all seven color answers`,
@@ -919,7 +908,7 @@ async function leaveThroughDoor(h, label, { screenshot = false } = {}) {
     .click({ timeout: 4000 }).then(() => true, () => false);
   check(`${label}: turnaround answer is accepted through the fallback`, answered);
   state = await h.waitFor((next) => !next.debug && next.greeting !== null, 10000, `${label} finished hub`);
-  check(`${label}: door turnaround finishes the minigame back at the hub`, Boolean(state), state?.greeting);
+  check(`${label}: turnaround finishes the minigame back at the hub`, Boolean(state), state?.greeting);
   return state;
 }
 
@@ -957,10 +946,17 @@ async function assertBubbleReplay(h, size) {
       speaking: state.bubbleSpeaking, answers: state.bubbleAnswerCount }));
 }
 
+// The silhouette helpers take a subject since Coloring learned subjects; the
+// harness measures whichever picture is actually on the canvas.
+async function activeSilhouetteBounds(page) {
+  const id = await page.evaluate(() => window.__eslDebug?.coloring?.activeSubjectId ?? null);
+  return silhouetteBounds(subjectById(id ?? DEFAULT_SUBJECT_ID) ?? subjectById(DEFAULT_SUBJECT_ID));
+}
+
 async function fillFavouriteToFull(h, box, favourite, paths) {
   await selectColour(h.page, favourite);
   await selectBrush(h.page, 'large');
-  const bounds = silhouetteBounds();
+  const bounds = await activeSilhouetteBounds(h.page);
   const rowStep = (BRUSHES.large.diameter / PICTURE_SIZE) * 0.58;
   let state = await h.ui();
   for (const points of sweeps(bounds.minY, bounds.maxY, rowStep)) {
@@ -1169,7 +1165,7 @@ async function checkCanvasCentring(viewport) {
 // is exercised in this one harness invocation, regardless of argv[4]/argv[5].
 for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
 
-// ---- Session A: persistence visits, six rounds, and door turnarounds ------
+// ---- Session A: persistence visits, six rounds, and final turnarounds -----
 {
   // `?editor=1`, like the performance session: this scenario uses the dev-gated
   // `coloringReset` hook, and the harness runs against a PRODUCTION preview
@@ -1211,7 +1207,7 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
   const artById = new Map();
   state = await paintRound(h, 1, ROUND_STYLES[0], artById);
 
-  await leaveThroughDoor(h, 'visit 1');
+  await leaveViaFinishButton(h, 'visit 1');
   await enterColoring(h);
   // enterColoring returns entry SAMPLES ({phase, room, screen, canvas}), which
   // carry no `debug`. The restored robots have to be read from a real snapshot.
@@ -1222,7 +1218,7 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
     JSON.stringify(state?.debug?.robots?.map((robot) => ({ id: robot.id, art: robot.art }))));
   state = await paintRound(h, 2, ROUND_STYLES[1], artById, { detailedChecks: false });
 
-  await leaveThroughDoor(h, 'visit 2');
+  await leaveViaFinishButton(h, 'visit 2');
   await enterColoring(h);
   state = await h.ui();
   const returnedArts = state?.debug?.robots?.map((robot) => artKey(robot.art)) ?? [];
@@ -1254,33 +1250,27 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
     state.debug?.robots?.length === 6 && state.debug.robots.every((robot) => artById.get(robot.id) === artKey(robot.art)),
     JSON.stringify(state.debug?.robots?.map((robot) => ({ id: robot.id, art: robot.art }))));
 
-  const atDoor = await walkToDoor(h);
-  check('approaching the doorway offers only the door action',
-    atDoor?.debug?.action === 'door' && atDoor.actionIsDoor && atDoor.action === 'スペースで おわる',
-    JSON.stringify({ debug: atDoor?.debug?.action, cue: atDoor?.action, class: atDoor?.actionIsDoor }));
-  const newestBefore = atDoor?.debug?.robots?.at(-1) ?? null;
-  await page.keyboard.press('Space');
+  state = await h.waitFor((next) => next.debug?.phase === 'room'
+      && next.debug?.canAct
+      && next.finishButtonVisible,
+    5000, 'Restaurant button');
+  check('the persistent Restaurant button is visible in the room',
+    state?.finishButtonText === 'レストランへ →', state?.finishButtonText);
+  const newestBefore = state?.debug?.robots?.at(-1) ?? null;
+  await page.locator('[data-coloring-finish]').click();
   state = await h.waitFor((next) => next.debug?.phase === 'turnaround', 4000, 'turnaround');
-  check('door Space enters turnaround instead of another round', state?.debug?.phase === 'turnaround', state?.debug?.phase);
+  check('the Restaurant button enters turnaround instead of another round', state?.debug?.phase === 'turnaround', state?.debug?.phase);
   const newestDuring = state?.debug?.robots?.find((robot) => robot.id === newestBefore?.id);
-  const askerGeometry = newestDuring && state.debug?.player
-    ? {
-      dx: state.debug.player.x - newestDuring.position.x,
-      dz: state.debug.player.z - newestDuring.position.z,
-    }
-    : null;
   check('the most recently created robot is the turnaround asker',
     Boolean(newestDuring
       && newestDuring.id === state.debug.robots.at(-1)?.id
       && newestDuring.state === 'idle'
-      && Math.abs(askerGeometry.dx - 1.5) < 0.08
-      && Math.abs(askerGeometry.dz - 1.3) < 0.08
       && /what color do you like/i.test(state.dialogueBubble ?? '')),
-    JSON.stringify({ newest: newestDuring?.id, state: newestDuring?.state, askerGeometry, bubble: state?.dialogueBubble }));
+    JSON.stringify({ newest: newestDuring?.id, state: newestDuring?.state, bubble: state?.dialogueBubble }));
   check('session stars equal min(3, robotsCompleted) before finishing',
     state?.debug?.stars === Math.min(3, state?.debug?.robotsCompleted ?? 0),
     JSON.stringify({ stars: state?.debug?.stars, robots: state?.debug?.robotsCompleted }));
-  await page.screenshot({ path: `${OUT}-door-turnaround.png` });
+  await page.screenshot({ path: `${OUT}-finish-button-turnaround.png` });
 
   state = await openFallback(h, 3);
   check('turnaround fallback offers all seven color answers',
@@ -1289,7 +1279,7 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
     .click({ timeout: 4000 }).then(() => true, () => false);
   check('turnaround answer is accepted through the fallback', answered);
   state = await h.waitFor((next) => !next.debug && next.greeting !== null, 10000, 'finished hub');
-  check('door turnaround finishes the minigame back at the hub', Boolean(state), state?.greeting);
+  check('turnaround finishes the minigame back at the hub', Boolean(state), state?.greeting);
   const saved = await page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
   check('six completed robots finish with three saved stars',
     saved?.bestStars?.coloring === Math.min(3, 6), JSON.stringify(saved?.bestStars));
@@ -1297,8 +1287,7 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
   const actionsSeen = new Set(h.observedActions);
   check('room UI proves there is no artist, art table, wall frame, or gift action',
     actionsSeen.has('easel')
-      && actionsSeen.has('door')
-      && h.observedActions.every((action) => action === 'easel' || action === 'door'),
+      && h.observedActions.every((action) => action === 'easel'),
     [...new Set(h.observedActions)].join(', '));
   check('obsolete approach/gift/reaction/transition phases never occur',
     !h.observedPhases.some((phase) => FORBIDDEN_PHASES.has(phase)),
@@ -1369,19 +1358,19 @@ for (const viewport of CENTRING_VIEWPORTS) await checkCanvasCentring(viewport);
   await h.page.screenshot({ path: `${OUT}-performance-15-robots.png` });
   check('performance room has no forbidden legacy phases or actions',
     !h.observedPhases.some((phase) => FORBIDDEN_PHASES.has(phase))
-      && h.observedActions.every((action) => action === 'easel' || action === 'door'),
+      && h.observedActions.every((action) => action === 'easel'),
     JSON.stringify({ phases: compact(h.observedPhases), actions: [...new Set(h.observedActions)] }));
   check('performance session never shows wait-for-next-picture text', !h.waitTextSeen());
   await h.page.close();
 }
 
-check('imported robot geometry contains a paintable centre', insideSilhouette(0.5, 0.5));
+check('imported robot geometry contains a paintable centre', insideSilhouette(subjectById('robot'), 0.5, 0.5));
 check('the harness covers all palette and brush contracts',
   ROUND_STYLES.every(({ colorOffset, brush, decoration }) => Number.isInteger(colorOffset)
     && colorOffset > 0
     && colorOffset < PALETTE.length
     && BRUSH_IDS.includes(brush)
-    && decoration.every(([x, y]) => insideSilhouette(x, y)))
+    && decoration.every(([x, y]) => insideSilhouette(subjectById('robot'), x, y)))
     && BRUSH_IDS.includes(DEFAULT_BRUSH));
 check('no console or page errors', errors.length === 0, errors.slice(0, 4).join(' || '));
 for (const note of notes) console.log(`NOTE  ${note}`);

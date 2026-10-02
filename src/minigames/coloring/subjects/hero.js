@@ -46,6 +46,7 @@ const hero = {
     hop: { root: { hopHeightScale: 0.95, tilt: 0.14 }, rotations: { leftArm: { base: -0.22, lagAir: -0.62 }, rightArm: { base: 0.22, lagAir: 0.62 }, leftLeg: { air: -0.16 }, rightLeg: { air: 0.16 }, cape: { base: -0.04, lagAir: -0.42 } }, blink: true },
     celebrate: { root: { hopHeightScale: 1.08, tilt: 0.1 }, rotations: { leftArm: { lagAir: -0.95 }, rightArm: { lagAir: 0.95 }, leftLeg: { air: -0.2 }, rightLeg: { air: 0.2 }, cape: { lagAir: -0.55 } }, blink: false },
   },
+  motionProfile: { speed: 0.88, idleMin: 1.9, idleMax: 2.9 },
   liveScale: LIVE_SCALE,
 };
 

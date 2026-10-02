@@ -2932,3 +2932,65 @@ There is no visible route to it for a student.
 **The completion card is a controller, not an overlay on the Zoo.** Routing to it
 through the same transition exits the Zoo properly behind it, so no park keeps
 running under the card.
+
+## 2026-10-02 — Clearer first steps in each stage
+
+**Coloring has no door; a `レストランへ →` button leaves instead.** Walking to a
+door to finish was a navigation puzzle with no learning in it. The button sits
+bottom-right, shows only in the ordinary room phase once at least one creation
+is in the room (painted now or restored from save), and starts the same closing
+turnaround the door did: the newest creation asks "What color do you like?". The
+door, its frame, collider and Space action are gone, with no invisible blocker.
+*Rejected:* keeping the door alongside the button (two ways out, one of them
+hidden in 3D).
+
+**Painting again is said in plain words.** Room hint `もう1まい ぬる？ /
+イーゼルに ちかづこう`, easel action `スペースで もう1まい ぬる`. The preview-cycle
+button is `キャラを かえる ▶`, because `つぎ ▶` now reads as "next stage".
+
+**The Coloring room is 18 × 16 (was 12.5 × 11.5)**, built at that size, not
+scaled; the easel moved back to z = -3 to keep the centre open. Layout lives in
+`coloring/roomLayout.js`. Creations have per-subject `motionProfile` data
+(speed, idle range) using only the motion they already have, and a newcomer is
+greeted by nearby creations with one turn-and-celebrate beat (1.25 s), after
+which they resume their exact routes.
+
+**The Restaurant teaches its first order by holding the room at one customer.**
+`createRestaurantDirector({ holdAfterFirstSeat })` seats one real customer and
+pauses further seating until `releaseOnboarding()` after the first correct player
+delivery; that customer counts like any other (progress, rival trigger, scoring).
+Its pre-order patience is paused so a child who is still working out the
+controls is not punished, and normal patience starts once the order is taken. The
+gate releases on its own if that customer resolves another way, so it cannot
+strand the shift. Rematches and rival rounds never use it. Guidance is a hint pill plus a
+yellow ring-and-arrow: on the customer (approach), on the belt until the child
+reaches it (`コンベアを よくみよう`), back on the customer while carrying
+(`おきゃくさんに とどけよう`). The correct dish is never highlighted. *Rejected:*
+a fixed-duration belt pulse — it expired while the child was still listening to
+the answer.
+
+**Carrying a dish outranks talking, in state not just text.** With a dish in hand
+there is no question target, no Talk HUD and no microphone; Space is return,
+exchange or deliver. `actionPriority.chooseAction` checks `carried` first.
+
+**The Zoo camera exists only while a visitor is waiting for a photo**
+(`openRequests().length > 0`); button, C key and `openViewfinder()` share one
+gate (`zoo/cameraGate.js`). **`どうぶつずかん`** is always available: a 4 × 2 grid
+of picture, English and Japanese for the live roster, thumbnails rendered once
+through the main renderer into a render target and cached for the controller's
+lifetime. It never marks the requested animal or shows locations. *Rejected:* a
+second WebGL context for thumbnails (school Chromebooks).
+
+**The park is one open field.** Ticket booth, barn, water tower, cafe terrace,
+fountain and the cold cove (water, bridge, pool edges, blue ground) are removed
+with their colliders. Trees are 80 seeded rejection-sampled positions across the
+whole park (3.05 spacing, ≥ 2.6 from roaming waypoints) instead of per-biome
+counts that made a forest on one side.
+
+**Shell: a hidden Talk HUD stays hidden, and the microphone is asked for early.**
+`hud.setMicFree` used to call `showTalk()` unconditionally, so a Settings change
+after a successful answer brought back a green `できた！`; it now does nothing
+while the HUD is hidden, and `hide()` resets the Talk state to READY while
+keeping the failure count. After the first stage opens, the shell calls
+`getUserMedia({ audio: true })` once (skipped in mic-free mode) and stops every
+track at once; nothing waits on it and any failure is ignored.

@@ -29,13 +29,12 @@ export const regions = deepFreeze([
   { id: 'grassland', name: 'くさはら', center: { x: -25, z: 10 } },
   { id: 'woodland', name: 'もり', center: { x: -20, z: -18 } },
   { id: 'farm', name: 'ぼくじょう', center: { x: 23, z: 14 } },
-  { id: 'cove', name: 'みずべ', center: { x: 32, z: -12 } },
 ]);
 
 export const pathNodes = deepFreeze([
   { id: 'plaza', x: 0, z: 31, kind: 'plaza' },
   { id: 'entrance-bend', x: -2, z: 23.5, kind: 'path' },
-  { id: 'fountain-hub', x: 0, z: 10, kind: 'hub' },
+  { id: 'central-hub', x: 0, z: 10, kind: 'hub' },
 
   { id: 'savanna-south', x: -10, z: 19, kind: 'junction' },
   { id: 'savanna-bend', x: -25, z: 15, kind: 'junction' },
@@ -47,31 +46,31 @@ export const pathNodes = deepFreeze([
   { id: 'farm-south', x: 12, z: 20, kind: 'junction' },
   { id: 'farm-bend', x: 25, z: 14, kind: 'junction' },
   { id: 'farm-east', x: 29, z: 2, kind: 'junction' },
-  { id: 'cove-bend', x: 28, z: -10, kind: 'junction' },
+  { id: 'east-bend', x: 28, z: -10, kind: 'junction' },
   { id: 'farm-north', x: 14, z: -18, kind: 'junction' },
 ]);
 
 export const pathEdges = deepFreeze([
   ['plaza', 'entrance-bend'],
-  ['entrance-bend', 'fountain-hub'],
+  ['entrance-bend', 'central-hub'],
   ['plaza', 'savanna-south'],
   ['plaza', 'farm-south'],
 
   // West lobe: Savanna flows into the Forest trail.
-  ['fountain-hub', 'savanna-south'],
+  ['central-hub', 'savanna-south'],
   ['savanna-south', 'savanna-bend'],
   ['savanna-bend', 'savanna-forest-junction'],
   ['savanna-forest-junction', 'forest-bend'],
   ['forest-bend', 'forest-north'],
   ['forest-north', 'north-cross'],
-  ['north-cross', 'fountain-hub'],
+  ['north-cross', 'central-hub'],
 
-  // East lobe: Farm bends through the cove and back across the north.
-  ['fountain-hub', 'farm-south'],
+  // East lobe: Farm bends through the open park and back across the north.
+  ['central-hub', 'farm-south'],
   ['farm-south', 'farm-bend'],
   ['farm-bend', 'farm-east'],
-  ['farm-east', 'cove-bend'],
-  ['cove-bend', 'farm-north'],
+  ['farm-east', 'east-bend'],
+  ['east-bend', 'farm-north'],
   ['farm-north', 'north-cross'],
 
   // The explicit northern cross-path avoids forcing a return through the hub.
@@ -81,25 +80,21 @@ export const pathEdges = deepFreeze([
 // Only real scenery blocks movement now. The circular habitat fences are gone
 // with the enclosures, and no invisible ring is left behind where they stood.
 export const colliders = deepFreeze([
-  { id: 'fountain', role: 'landmark', landmarkId: 'fountainHub', type: 'circle', x: 3.2, z: 10, r: 1.45 },
-  { id: 'ticket-booth', role: 'landmark', landmarkId: 'ticketBooth', type: 'box', x: 5.8, z: 35.8, hw: 1.45, hd: 1.2, rotation: 0 },
-  { id: 'barn', role: 'landmark', landmarkId: 'barn', type: 'box', x: 32.5, z: 23.5, hw: 3, hd: 2.3, rotation: -0.08 },
-  { id: 'water-tower', role: 'landmark', landmarkId: 'waterTower', type: 'circle', x: 38.5, z: 28, r: 1.35 },
   { id: 'giant-forest-tree', role: 'landmark', landmarkId: 'giantForestTree', type: 'circle', x: -0.5, z: -27, r: 2.1 },
-  { id: 'cove-pool-west', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 31.65, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
-  { id: 'cove-pool-east', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 38.35, z: -14, hw: 0.22, hd: 3.1, rotation: 0 },
-  { id: 'cove-pool-north', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 35, z: -17.1, hw: 3.55, hd: 0.22, rotation: 0 },
-  { id: 'cove-pool-south', role: 'poolEdge', landmarkId: 'coveBridge', type: 'box', x: 35, z: -10.9, hw: 3.55, hd: 0.22, rotation: 0 },
 ]);
 
 export const landmarks = deepFreeze([
   { id: 'plaza', x: 0, z: 31 },
-  { id: 'ticketBooth', x: 5.8, z: 35.8 },
-  { id: 'fountainHub', x: 3.2, z: 10 },
-  { id: 'barn', x: 32.5, z: 23.5 },
-  { id: 'waterTower', x: 38.5, z: 28 },
-  { id: 'coveBridge', x: 35, z: -17.1 },
   { id: 'giantForestTree', x: -0.5, z: -27 },
+]);
+
+// Small retained props are kept as placement data so procedural scatter can
+// leave them breathing room without turning them into player colliders.
+export const retainedProps = deepFreeze([
+  { id: 'forestLog', x: -30, z: -19, clearance: 3.1 },
+  { id: 'farmHayA', x: 27, z: 27, clearance: 1.8 },
+  { id: 'farmHayB', x: 28.2, z: 27.1, clearance: 1.5 },
+  { id: 'farmTrough', x: 20.2, z: 27, clearance: 2.4 },
 ]);
 
 const nodesById = new Map(pathNodes.map((node) => [node.id, node]));

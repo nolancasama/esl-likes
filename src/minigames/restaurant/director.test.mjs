@@ -16,9 +16,17 @@ function makeSimulation({
   tables = 4,
   total = 7,
   manualRush = false,
+  holdAfterFirstSeat = false,
   rng = seededRng(),
 } = {}) {
-  const director = createRestaurantDirector({ level, tables, total, manualRush, rng });
+  const director = createRestaurantDirector({
+    level,
+    tables,
+    total,
+    manualRush,
+    holdAfterFirstSeat,
+    rng,
+  });
   const state = {
     tables: Array.from({ length: tables }, () => ({ occupied: false, customer: null })),
     customers: [],
@@ -78,6 +86,81 @@ function makeSimulation({
 
   return { director, state, step, resolve, view, apply };
 }
+
+test('the onboarding gate seats exactly one customer until released', () => {
+  const sim = makeSimulation({
+    tables: 4,
+    total: 9,
+    holdAfterFirstSeat: true,
+    rng: () => 0,
+  });
+
+  for (let frame = 0; frame < 100; frame += 1) sim.step(0.1);
+
+  assert.equal(sim.director.handedOut, 1);
+  assert.equal(sim.state.customers.length, 1);
+});
+
+test('releasing the onboarding gate resumes ordinary staggered seating', () => {
+  const sim = makeSimulation({
+    tables: 4,
+    total: 9,
+    holdAfterFirstSeat: true,
+    rng: () => 0,
+  });
+  while (sim.state.customers.length < 1) sim.step(0.1);
+  for (let frame = 0; frame < 50; frame += 1) sim.step(0.1);
+
+  assert.equal(sim.director.releaseOnboarding(), true);
+  assert.equal(sim.director.releaseOnboarding(), false, 'release is one-shot');
+  assert.equal(sim.step(0.1).some((event) => event.type === 'seat'), false);
+
+  let nextSeat = null;
+  for (let frame = 0; frame < 20 && !nextSeat; frame += 1) {
+    nextSeat = sim.step(0.1).find((event) => event.type === 'seat');
+  }
+  assert.ok(nextSeat, 'the next initially scheduled customer should arrive after its normal gap');
+  assert.equal(sim.director.handedOut, 2);
+});
+
+test('the onboarding gate is opt-in so rival rounds and rematches seat normally', () => {
+  const sim = makeSimulation({ tables: 4, total: 9, rng: () => 0 });
+
+  for (let frame = 0; frame < 30; frame += 1) sim.step(0.1);
+
+  assert.equal(sim.director.handedOut, 4);
+  assert.equal(sim.state.customers.length, 4);
+  assert.equal(sim.director.releaseOnboarding(), false);
+});
+
+test('a departed or rival-served onboarding customer auto-releases the gate', () => {
+  for (const resolution of [
+    { state: 'left', owner: 'player', description: 'departure' },
+    { state: 'delivered', owner: 'rival', description: 'rival delivery' },
+  ]) {
+    const sim = makeSimulation({
+      tables: 4,
+      total: 9,
+      holdAfterFirstSeat: true,
+      rng: () => 0,
+    });
+    while (sim.state.customers.length < 1) sim.step(0.1);
+    const tutorialCustomer = sim.state.customers[0];
+
+    tutorialCustomer.state = resolution.state;
+    tutorialCustomer.owner = resolution.owner;
+    sim.state.tables[tutorialCustomer.table] = { occupied: false, customer: null };
+    sim.state.done += 1;
+
+    let replacement = null;
+    for (let frame = 0; frame < 20 && !replacement; frame += 1) {
+      replacement = sim.step(0.1).find((event) => event.type === 'seat');
+    }
+
+    assert.ok(replacement, `service should continue after ${resolution.description}`);
+    assert.equal(sim.director.releaseOnboarding(), false, 'the fallback already released the gate');
+  }
+});
 
 test('a freed table receives a new customer after a replacement delay', () => {
   const sim = makeSimulation({ level: 1, tables: 3, total: 5 });

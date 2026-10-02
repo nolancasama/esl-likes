@@ -1,12 +1,23 @@
 import * as THREE from 'three';
 
-import { bounds, colliders, landmarks } from './layout.js';
+import { bounds, colliders, landmarks, pathNodes, retainedProps } from './layout.js';
 import { createRng } from './roaming.js';
 import { TERRITORIES } from './territories.js';
 
 const TAU = Math.PI * 2;
-const WAYPOINT_CLEARANCE = 2.5;
+export const TREE_COUNT = 80;
+export const TREE_MIN_SPACING = 3.05;
+export const WAYPOINT_CLEARANCE = 2.6;
 const SCENERY_CLEARANCE = 2;
+const NAVIGATION_CLEARANCE = 2.35;
+
+export const ENTRANCE_TREE_EXCLUSION = Object.freeze({ x: 0, z: 29.2, radius: 10.5 });
+const TREE_RANGE = Object.freeze({
+  minX: bounds.minX + 1.4,
+  maxX: bounds.maxX - 1.4,
+  minZ: bounds.minZ + 1.4,
+  maxZ: bounds.maxZ - 1.4,
+});
 
 const AREA_RANGES = Object.freeze({
   grassland: Object.freeze({ minX: bounds.minX, maxX: -3, minZ: 0, maxZ: 21.999 }),
@@ -15,17 +26,9 @@ const AREA_RANGES = Object.freeze({
   cove: Object.freeze({ minX: 4, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: 0 }),
 });
 
-const TREE_COUNTS = Object.freeze({ grassland: 24, woodland: 42, farm: 8, cove: 6 });
 const ROCK_COUNTS = Object.freeze({ grassland: 18, woodland: 20, farm: 10, cove: 12 });
 
 const waypoints = TERRITORIES.flatMap((territory) => territory.waypoints);
-const poolEdges = colliders.filter((collider) => collider.role === 'poolEdge');
-const poolRectangle = poolEdges.length ? Object.freeze({
-  minX: Math.min(...poolEdges.map((edge) => edge.x - (edge.hw ?? 0))),
-  maxX: Math.max(...poolEdges.map((edge) => edge.x + (edge.hw ?? 0))),
-  minZ: Math.min(...poolEdges.map((edge) => edge.z - (edge.hd ?? 0))),
-  maxZ: Math.max(...poolEdges.map((edge) => edge.z + (edge.hd ?? 0))),
-}) : null;
 
 function randomBetween(rng, min, max) {
   return min + rng() * (max - min);
@@ -175,24 +178,27 @@ function distanceToBox(point, collider) {
 export function isScatterPointAllowed(point) {
   if (!Number.isFinite(point?.x) || !Number.isFinite(point?.z)) return false;
   if (point.x < bounds.minX || point.x > bounds.maxX
-    || point.z < bounds.minZ || point.z > bounds.maxZ || point.z >= 22) return false;
+    || point.z < bounds.minZ || point.z > bounds.maxZ) return false;
+  if (Math.hypot(point.x - ENTRANCE_TREE_EXCLUSION.x, point.z - ENTRANCE_TREE_EXCLUSION.z)
+    < ENTRANCE_TREE_EXCLUSION.radius) return false;
   if (waypoints.some((waypoint) => Math.hypot(point.x - waypoint.x, point.z - waypoint.z)
     < WAYPOINT_CLEARANCE)) return false;
+  if (pathNodes.some((node) => Math.hypot(point.x - node.x, point.z - node.z)
+    < NAVIGATION_CLEARANCE)) return false;
   if (landmarks.some((landmark) => Math.hypot(point.x - landmark.x, point.z - landmark.z)
     < SCENERY_CLEARANCE)) return false;
+  if (retainedProps.some((prop) => Math.hypot(point.x - prop.x, point.z - prop.z)
+    < prop.clearance)) return false;
   for (const collider of colliders) {
     const distance = collider.type === 'circle'
       ? Math.hypot(point.x - collider.x, point.z - collider.z) - collider.r
       : distanceToBox(point, collider);
     if (distance < SCENERY_CLEARANCE) return false;
   }
-  if (poolRectangle && point.x >= poolRectangle.minX && point.x <= poolRectangle.maxX
-    && point.z >= poolRectangle.minZ && point.z <= poolRectangle.maxZ) return false;
   return true;
 }
 
-function samplePoint(rng, area, occupied, spacing) {
-  const range = AREA_RANGES[area];
+function samplePoint(rng, range, occupied, spacing, label = 'park') {
   for (let attempt = 0; attempt < 5000; attempt += 1) {
     const point = {
       x: randomBetween(rng, range.minX, range.maxX),
@@ -202,28 +208,26 @@ function samplePoint(rng, area, occupied, spacing) {
     if (occupied.some((other) => Math.hypot(point.x - other.x, point.z - other.z) < spacing)) continue;
     return point;
   }
-  throw new Error(`could not place ${area} park scatter without blocking navigation`);
+  throw new Error(`could not place ${label} park scatter without blocking navigation`);
 }
 
 /**
  * Generates reproducible dressing coordinates without changing animal RNG use.
- * Counts are visual targets: dense woodland, open farm/cove, and clustered rock.
+ * Trees use one whole-park distribution; rocks retain loose regional clusters.
  */
 export function createParkScatter(seed = 1) {
   const rng = createRng((Number.isFinite(seed) ? seed : 1) ^ 0x9e3779b9);
   const trees = [];
-  for (const [area, count] of Object.entries(TREE_COUNTS)) {
-    for (let index = 0; index < count; index += 1) {
-      const point = samplePoint(rng, area, trees, 1.7);
-      trees.push({
-        ...point,
-        area,
-        variant: BLOCKY_TREE_VARIANTS[Math.floor(rng() * BLOCKY_TREE_VARIANTS.length)],
-        seed: Math.floor(rng() * 0xffffffff),
-        scale: randomBetween(rng, 0.82, 1.16),
-        yaw: randomBetween(rng, -0.22, 0.22),
-      });
-    }
+  for (let index = 0; index < TREE_COUNT; index += 1) {
+    const point = samplePoint(rng, TREE_RANGE, trees, TREE_MIN_SPACING, 'tree');
+    trees.push({
+      ...point,
+      area: 'park',
+      variant: BLOCKY_TREE_VARIANTS[Math.floor(rng() * BLOCKY_TREE_VARIANTS.length)],
+      seed: Math.floor(rng() * 0xffffffff),
+      scale: randomBetween(rng, 0.82, 1.16),
+      yaw: randomBetween(rng, -0.22, 0.22),
+    });
   }
 
   const rocks = [];
@@ -232,7 +236,7 @@ export function createParkScatter(seed = 1) {
     while (rocks.filter((rock) => rock.area === area).length < count) {
       const remaining = count - rocks.filter((rock) => rock.area === area).length;
       const clusterSize = Math.min(remaining, rng() < 0.58 ? 1 : (rng() < 0.72 ? 2 : 3));
-      const centre = samplePoint(rng, area, rocks, 0.65);
+      const centre = samplePoint(rng, AREA_RANGES[area], rocks, 0.65, area);
       for (let member = 0; member < clusterSize; member += 1) {
         let point = centre;
         if (member > 0) {

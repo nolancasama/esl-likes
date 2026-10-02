@@ -1,7 +1,7 @@
 // The student run: Coloring -> Restaurant -> Zoo -> completion.
 //
 // Run through scripts/playthrough-run.mjs (`npm run playthrough -- sequence`).
-// Coloring is finished for real, through its own door turnaround, so the
+// Coloring is finished for real, through its own Restaurant-button turnaround, so the
 // minigame's `ctx.finish` is what moves the run on. The Restaurant and Zoo are
 // finished through the dev-gated `shellFinish` hook (`?editor=1`), which calls
 // the same shell route; their own harnesses cover playing them to the end.
@@ -95,7 +95,7 @@ async function makeCreation(page, label) {
   return Boolean(await waitColoring(page, (d) => d?.phase === 'room' && d?.canAct, 25000, `${label} room`));
 }
 
-/** Make one creation, then leave through the door and answer the turnaround. */
+/** Make one creation, then press the Restaurant button and answer the turnaround. */
 async function completeColoring(page, label) {
   const first = await waitColoring(page, (d) => d?.phase === 'canvas-question' || (d?.phase === 'room' && d?.canAct),
     12000, `${label} coloring ready`);
@@ -105,10 +105,10 @@ async function completeColoring(page, label) {
     await waitColoring(page, (d) => d?.phase === 'canvas-question', 9000, `${label} close-up`);
   }
   check(`${label}: a creation is made`, await makeCreation(page, label));
-  await pulseUntil(page, ['KeyD'], (d) => (d?.player?.x ?? -99) >= 3.25, 20);
-  const atDoor = await pulseUntil(page, ['KeyW'], (d) => d?.action === 'door', 32);
-  check(`${label}: the door is reachable`, atDoor);
-  await page.keyboard.press('Space');
+  const finishButton = page.locator('[data-coloring-finish]');
+  await finishButton.waitFor({ state: 'visible', timeout: 6000 });
+  check(`${label}: the Restaurant button is visible`, await finishButton.isVisible());
+  await finishButton.click();
   await waitColoring(page, (d) => d?.phase === 'turnaround', 6000, `${label} turnaround`);
   await tapFallback(page);
 }

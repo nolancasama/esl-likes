@@ -109,6 +109,9 @@ export function createRestaurantDirector({
   tables = 3,
   total,
   manualRush = false,
+  // Fresh service openings can hold the room at one real customer while the
+  // controller teaches the ask/pickup/deliver loop. Rematches leave this off.
+  holdAfterFirstSeat = false,
   // Scales the rush-time refill gap of a freed table (Round 2 Challenge < 1).
   paceScale = 1,
   rng = Math.random,
@@ -126,6 +129,11 @@ export function createRestaurantDirector({
   let done = 0;
   let completed = false;
   let lastReadyAt = Number.NEGATIVE_INFINITY;
+  let onboardingHeld = Boolean(holdAfterFirstSeat) && customerTotal > 0;
+  let onboardingCustomer = null;
+  let onboardingTable = null;
+  let onboardingObserved = false;
+  let onboardingHeldAt = null;
 
   const tablePlans = [];
   let initialSeatAt = randomBetween(rng, 0.2, 0.55);
@@ -141,6 +149,54 @@ export function createRestaurantDirector({
   }
 
   const pendingReady = new Set();
+
+  function releaseOnboarding() {
+    if (!onboardingHeld) return false;
+
+    // Preserve the initial arrival gaps rather than dumping every overdue
+    // table into the room immediately after a long tutorial interaction.
+    if (onboardingHeldAt !== null) {
+      const heldFor = Math.max(0, serviceTime - onboardingHeldAt);
+      for (let index = 0; index < tablePlans.length; index += 1) {
+        if (index === onboardingTable) continue;
+        const plan = tablePlans[index];
+        if (plan.seatAt !== null) plan.seatAt += heldFor;
+      }
+    }
+
+    onboardingHeld = false;
+    onboardingHeldAt = null;
+    return true;
+  }
+
+  function reconcileOnboarding(view, viewTables, customers) {
+    if (!onboardingHeld || onboardingCustomer === null) return;
+
+    const customer = customers.find((entry) => customerId(entry) === onboardingCustomer);
+    if (customer) {
+      onboardingObserved = true;
+      if (RESOLVED_STATES.has(customer.state)) {
+        releaseOnboarding();
+        return;
+      }
+    }
+
+    const table = viewTables[onboardingTable];
+    if (tableIsOccupied(table)) onboardingObserved = true;
+
+    // While the gate is active this is the only handed-out customer, so any
+    // reported completion must be its resolution even if the controller has
+    // already removed the customer object.
+    const reportedDone = Number(view?.progress?.done ?? view?.done);
+    if (Number.isFinite(reportedDone) && reportedDone > 0) {
+      releaseOnboarding();
+      return;
+    }
+
+    // A customer may be removed as soon as leaving finishes. Once it has been
+    // observed, an available table is enough to avoid stranding the shift.
+    if (onboardingObserved && tableIsAvailable(table)) releaseOnboarding();
+  }
 
   function scheduleReplacement(plan) {
     const finalPace = handedOut >= customerTotal - 1;
@@ -226,6 +282,7 @@ export function createRestaurantDirector({
 
   function nextSeatEvent() {
     if (handedOut >= customerTotal) return null;
+    if (onboardingHeld && handedOut >= 1) return null;
     let selected = -1;
     let earliest = Number.POSITIVE_INFINITY;
     for (let table = 0; table < tablePlans.length; table += 1) {
@@ -243,6 +300,11 @@ export function createRestaurantDirector({
     handedOut += 1;
     plan.reservedCustomer = customer;
     plan.seatAt = null;
+    if (onboardingHeld && onboardingCustomer === null) {
+      onboardingCustomer = customer;
+      onboardingTable = selected;
+      onboardingHeldAt = serviceTime;
+    }
     return { type: 'seat', table: selected, customer, food: pickFood(rng) };
   }
 
@@ -267,6 +329,7 @@ export function createRestaurantDirector({
     serviceTime += dt;
     const viewTables = Array.isArray(view.tables) ? view.tables : [];
     const customers = Array.isArray(view.customers) ? view.customers : [];
+    reconcileOnboarding(view, viewTables, customers);
     reconcileTables(viewTables);
     reconcileCustomers(customers);
     done = Math.min(customerTotal, resolvedCount(view, customers));
@@ -309,6 +372,7 @@ export function createRestaurantDirector({
   return {
     advance,
     startRush,
+    releaseOnboarding,
     get phase() {
       return currentPhase;
     },
