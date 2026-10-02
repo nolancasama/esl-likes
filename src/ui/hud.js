@@ -294,10 +294,13 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
     resetFailures() {
       failures = 0;
       setTalkState(SPEECH_STATE.READY);
-      if (!micFree) showTalk();
+      if (!micFree && !element.hidden) showTalk();
     },
     setMicFree(nextMicFree) {
       micFree = Boolean(nextMicFree);
+      // A settings change must never bring a hidden HUD back: the stale
+      // accepted できた！ came from exactly that.
+      if (element.hidden) return;
       if (failures < FALLBACK_AFTER_FAILURES) showTalk();
     },
     setTextSize(size) {
@@ -313,6 +316,9 @@ export function createHud({ root = document.body, strings = {}, audio = null, se
       clearAnimation();
       talkButton.disabled = true;
       element.hidden = true;
+      // Failures (the fallback policy) survive; the finished interaction's
+      // visual state does not, so the next show() is a fresh READY button.
+      setTalkState(SPEECH_STATE.READY);
     },
     dispose() {
       clearAnimation();

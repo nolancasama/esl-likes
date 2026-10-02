@@ -31,6 +31,7 @@ import { createDrinkStand } from './minigames/drinkStand/index.js';
 import { createSports } from './minigames/sports/index.js';
 import { createZoo } from './minigames/zoo/index.js';
 import { hydrateCreations } from './minigames/coloring/coloringSession.js';
+import { warmUpMicrophone } from './systems/micWarmup.js';
 
 document.title = UI.appTitle;
 
@@ -313,4 +314,9 @@ resize();
 Promise.all([charactersReady, creationsReady]).then(() => shellRoute.start()).then(() => {
   cameraRig.update(1);
   animationFrame = requestAnimationFrame(frame);
+  // Once the first stage is up, ask for the microphone so the prompt is not
+  // sprung on the first question. Never awaited: startup does not depend on it.
+  warmUpMicrophone({ isMicFree: () => Boolean(settings.get('micFree')) }).then((status) => {
+    window.__eslDebug.micWarmup = status;
+  });
 });
