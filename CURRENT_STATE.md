@@ -35,6 +35,10 @@ DESIGN_DECISIONS 2026-10-02.
 73/73. A scripted first Restaurant order (approach → ask → belt → carry → deliver
 → release) passed 13/13 in the browser; the Zoo gate, guide (8 thumbnails, Escape
 closes it first, cache reused on reopen) and park were checked from screenshots.
+`zoo` playthrough on seed 1592594996: 90/113 after vs 73/113 on the pre-pass
+baseline; `listening` (the full request → photo → delivery → turnaround) 30/30.
+`antiShortcut` is 2/18 on both builds (harness route-walker). The cat/chicken
+shots in `animals` fail intermittently on moving targets on both builds.
 
 ### Known harness debt
 
