@@ -30,6 +30,10 @@ const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
 const ANIMAL_GUIDE_ENTRIES = deriveAnimalGuideEntries(LESSON.vocabulary, STRINGS.animalNames);
 const MOVE_SPEED = 13.5;
+const AUTO_MOVE_SPEED = 13.5;
+const AUTO_ARRIVAL_RADIUS = 0.22;
+const VISITOR_APPROACH_RADIUS = 2.45;
+const ANIMAL_APPROACH_RADIUS = 2.4;
 const VIEWFINDER_FOV = 34;
 const TALK_RADIUS_SQ = 3.2 * 3.2;
 const NPC_MODELS = Object.freeze('bcdefghijklmnopqr'.split(''));
@@ -128,6 +132,7 @@ export function createZoo(ctx) {
   let lastGoodSubject = null;
   let lastGoodAt = 0;
   let actionVisitor = null;
+  let autoTarget = null;
   let activatedCount = 0;
   let servedCount = 0;
   // Development only. `sceneEditor` stays null in a student's session, and the
@@ -140,6 +145,10 @@ export function createZoo(ctx) {
   const records = [];
   const replayQueue = [];
   const move = new THREE.Vector2();
+  const pointer = new THREE.Vector2();
+  const raycaster = new THREE.Raycaster();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const groundPoint = new THREE.Vector3();
   const projectedCenter = new THREE.Vector3();
   const projectedEdge = new THREE.Vector3();
   const worldCenter = new THREE.Vector3();
@@ -385,7 +394,7 @@ export function createZoo(ctx) {
       faceToward(character, player.position.x, player.position.z);
       character.visible = false;
       zooWorld.group.add(character);
-      visitors.push({
+      const visitor = {
         state: 'hidden',
         asked: false,
         served: false,
@@ -394,7 +403,9 @@ export function createZoo(ctx) {
         shows: 0,
         leaveRemaining: 0,
         character,
-      });
+      };
+      character.userData.zooVisitorIndex = visitors.length;
+      visitors.push(visitor);
     }
     activateVisitors(configured.concurrent);
     cameraRig.setTarget(player).setPreset('follow', {
@@ -461,21 +472,109 @@ export function createZoo(ctx) {
     }
   }
 
-  function updateMovement(dt) {
-    input.getMovement(move);
-    if (move.lengthSq() === 0) {
-      player.playAnimation?.('idle');
-      return;
+  function facePlayerMovement(dx, dz, dt) {
+    if (Math.abs(dx) + Math.abs(dz) < 0.0001) return;
+    const wantedRotation = Math.atan2(dx, dz);
+    const turn = Math.atan2(
+      Math.sin(wantedRotation - player.rotation.y),
+      Math.cos(wantedRotation - player.rotation.y),
+    );
+    player.rotation.y += turn * (1 - Math.exp(-12 * dt));
+  }
+
+  function autoDestination(target) {
+    if (!target) return null;
+    if (target.type === 'visitor') {
+      const visitor = target.value;
+      if (!visitor || visitor.state !== 'waiting' || !visitor.character.visible) return null;
+      return {
+        x: visitor.character.position.x,
+        z: visitor.character.position.z,
+        radius: VISITOR_APPROACH_RADIUS,
+      };
     }
-    const nextX = player.position.x + move.x * MOVE_SPEED * dt;
-    const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
+    if (target.type === 'animal') {
+      const subject = target.value;
+      if (!subject) return null;
+      return { x: subject.x, z: subject.z, radius: ANIMAL_APPROACH_RADIUS };
+    }
+    return { x: target.x, z: target.z, radius: AUTO_ARRIVAL_RADIUS };
+  }
+
+  function finishAutoArrival(arrived) {
+    if (arrived?.type !== 'visitor' || !carriedPhoto) return;
+    const visitor = arrived.value;
+    if (!visitor || visitor.state !== 'waiting' || !visitor.asked || visitor.served) return;
+    actionVisitor = visitor;
+    showPhotoToVisitor();
+  }
+
+  function updateAutoMovement(dt) {
+    if (!autoTarget) return false;
+    const destination = autoDestination(autoTarget);
+    if (!destination) {
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      return true;
+    }
+
+    const dx = destination.x - player.position.x;
+    const dz = destination.z - player.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= destination.radius) {
+      const arrived = autoTarget;
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      finishAutoArrival(arrived);
+      return true;
+    }
+
+    const travel = Math.max(0, distance - destination.radius);
+    const step = Math.min(travel, AUTO_MOVE_SPEED * dt);
+    const beforeX = player.position.x;
+    const beforeZ = player.position.z;
+    const ux = dx / distance;
+    const uz = dz / distance;
+    const nextX = player.position.x + ux * step;
+    const nextZ = player.position.z + uz * step;
+
+    // Match keyboard movement: resolve each axis independently so the player
+    // naturally slides around the park's retained collider instead of needing
+    // a separate navmesh.
     if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
     if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
-    const wantedRotation = Math.atan2(move.x, -move.y);
-    const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
-    player.rotation.y += turn * (1 - Math.exp(-12 * dt));
     separateFromAnimals(dt);
+
+    const movedX = player.position.x - beforeX;
+    const movedZ = player.position.z - beforeZ;
+    if (Math.abs(movedX) + Math.abs(movedZ) < 0.0001) {
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      return true;
+    }
+
+    facePlayerMovement(movedX, movedZ, dt);
     player.playAnimation?.('walk');
+    return true;
+  }
+
+  function updateMovement(dt) {
+    input.getMovement(move);
+    if (move.lengthSq() !== 0) {
+      autoTarget = null;
+      const beforeX = player.position.x;
+      const beforeZ = player.position.z;
+      const nextX = player.position.x + move.x * MOVE_SPEED * dt;
+      const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
+      if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
+      if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+      facePlayerMovement(player.position.x - beforeX, player.position.z - beforeZ, dt);
+      separateFromAnimals(dt);
+      player.playAnimation?.('walk');
+      return;
+    }
+    if (updateAutoMovement(dt)) return;
+    player.playAnimation?.('idle');
   }
 
   function updateViewfinderMovement(dt) {
@@ -690,6 +789,54 @@ export function createZoo(ctx) {
 
   function onAnimalGuideBackdrop(event) {
     if (event.target === animalGuide) closeAnimalGuide();
+  }
+
+  function onCanvasPointer(event) {
+    // World taps belong to movement only in the normal park phase. The
+    // viewfinder, animal guide, reactions and editor keep full ownership of
+    // their own pointer interactions and never queue a walk for later.
+    if (!active || phase !== 'playing' || sceneEditor?.enabled || !zooWorld) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    pointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    raycaster.setFromCamera(pointer, camera);
+
+    const intersections = raycaster.intersectObject(zooWorld.group, true);
+    for (const intersection of intersections) {
+      let object = intersection.object;
+      while (object && object !== zooWorld.group) {
+        const visitorIndex = object.userData?.zooVisitorIndex;
+        if (Number.isInteger(visitorIndex)) {
+          const visitor = visitors[visitorIndex];
+          if (visitor?.state === 'waiting' && visitor.character.visible) {
+            autoTarget = { type: 'visitor', value: visitor };
+            audio.playSfx('interact');
+            return;
+          }
+        }
+
+        const animalId = object.userData?.animalId;
+        if (animalId) {
+          const subject = zooWorld.habitats.find((candidate) => candidate.id === animalId);
+          if (subject) {
+            autoTarget = { type: 'animal', value: subject };
+            audio.playSfx('interact');
+            return;
+          }
+        }
+        object = object.parent;
+      }
+    }
+
+    // Empty-world tap: project the pointer onto the park's level ground plane.
+    // Only reachable points become commands, so a tap outside campus bounds or
+    // directly inside the retained landmark collider is ignored.
+    const point = raycaster.ray.intersectPlane(groundPlane, groundPoint);
+    if (!point || !canOccupy(point.x, point.z)) return;
+    autoTarget = { type: 'floor', x: point.x, z: point.z };
   }
 
   function updateContext() {
@@ -1227,11 +1374,13 @@ export function createZoo(ctx) {
     shutterReady = false;
     framedSubject = null;
     actionVisitor = null;
+    autoTarget = null;
     activatedCount = 0;
     servedCount = 0;
     createOverlay();
     buildWorld();
     installDebugHook();
+    canvas?.addEventListener('pointerdown', onCanvasPointer);
     window.addEventListener('keydown', onKeyDown);
     unregisterEscapeGuard = registerEscapeGuard?.(() => {
       if (!active) return false;
@@ -1267,6 +1416,8 @@ export function createZoo(ctx) {
       noticeRemaining -= safeDt;
       if (noticeRemaining <= 0 && notice) notice.hidden = true;
     }
+
+    if (phase !== 'playing') autoTarget = null;
 
     if (phase === 'playing') {
       updateMovement(safeDt);
@@ -1339,7 +1490,9 @@ export function createZoo(ctx) {
     unsubscribeSettings = null;
     unregisterEscapeGuard?.();
     unregisterEscapeGuard = null;
+    canvas?.removeEventListener('pointerdown', onCanvasPointer);
     window.removeEventListener('keydown', onKeyDown);
+    autoTarget = null;
     speech.clearTarget();
     speech.cancel();
     audio.stop();

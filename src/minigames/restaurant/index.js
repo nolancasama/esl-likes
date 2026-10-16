@@ -255,6 +255,7 @@ export function createRestaurant(ctx) {
   let rivalCarriedDish = null;
   let conveyor = null;
   let conveyorSurface = null;
+  let restaurantFloor = null;
   let dishReturnAnchor = null;
   let dishReturnLabel = null;
   let signAnchor = null;
@@ -1021,7 +1022,8 @@ export function createRestaurant(ctx) {
     const kitchenLightMaterial = makeMaterial(0xffe9a8, { emissive: 0xffc85b, emissiveIntensity: 0.8 });
     const returnMaterial = makeMaterial(0x4d9da5, { metalness: 0.18 });
 
-    addPart(world, box, floorMaterial, 0, -0.25, 0, 14, 0.5, 15);
+    restaurantFloor = addPart(world, box, floorMaterial, 0, -0.25, 0, 14, 0.5, 15);
+    restaurantFloor.name = 'restaurant-floor';
     addPart(world, box, wallMaterial, 0, 2.35, -7.35, 14, 5.2, 0.35);
     addPart(world, box, wallMaterial, -6.85, 1.25, 0, 0.3, 3, 15);
     addPart(world, box, wallMaterial, 6.85, 1.25, 0, 0.3, 3, 15);
@@ -2909,7 +2911,14 @@ export function createRestaurant(ctx) {
     );
     raycaster.setFromCamera(pointer, camera);
     const intersections = raycaster.intersectObject(world, true);
+    let floorPoint = null;
+
     for (const intersection of intersections) {
+      if (intersection.object === restaurantFloor && !floorPoint
+        && canOccupy(intersection.point.x, intersection.point.z)) {
+        floorPoint = intersection.point.clone();
+      }
+
       let object = intersection.object;
       let target = null;
       while (object && object !== world) {
@@ -2920,6 +2929,7 @@ export function createRestaurant(ctx) {
         object = object.parent;
       }
       if (!target) continue;
+
       if (target.type === 'dish') {
         if (target.value.state !== 'belt' || !conveyor) continue;
         const snapshotDish = conveyor.snapshot().dishes.find((dish) => dish.id === target.value.id);
@@ -2967,11 +2977,23 @@ export function createRestaurant(ctx) {
           position: new THREE.Vector3(target.value.table.seatX, 0, target.value.table.seatZ - 1.65),
         };
       }
+
       if (target) {
         audio.playSfx('interact');
-        break;
+        return;
       }
     }
+
+    // Global touch rule: an ordinary tap on reachable floor walks there too.
+    // Interactive targets above keep priority, so tables/food/customers do not
+    // accidentally degrade into a floor command.
+    if (!floorPoint) return;
+    if (!questionCommitted) clickQuestionCustomer = null;
+    autoTarget = {
+      type: 'floor',
+      value: null,
+      position: new THREE.Vector3(floorPoint.x, 0, floorPoint.z),
+    };
   }
 
   function projectObject(object, offsetY = 0) {
@@ -4575,6 +4597,7 @@ export function createRestaurant(ctx) {
     rivalCarriedDish = null;
     conveyor = null;
     conveyorSurface = null;
+    restaurantFloor = null;
     dishReturnAnchor = null;
     dishReturnLabel = null;
     signAnchor = null;
