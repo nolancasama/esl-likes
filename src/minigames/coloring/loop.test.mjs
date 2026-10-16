@@ -187,15 +187,23 @@ test('easel target detection walks parents and respects its root boundary', () =
     'target detection escaped the supplied easel boundary');
 });
 
-test('the easel pointer uses one guarded handler and balanced canvas listeners', () => {
-  const pointerHandler = between('function onEaselPointer(event)', 'function preventNextFocus(');
+test('the room pointer owns touch-to-move and keeps balanced canvas listeners', () => {
+  const pointerHandler = between('function onRoomPointer(event)', 'function preventNextFocus(');
   assert.match(pointerHandler, /active && phase === 'room' && holdRemaining <= 0/);
-  assert.match(pointerHandler, /event\.type === 'pointerdown' && hit/);
-  assert.match(pointerHandler, /pressPaintAgain\(\)/);
+  assert.match(pointerHandler, /if \(event\.type !== 'pointerdown'\) return/);
+  assert.match(pointerHandler, /autoTarget = \{ type: 'easel', x: EASEL_APPROACH\.x, z: EASEL_APPROACH\.z \}/,
+    'tapping the easel no longer queues a walk-to-easel target');
+  assert.match(pointerHandler, /floorTargetFromPointer\(event\)/,
+    'ordinary floor taps no longer resolve to a walk target');
+  assert.match(pointerHandler, /autoTarget = \{ type: 'floor', \.\.\.floorTarget \}/,
+    'ordinary floor taps no longer queue touch-to-move');
+  assert.doesNotMatch(pointerHandler, /pressPaintAgain\(\)/,
+    'tapping the easel should walk there rather than opening painting instantly');
   assert.match(source, /raycaster\.intersectObject\(easelHitMesh, true\)/);
+  assert.match(source, /raycaster\.intersectObject\(floorMesh, false\)/);
   for (const type of ['pointerdown', 'pointermove', 'pointerleave']) {
-    assert.equal([...source.matchAll(new RegExp(`addEventListener\\('${type}', onEaselPointer\\)`, 'g'))].length, 1);
-    assert.equal([...source.matchAll(new RegExp(`removeEventListener\\('${type}', onEaselPointer\\)`, 'g'))].length, 1);
+    assert.equal([...source.matchAll(new RegExp(`addEventListener\\('${type}', onRoomPointer\\)`, 'g'))].length, 1);
+    assert.equal([...source.matchAll(new RegExp(`removeEventListener\\('${type}', onRoomPointer\\)`, 'g'))].length, 1);
   }
   assert.match(source, /setEaselCursor\(false\);\s*canvas\?\.removeEventListener/,
     'teardown does not reset the canvas cursor before removing pointer listeners');
