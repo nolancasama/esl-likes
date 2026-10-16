@@ -23,6 +23,9 @@ export { ROOM_DEPTH, ROOM_WIDTH, canOccupyColoringRoom as canOccupy } from './ro
 const LESSON = LESSON_BY_ID.coloring;
 const STRINGS = UI.coloring;
 const MOVE_SPEED = 5;
+const AUTO_MOVE_SPEED = 5.7;
+const AUTO_ARRIVAL_RADIUS = 0.14;
+const EASEL_APPROACH = Object.freeze({ x: EASEL.x, z: EASEL.z + 1.65 });
 
 const WALL_HEIGHT = 5.2;
 const WALL_THICKNESS = 0.3;
@@ -234,6 +237,7 @@ export function createColoring(ctx) {
   let roundsStarted = 0;
 
   let world = null;
+  let floorMesh = null;
   let player = null;
   let easelGroup = null;
   let easelHitMesh = null;
@@ -248,6 +252,7 @@ export function createColoring(ctx) {
   let paintAgainButton = null;
   let canvas = null;
   let roomAction = null;
+  let autoTarget = null;
   let paintingOverlay = null;
   let paintingCanvas = null;
   let canvasWrap = null;
@@ -685,8 +690,9 @@ export function createColoring(ctx) {
     const backTrimZ = backWallZ + WALL_THICKNESS / 2 + TRIM_DEPTH / 2;
     const sideTrimX = sideWallX - WALL_THICKNESS / 2 - TRIM_DEPTH / 2;
 
-    addPart(world, box, floorMaterial, 0, -FLOOR_THICKNESS / 2, 0,
+    floorMesh = addPart(world, box, floorMaterial, 0, -FLOOR_THICKNESS / 2, 0,
       ROOM_WIDTH, FLOOR_THICKNESS, ROOM_DEPTH);
+    floorMesh.name = 'coloring-floor';
     addPart(world, box, wallMaterial, 0, wallCentreY, backWallZ,
       ROOM_WIDTH, WALL_HEIGHT, WALL_THICKNESS);
     addPart(world, box, wallMaterial, -sideWallX, wallCentreY, 0,
@@ -742,21 +748,105 @@ export function createColoring(ctx) {
     world.visible = false;
   }
 
-  // Copied from Restaurant: same movement feel and verified Kenney +z facing convention.
+  function faceMovement(dx, dz, dt) {
+    if (Math.abs(dx) + Math.abs(dz) < 0.0001) return;
+    const wantedRotation = Math.atan2(dx, dz);
+    const turn = Math.atan2(
+      Math.sin(wantedRotation - player.rotation.y),
+      Math.cos(wantedRotation - player.rotation.y),
+    );
+    player.rotation.y += turn * (1 - Math.exp(-12 * dt));
+  }
+
+  /**
+   * Touch-first room movement. Keyboard input remains supported, but any real
+   * manual movement cancels a tap destination so the two control schemes never
+   * fight each other.
+   */
+  function updateAutoMovement(dt) {
+    if (!autoTarget) return false;
+
+    if (autoTarget.type === 'easel' && nearEasel()) {
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      void openCanvas();
+      return true;
+    }
+
+    const dx = autoTarget.x - player.position.x;
+    const dz = autoTarget.z - player.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance <= AUTO_ARRIVAL_RADIUS) {
+      const arrived = autoTarget;
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      if (arrived.type === 'easel') void openCanvas();
+      return true;
+    }
+
+    const step = Math.min(distance, AUTO_MOVE_SPEED * dt);
+    const beforeX = player.position.x;
+    const beforeZ = player.position.z;
+    const ux = dx / distance;
+    const uz = dz / distance;
+
+    const nextX = player.position.x + ux * step;
+    if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
+    const nextZ = player.position.z + uz * step;
+    if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+
+    // The easel is the room's only obstacle. If a straight-line tap lands on
+    // the far side of it, slide tangentially around the circular collider
+    // instead of leaving the child stuck against the stand.
+    if (player.position.x === beforeX && player.position.z === beforeZ) {
+      const ox = player.position.x - EASEL.x;
+      const oz = player.position.z - EASEL.z;
+      const obstacleDistance = Math.hypot(ox, oz);
+      if (obstacleDistance > 0.001) {
+        let tx = -oz / obstacleDistance;
+        let tz = ox / obstacleDistance;
+        if (tx * dx + tz * dz < 0) {
+          tx *= -1;
+          tz *= -1;
+        }
+        const slideX = player.position.x + tx * step;
+        if (canOccupy(slideX, player.position.z)) player.position.x = slideX;
+        const slideZ = player.position.z + tz * step;
+        if (canOccupy(player.position.x, slideZ)) player.position.z = slideZ;
+      }
+    }
+
+    const movedX = player.position.x - beforeX;
+    const movedZ = player.position.z - beforeZ;
+    if (Math.abs(movedX) + Math.abs(movedZ) < 0.0001) {
+      autoTarget = null;
+      player.playAnimation?.('idle');
+      return true;
+    }
+
+    faceMovement(movedX, movedZ, dt);
+    player.playAnimation?.('walk');
+    return true;
+  }
+
+  // Same keyboard movement feel as Restaurant, now an optional fallback.
   function updateMovement(dt) {
     input.getMovement(move);
-    if (move.lengthSq() === 0) {
-      player.playAnimation?.('idle');
+    if (move.lengthSq() !== 0) {
+      autoTarget = null;
+      const beforeX = player.position.x;
+      const beforeZ = player.position.z;
+      const nextX = player.position.x + move.x * MOVE_SPEED * dt;
+      const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
+      if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
+      if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
+      faceMovement(player.position.x - beforeX, player.position.z - beforeZ, dt);
+      player.playAnimation?.('walk');
       return;
     }
-    const nextX = player.position.x + move.x * MOVE_SPEED * dt;
-    const nextZ = player.position.z - move.y * MOVE_SPEED * dt;
-    if (canOccupy(nextX, player.position.z)) player.position.x = nextX;
-    if (canOccupy(player.position.x, nextZ)) player.position.z = nextZ;
-    const wantedRotation = Math.atan2(move.x, -move.y);
-    const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
-    player.rotation.y += turn * (1 - Math.exp(-12 * dt));
-    player.playAnimation?.('walk');
+
+    if (updateAutoMovement(dt)) return;
+    player.playAnimation?.('idle');
   }
 
   const nearEasel = () => {
@@ -788,8 +878,8 @@ export function createColoring(ctx) {
     if (canvas) canvas.style.cursor = overEasel ? 'pointer' : '';
   }
 
-  function pointerHitsEasel(event) {
-    if (!canvas || !easelHitMesh) return false;
+  function setPointerRay(event) {
+    if (!canvas) return false;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return false;
     pointer.set(
@@ -797,23 +887,49 @@ export function createColoring(ctx) {
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
     raycaster.setFromCamera(pointer, camera);
+    return true;
+  }
+
+  function pointerHitsEasel(event) {
+    if (!easelHitMesh || !setPointerRay(event)) return false;
     return raycaster.intersectObject(easelHitMesh, true)
       .some((intersection) => isColoringEaselTarget(intersection.object, easelGroup));
   }
 
-  /** One canvas Pointer Events handler owns click, hover and leave feedback. */
-  function onEaselPointer(event) {
+  function floorTargetFromPointer(event) {
+    if (!floorMesh || !setPointerRay(event)) return null;
+    const intersection = raycaster.intersectObject(floorMesh, false)[0];
+    if (!intersection) return null;
+    const { x, z } = intersection.point;
+    return canOccupy(x, z) ? { x, z } : null;
+  }
+
+  /**
+   * One Pointer Events handler owns the whole room:
+   * - tap/click the easel -> walk to it, then open the next picture
+   * - tap/click ordinary floor -> walk there
+   * - mouse hover still advertises the easel as interactive
+   */
+  function onRoomPointer(event) {
     const eligible = active && phase === 'room' && holdRemaining <= 0;
     if (!eligible || event.type === 'pointerleave') {
       setEaselCursor(false);
       return;
     }
-    const hit = pointerHitsEasel(event);
-    setEaselCursor(hit);
-    if (event.type === 'pointerdown' && hit) {
-      setEaselCursor(false);
-      pressPaintAgain();
+
+    const hitEasel = pointerHitsEasel(event);
+    setEaselCursor(hitEasel);
+    if (event.type !== 'pointerdown') return;
+
+    if (hitEasel) {
+      autoTarget = { type: 'easel', x: EASEL_APPROACH.x, z: EASEL_APPROACH.z };
+      audio.playSfx('interact');
+      return;
     }
+
+    const floorTarget = floorTargetFromPointer(event);
+    if (!floorTarget) return;
+    autoTarget = { type: 'floor', ...floorTarget };
   }
 
   function preventNextFocus(event) {
@@ -1229,6 +1345,7 @@ export function createColoring(ctx) {
   /** Room → close-up. Space works in every canvas state, so this never refuses. */
   async function openCanvas() {
     if (!active || phase !== 'room') return;
+    autoTarget = null;
     phase = 'to-canvas';
     syncRoomButtons();
     setRoomAction(null);
@@ -1448,6 +1565,7 @@ export function createColoring(ctx) {
    */
   function beginTurnaround() {
     if (!active || phase !== 'room' || livingRobots.length === 0) return;
+    autoTarget = null;
     phase = 'turnaround';
     syncRoomButtons();
     newcomerReaction.cancel();
@@ -1566,7 +1684,12 @@ export function createColoring(ctx) {
       restaurantButtonVisible: Boolean(finishButton && !finishButton.hidden),
       paintAgainButtonVisible: Boolean(paintAgainButton && !paintAgainButton.hidden),
       easelScreenPosition: easelScreenPosition(),
-      player: player ? { x: player.position.x, z: player.position.z } : null,
+      player: player ? {
+        x: player.position.x,
+        z: player.position.z,
+        autoWalking: Boolean(autoTarget),
+        autoTargetType: autoTarget?.type ?? null,
+      } : null,
       robots: livingRobots.map((robot) => ({
         id: robot.id,
         state: robot.puppet.state,
@@ -1678,9 +1801,9 @@ export function createColoring(ctx) {
     buildWorld();
     restoreSavedRobots();
     canvas = document.querySelector('#game-canvas');
-    canvas?.addEventListener('pointerdown', onEaselPointer);
-    canvas?.addEventListener('pointermove', onEaselPointer);
-    canvas?.addEventListener('pointerleave', onEaselPointer);
+    canvas?.addEventListener('pointerdown', onRoomPointer);
+    canvas?.addEventListener('pointermove', onRoomPointer);
+    canvas?.addEventListener('pointerleave', onRoomPointer);
     installDebugHook();
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
@@ -1762,9 +1885,9 @@ export function createColoring(ctx) {
     dialogue.hide();
     cameraRig.setTarget(null);
     setEaselCursor(false);
-    canvas?.removeEventListener('pointerdown', onEaselPointer);
-    canvas?.removeEventListener('pointermove', onEaselPointer);
-    canvas?.removeEventListener('pointerleave', onEaselPointer);
+    canvas?.removeEventListener('pointerdown', onRoomPointer);
+    canvas?.removeEventListener('pointermove', onRoomPointer);
+    canvas?.removeEventListener('pointerleave', onRoomPointer);
     actionButton?.removeEventListener('click', pressRoomAction);
     paintAgainButton?.removeEventListener('click', pressPaintAgain);
     finishButton?.removeEventListener('click', beginTurnaround);
@@ -1799,6 +1922,7 @@ export function createColoring(ctx) {
       easelArtCanvas.height = 0;
     }
     world = null;
+    floorMesh = null;
     player = null;
     easelGroup = null;
     easelHitMesh = null;
@@ -1813,6 +1937,7 @@ export function createColoring(ctx) {
     paintAgainButton = null;
     canvas = null;
     roomAction = null;
+    autoTarget = null;
     style = null;
     favourite = null;
     coverage = null;
