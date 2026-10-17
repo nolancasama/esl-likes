@@ -137,6 +137,12 @@ export function createRivalProgression() {
     return { next: 'round2' };
   }
 
+  function finishAfterFirstWin() {
+    if (phase !== 'round2-intro' || round !== 1) return null;
+    phase = 'final';
+    return { next: 'completion' };
+  }
+
   function startRound3() {
     if (phase !== 'round3-intro') return null;
     phase = 'round3';
@@ -149,6 +155,7 @@ export function createRivalProgression() {
     resolveRound,
     chooseRematch,
     chooseFinish,
+    finishAfterFirstWin,
     startRound2,
     startRound3,
     get phase() { return phase; },

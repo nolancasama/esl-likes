@@ -282,6 +282,7 @@ export const UI = Object.freeze({
     // After losing or drawing Round 1: try the same waiter again, or finish.
     rivalRematchAsk: 'もう{一回|いっかい} やる？',
     rematchChoices: Object.freeze(['もう{一回|いっかい}！', 'おわりにする']),
+    firstWinChoices: Object.freeze(['つづける', 'どうぶつえんへ']),
     // Plain kana: the phase pill is plain text, not furigana.
     rematchCue: 'もう いっかい しょうぶ！',
     // After winning Round 1: a second, stronger waiter. Replies are flavour only.

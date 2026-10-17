@@ -12,6 +12,7 @@ import {
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { chooseAction } from './actionPriority.js';
+import { customerTapIntent, resolveCustomerTapIntent } from './tapIntent.js';
 import {
   RESTAURANT_ONBOARDING_STEPS,
   createRestaurantOnboarding,
@@ -45,6 +46,7 @@ import {
   createResultStage,
 } from './resultStage.js';
 import { reactionPose } from './reactionPose.js';
+import { createFirstWinChoice } from './firstWinChoice.js';
 import {
   BASELINE,
   RESTAURANT_LEVEL,
@@ -317,6 +319,12 @@ export function createRestaurant(ctx) {
   const rivalCharacters = {};
   let rematchChoiceActive = false;
   let rematchChoiceShownAt = -Infinity;
+  const firstWinChoice = createFirstWinChoice({
+    onContinue: () => beginNextRivalTransition(2),
+    onFinish: () => {
+      if (progression?.finishAfterFirstWin()) finishRestaurant();
+    },
+  });
   let roundPatience = null;
   let overlayCreates = 0;
   const rivalExit = { character: null, index: 0 };
@@ -447,7 +455,7 @@ export function createRestaurant(ctx) {
   // the phase pill or the result UI.
   function syncHud() {
     if (!overlay) return;
-    const modal = rivalIntroActive() || rematchChoiceActive;
+    const modal = rivalIntroActive() || rematchChoiceActive || firstWinChoice.visible;
     overlay.classList.toggle('restaurant-ui--modal', modal);
     // The challenge is answered with buttons, never the microphone: the Talk HUD
     // (outside this overlay) stays hidden however something tries to show it.
@@ -659,6 +667,13 @@ export function createRestaurant(ctx) {
       #ui-layer .restaurant-ui__challenge-reply:hover { background: #f59a2c; }
       #ui-layer .restaurant-ui__challenge-reply:active { transform: translateY(.2rem); box-shadow: 0 .18rem 0 rgb(32 49 75 / .3); }
       .restaurant-ui__challenge-reply:focus-visible { outline: .32rem solid #ffcf33; outline-offset: .2rem; }
+      .restaurant-ui__challenge--first-win .restaurant-ui__challenge-line { display: none; }
+      .restaurant-ui__challenge--first-win .restaurant-ui__challenge-replies { margin-top: 0; }
+      #ui-layer .restaurant-ui__challenge--first-win .restaurant-ui__challenge-reply {
+        min-height: 72px; background: #315d92; }
+      #ui-layer .restaurant-ui__challenge--first-win .restaurant-ui__challenge-reply:first-child {
+        flex-grow: 1.15; min-height: 80px; background: #ef8a17; }
+      #ui-layer .restaurant-ui__challenge--first-win .restaurant-ui__challenge-reply:hover { filter: brightness(1.08); }
       @media (max-width: 44rem) { .restaurant-ui__temperature { right: 50%; bottom: 5.9rem; transform: translateX(50%); } }
       /* Narrow screens: the stage score stays clear of the settings button. */
       @media (max-width: 30rem) { .restaurant-ui__score--stage { font-size: calc(1.15rem * var(--ui-scale, 1)); } }
@@ -714,6 +729,7 @@ export function createRestaurant(ctx) {
   // the listeners stay on the panel and the reply container.
   function setChallengeContent(lineText, replies) {
     if (!challengeLine || !challengeReplies) return;
+    challengePanel.classList.remove('restaurant-ui__challenge--first-win');
     challengeLineUnits = parseFurigana(lineText);
     challengeTypewriter = createTypewriter({ units: challengeLineUnits, charsPerSecond: 30 });
     challengeLine.replaceChildren();
@@ -1534,6 +1550,8 @@ export function createRestaurant(ctx) {
       clearQuestion();
       return false;
     }
+    // A deliberate HUD press also consumes any pending tap-to-talk approach.
+    autoTarget = null;
     questionCommitted = true;
     beginFocus('restaurant-order');
     audio.playSfx('restaurant-talk-ready', { frequency: 660, endFrequency: 880, duration: 0.14, gain: 0.09 });
@@ -2186,11 +2204,16 @@ export function createRestaurant(ctx) {
 
   // Replies (either challenge) or the rematch question's two choices are showing.
   function choicesShown() {
-    return Boolean(rivalChallenge?.choicesVisible || rematchChoiceActive);
+    return Boolean(rivalChallenge?.choicesVisible || rematchChoiceActive || firstWinChoice.visible);
   }
 
   function onChallengeReply(event) {
     const button = event.target instanceof Element ? event.target.closest('button[data-reply]') : null;
+    if (button && active && firstWinChoice.visible) {
+      if (elapsed - rematchChoiceShownAt < REMATCH_CHOICE_GUARD_SECONDS) return;
+      firstWinChoice.choose(Number(button.dataset.reply));
+      return;
+    }
     if (button && active && rematchChoiceActive) {
       chooseAfterLoss(Number(button.dataset.reply));
       return;
@@ -2208,7 +2231,8 @@ export function createRestaurant(ctx) {
     const activationKey = event.code === 'Space' || event.code === 'Enter';
     // A press already under way as the rematch question appears (Space mashed
     // through the result) must not pick a choice on its keyup.
-    const choiceJustShown = rematchChoiceActive && elapsed - rematchChoiceShownAt < REMATCH_CHOICE_GUARD_SECONDS;
+    const choiceJustShown = (rematchChoiceActive || firstWinChoice.visible)
+      && elapsed - rematchChoiceShownAt < REMATCH_CHOICE_GUARD_SECONDS;
     if (active && activationKey && (rivalChallenge?.phase === 'typing' || choiceJustShown)) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -2620,8 +2644,22 @@ export function createRestaurant(ctx) {
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
         player.rotation.y = Math.atan2(faceX, faceZ);
-        if (carried && arrived.value.owner === RESTAURANT_OWNERS.PLAYER
-          && arrived.value.state === 'awaiting') deliver(arrived.value);
+        const state = customerTapState(arrived.value, player.position);
+        const { action } = resolveCustomerTapIntent(arrived, {
+          ...state,
+          arrived: true,
+          inRange: Boolean(customerWithinRange(arrived.value)),
+          stopped: true,
+        });
+        if (action === 'deliver') deliver(arrived.value);
+        else if (action === 'return') returnCarriedDish();
+        else if (action === 'exchange') exchangeDish(arrived.otherDishId);
+        else if (action === 'collect') collectDish(arrived.otherDishId);
+        else if (action === 'talk') {
+          targetQuestion(arrived.value);
+          // The same click handler as the Talk HUD owns mic/fallback policy.
+          if (questionCustomer === arrived.value) hud.talkButton.click();
+        }
       }
       return;
     }
@@ -2901,9 +2939,45 @@ export function createRestaurant(ctx) {
     }
   }
 
+  function tapServiceAvailable() {
+    return active && !completed && !finishCalled && phase === 'service'
+      && !rivalIntroActive() && !rematchChoiceActive && settleBeatRemaining <= 0
+      && rushBeatRemaining <= 0
+      && !questionCommitted && !focus.active && !speech.active;
+  }
+
+  function customerTapState(customer, position) {
+    // Test contextual actions at the destination, not at the place the tap
+    // started. In particular, leaving the belt must not queue an exchange.
+    const dx = position.x - DISH_RETURN_POSITION.x;
+    const dz = position.z - DISH_RETURN_POSITION.z;
+    const nearReturn = dx * dx + dz * dz <= DISH_RETURN_RADIUS_SQ;
+    const beltDish = position.z <= -4.0 && Math.abs(position.z - BELT_FRONT_Z) <= BELT_FRONT_BAND
+      ? conveyor?.nearestPickable(position.x, BELT_PICKUP_WINDOW) : null;
+    const otherAction = chooseAction({ carried: Boolean(carried), nearReturn, beltDish });
+    return {
+      phase,
+      blocked: !tapServiceAvailable(),
+      customer,
+      present: customers.includes(customer) && customer.character.visible,
+      carried,
+      talkTargetAllowed: !onboarding?.active || customer === tutorialCustomer,
+      speechCooldown: speechCooldown > 0,
+      otherAction,
+      otherDishId: otherAction === 'exchange' || otherAction === 'collect' ? beltDish?.id : null,
+    };
+  }
+
   function onCanvasPointer(event) {
     // A click into the room during the challenge must not queue a walk for later.
-    if (!active || phase !== 'service' || rivalIntroActive()) return;
+    if (!tapServiceAvailable()) {
+      autoTarget = null;
+      clickQuestionCustomer = null;
+      return;
+    }
+    // Even a tap on empty floor replaces the previous pending customer action.
+    autoTarget = null;
+    if (!questionCommitted) clickQuestionCustomer = null;
     const rect = canvas.getBoundingClientRect();
     pointer.set(
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -2964,17 +3038,15 @@ export function createRestaurant(ctx) {
           ),
         };
       } else if (target.type === 'customer') {
-        const playerOrder = target.value.owner === RESTAURANT_OWNERS.PLAYER
-          && target.value.state === 'awaiting';
-        if (!isTalkable(target.value) && !playerOrder) continue;
-        if (carried && !playerOrder) continue;
+        const position = new THREE.Vector3(target.value.table.seatX, 0, target.value.table.seatZ - 1.65);
+        const intent = customerTapIntent(customerTapState(target.value, position));
+        if (!intent) continue;
         if (!questionCommitted) {
-          clickQuestionCustomer = carried ? null : target.value;
+          clickQuestionCustomer = intent.action === 'talk' ? target.value : null;
         }
         autoTarget = {
-          type: 'customer',
-          value: target.value,
-          position: new THREE.Vector3(target.value.table.seatX, 0, target.value.table.seatZ - 1.65),
+          ...intent,
+          position,
         };
       }
 
@@ -3040,6 +3112,8 @@ export function createRestaurant(ctx) {
     return {
       phase: phase === 'service' ? directorPhase : phase,
       lifecycle: phase,
+      firstWinChoiceVisible: firstWinChoice.visible,
+      autoTarget: autoTarget ? { type: autoTarget.type, action: autoTarget.action ?? null } : null,
       directorPhase,
       actionType: actionType || 'none',
       progress: { done: claimRegistry?.progress.done ?? records.length, total: shiftTotal },
@@ -3077,8 +3151,9 @@ export function createRestaurant(ctx) {
         attempt: progression.attempt,
         phase: progression.phase,
         awaitingChoice: progression.awaitingChoice,
-        choicesVisible: Boolean(rematchChoiceActive && challengePanel && !challengePanel.hidden
+        choicesVisible: Boolean((rematchChoiceActive || firstWinChoice.visible) && challengePanel && !challengePanel.hidden
           && challengeReplies && !challengeReplies.hidden),
+        firstWinChoiceVisible: firstWinChoice.visible,
         roundTotal: shiftTotal,
         roundDone: claimRegistry?.progress.done ?? 0,
         roundPatience: roundPatience ?? BASELINE.patience,
@@ -3525,6 +3600,8 @@ export function createRestaurant(ctx) {
     // Only a shift that had a rival gets the result moment (never Easy, never a
     // shift that ended before the rush).
     phase = 'round-end';
+    autoTarget = null;
+    clickQuestionCustomer = null;
     if (rivalArrived() && claimRegistry) {
       const outcome = forcedOutcome
         ?? competitionOutcome(competitionScore?.score(claimRegistry.counts));
@@ -3762,13 +3839,31 @@ export function createRestaurant(ctx) {
   }
 
   // Where the rival would ask the final question, the progression decides:
-  // Round 1 loss/draw → rematch or finish; Round 1 win → Waiter 2; Round 2 → the question.
+  // Round 1 loss/draw → rematch or finish; Round 1 win → continue or finish.
   function beginAfterResult() {
     const decision = progression?.resolveRound(resultOutcome) ?? { next: 'final-question' };
     if (decision.next === 'choice') showRematchChoice();
-    else if (decision.next === 'round2-intro') beginNextRivalTransition(2);
+    else if (decision.next === 'round2-intro') showFirstWinChoice();
     else if (decision.next === 'round3-intro') beginNextRivalTransition(3);
     else beginResultQuestion();
+  }
+
+  function showFirstWinChoice() {
+    if (!active || !firstWinChoice.show({ progression, outcome: resultOutcome, completed, finishCalled })) return;
+    if (resultLabel) resultLabel.hidden = true;
+    restoreResultPose();
+    player.position.y = 0;
+    rivalCharacter.position.y = 0;
+    player.playAnimation?.('idle');
+    setRivalAnimation('idle');
+    cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(REMATCH_CAMERA));
+    setChallengeContent('', STRINGS.firstWinChoices);
+    challengePanel.classList.add('restaurant-ui__challenge--first-win');
+    rematchChoiceShownAt = elapsed;
+    hud.hide();
+    challengePanel.hidden = false;
+    showChallengeReplies();
+    syncHud();
   }
 
   function showRematchChoice() {
@@ -3914,6 +4009,7 @@ export function createRestaurant(ctx) {
     }
     hideChallengePanel();
     rematchChoiceActive = false;
+    firstWinChoice.clear();
     challengeSuppressedKeys.clear();
     roundEndRemaining = -1;
     turnaroundPartner = null;
@@ -4309,6 +4405,7 @@ export function createRestaurant(ctx) {
     for (const id of Object.keys(rivalCharacters)) delete rivalCharacters[id];
     rematchChoiceActive = false;
     rematchChoiceShownAt = -Infinity;
+    firstWinChoice.clear();
     roundPatience = null;
     rivalExit.character = null;
     rivalExit.index = 0;
@@ -4372,6 +4469,10 @@ export function createRestaurant(ctx) {
 
   function update(dt) {
     if (!active) return;
+    if (!tapServiceAvailable()) {
+      autoTarget = null;
+      clickQuestionCustomer = null;
+    }
     const safeDt = Math.min(Math.max(dt || 0, 0), 0.05);
     elapsed += safeDt;
     focus.update(safeDt);
@@ -4481,12 +4582,7 @@ export function createRestaurant(ctx) {
     } else if (phase === 'finishing') {
       finishRemaining -= safeDt;
       if (finishRemaining <= 0 && !finishCalled) {
-        finishCalled = true;
-        hud.hide();
-        finish({
-          stars: calculateStars(),
-          detail: { category: LESSON.category, answer: acceptedAnswer },
-        });
+        finishRestaurant();
       }
     }
 
@@ -4501,8 +4597,43 @@ export function createRestaurant(ctx) {
     syncHud();
   }
 
+  // All successful exits share the score/result payload and the one-call guard.
+  function finishRestaurant() {
+    if (!active || finishCalled) return;
+    finishCalled = true;
+    completed = true;
+    phase = 'finishing';
+    firstWinChoice.clear();
+    rematchChoiceActive = false;
+    hideChallengePanel();
+    challengeSuppressedKeys.clear();
+    pendingRound = null;
+    rivalExit.character = null;
+    returnWalk.active = false;
+    returnWalk.onArrive = null;
+    resultWalk.active = false;
+    rivalWalk.active = false;
+    turnaroundWalk.walking = false;
+    resultStagePendingOutcome = null;
+    autoTarget = null;
+    clickQuestionCustomer = null;
+    clearQuestion();
+    cancelFocus();
+    speech.cancel();
+    speech.clearTarget();
+    setListenTarget(null);
+    hideAction();
+    hud.hide();
+    dialogue.hide();
+    finish({
+      stars: calculateStars(),
+      detail: { category: LESSON.category, answer: acceptedAnswer },
+    });
+  }
+
   function exit() {
     active = false;
+    firstWinChoice.clear();
     restoreChallengePose();
     restoreResultPose();
     resultStage = null;
@@ -4525,6 +4656,8 @@ export function createRestaurant(ctx) {
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
     removeDebugHook();
     actionButton?.removeEventListener('click', performAction);
+    challengeReplies?.removeEventListener('click', onChallengeReply);
+    challengePanel?.removeEventListener('click', onChallengePanelClick);
     window.removeEventListener('keydown', onChallengeKey, true);
     window.removeEventListener('keyup', onChallengeKeyUp, true);
     window.removeEventListener('blur', onChallengeBlur);
@@ -4544,6 +4677,10 @@ export function createRestaurant(ctx) {
     scoreText = null;
     rivalTitle = null;
     resultLabel = null;
+    challengePanel = null;
+    challengeLine = null;
+    challengeReplies = null;
+    challengeTypewriter = null;
     player?.disposeCharacter?.();
     for (const character of Object.values(rivalCharacters)) character.disposeCharacter?.();
     for (const id of Object.keys(rivalCharacters)) delete rivalCharacters[id];

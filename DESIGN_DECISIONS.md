@@ -3026,3 +3026,46 @@ power, painting and readiness rules are unchanged.
 
 Rejected: forcing the favourite colour or disabling other palette colours.
 Students can still decorate freely while learning which colour powers the robot.
+
+## 2026-10-17 — Restaurant: choose the pace after the first rival win
+
+**A Round 1 win offers `つづける` and `どうぶつえんへ` in the existing result
+choice panel.** The primary Continue button is slightly larger; both choices
+are large touch targets, with no explanatory text or confirmation. Continue
+uses the existing beaten-waiter exit and Waiter 2 introduction unchanged. The
+choice is gated by the existing round/progression state and a genuine player
+win; losses, draws and later rounds keep their existing paths.
+
+**The Zoo choice completes Restaurant through its normal finish callback.**
+It preserves the stars earned by the completed first match, clears pending
+movement, speech and next-round transitions, and resolves once. The shell owns
+the next destination. A child who has demonstrated the whole service loop can
+move on at their own pace without being required to climb the rival ladder.
+
+*Rejected:* a separate early-exit modal or confirmation, which adds another
+decision after the child has already chosen; direct Zoo navigation, which
+bypasses the normal successful completion path and shell routing.
+
+## 2026-10-17 — Restaurant: customer taps carry an explicit arrival intent
+
+**Tapping a customer means walk there and perform the action chosen at the tap.**
+A matching carried dish chooses delivery first, then any applicable existing
+contextual action, then Talk for an empty-handed, unasked, legitimate customer
+(including the first-customer onboarding gate). Otherwise the tap only approaches.
+The pending `autoTarget.action` is inspectable, and pure rules capture and recheck
+it. Arrival must be within the ordinary interaction radius with walking stopped;
+the action is consumed once and revalidated against the current customer, hands
+and service state. An obsolete action is dropped without choosing another one.
+
+**Talk starts only on arrival through the same Talk HUD click handler.** The
+shared speech system still decides microphone versus mic-free fallback. Manual
+movement, a replacement tap and leaving ordinary service cancel pending actions.
+Walking near a customer alone never starts listening; carrying never queues Talk,
+and the existing no-ask-clue rule and Listen Again support remain intact.
+
+Young students tap what they want to do, so the walk should carry that explicit
+request through to arrival without a second precision tap. *Rejected:* tapping
+any NPC always opens the microphone, which would ask already-asked customers,
+interrupt deliveries and start speech before the child has reached the customer;
+re-inferring an action on arrival, which could turn an obsolete delivery into an
+unrequested conversation.
