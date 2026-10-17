@@ -2,8 +2,9 @@
 
 ## Usage watch
 
-Codex was **available and took the delegated order** in the latest pass. Gemini and all
-four `agy-*` workers remained under the global coding readiness quarantine
+In the latest pass (touch language) the router chose **Claude direct**: Codex was
+in a usage-limit window (until 2026-10-17 10:53 UTC) and Gemini plus all four
+`agy-*` workers were under the global coding readiness quarantine
 (`baseline-executor-unready [executor antigravity]`). Re-check with
 `node ~/.claude/workers/bin/route.js .ai/<order>.json`; these go stale in hours.
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
@@ -14,7 +15,55 @@ review around it.
 controller runs git; orders say "edit files only". Fresh clones need `npm ci`
 first — the router skips Codex with `vite is not on PATH` otherwise.
 
-## Latest pass (2026-10-17) — five-game run, first-robot tutorial, tap-to-act, first-win exit, shutter fix
+## Latest pass (2026-10-17, later) — one touch language in all five games; tabletop delivery
+
+**Committed and pushed** to `main` at the owner's request. Done directly (router:
+no delegating worker available). Orders kept for the record:
+`.ai/wo-touch-{sports,drink,tabletop}.json`. See DESIGN_DECISIONS 2026-10-17
+"One touch language".
+
+- **Sports:** tap field → walk (clamped to `FIELD_LIMIT`); tap waiting friend →
+  walk → `targetQuestion` + `hud.talkButton.click()` on arrival; follower/joined
+  friend → walk only; tap zone (ground/props/sign) → walk to centre, joining
+  still via `checkZones()`. `sports/tapIntent.js`. Debug: `autoTarget`,
+  `player.autoWalking`, `npcs[].screen`, `zones[].screen`, `questionNpc`.
+- **Drink Stand:** floor taps added (`walkFloor`, clamped to `WORK_BOUNDS`);
+  every tap carries `action` (serve > talk > approach; station = pour),
+  re-validated on arrival (`drinkStand/tapIntent.js`).
+- **Restaurant:** tabletop meshes are `table` targets resolved to the current
+  occupant; same intent as tapping the customer but Talk → approach; empty
+  table does nothing. `tableTapIntent` in `restaurant/tapIntent.js`. Debug:
+  `tabletopScreens`.
+
+### Validation
+
+`npm test` 823/823, build OK. Harnesses: `restaurant` 78/78, `sequence` 36/36,
+`sports` 20/21 (same single failure on the pre-pass baseline: the
+"four zones" check), `drink-stand` 6 failures vs 11 on the pre-pass baseline
+(all pre-existing; the harness predates current speech focus). Scratch browser
+checks (gitignored): `.tmp/touch-check.mjs` 34/34 on one run (Sports floor,
+talk-on-arrival, follower no-Talk, zone tap → join, arrow cancel; Drink floor,
+talk-on-arrival, asked → walk only, station pour, serve on arrival, arrow
+cancel). A second run missed only its own precondition: no friend on screen.
+Since then `npcs[].sport` was removed from the debug output, so that script's
+zone step needs another way to pick the zone. `.tmp/tabletop-check.mjs` 6/6
+×3 (empty-handed tabletop → approach, no read-along; empty table → no target).
+Screenshots of both arrivals checked.
+
+### Not verified
+
+Carried-dish delivery via a tabletop tap was not driven in the browser (unit +
+wiring tests; arrival reuses the unchanged customer branch). No real-mic run.
+No Chromebook/touchscreen run (mouse clicks only).
+
+### Next Steps
+
+1. Owner plays the full run on a Chromebook with touch: does tap-to-talk feel
+   the same in all five games; are Sports zone taps natural.
+2. `drink-stand` harness debt (11 baseline failures) and `sports` "four zones" check.
+3. Coloring harness persistence debt (18 checks that assume a fresh room).
+
+## Previous pass (2026-10-17) — five-game run, first-robot tutorial, tap-to-act, first-win exit, shutter fix
 
 **Committed and pushed** to `main` at the owner's request. Built on top of the
 owner's own 2026-10-16 commits (touch-to-move in Coloring, global tap-to-walk in
@@ -68,7 +117,7 @@ before it shows the win).
 
 1. Owner plays the run on a Chromebook: does the first-robot tutorial land; does
    tap-to-talk feel natural; is `どうぶつえんへ` clear.
-2. Touch-control pass for Sports and the Drink Stand (keyboard-era controls).
+2. ~~Touch-control pass for Sports and the Drink Stand~~ — done in the later pass.
 3. Coloring harness persistence debt (18 checks that assume a fresh room).
 
 ## Previous pass (2026-10-02, follow-up) — paint again anywhere; no ask clue while carrying

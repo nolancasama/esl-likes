@@ -1,0 +1,39 @@
+{
+  "task": "esl-likes Sports: add the global touch language already used in Restaurant/Zoo -- tap field -> walk there; tap a waiting friend -> walk -> start the existing Talk flow on arrival; tap a sport zone/sign -> walk into it. Keyboard stays as a fallback and cancels any pending tap.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game. src/minigames/sports/index.js (~1000 lines) is keyboard-only today: no raycaster, no pointer handler, no autoTarget. Copy the established pattern from src/minigames/zoo/index.js + src/minigames/zoo/tapIntent.js and src/minigames/drinkStand/index.js (onCanvasPointer, autoTarget, updateMovement auto-walk branch). Read DESIGN_DECISIONS.md entries on Sports and on tap-to-act (2026-10-16/17) first.",
+    "1 FLOOR: add a THREE.Raycaster + pointerdown handler on the game canvas. A tap on the field (raycast to ground plane y=0 or the field mesh) sets autoTarget = { type: 'floor', action: 'approach', value: null, position } with x/z clamped to [-FIELD_LIMIT, FIELD_LIMIT]. Straight-line walking (no navmesh) at an auto speed close to MOVE_SPEED. While auto-walking the avatar faces travel direction and plays 'walk'; on arrival it stops and plays 'idle'. Ignore taps unless active && phase === 'playing'.",
+    "2 NPC TARGETS: mark each friend's whole character hierarchy (or an invisible generous hit box, as Restaurant does for customers) with userData.sportsTarget = { type: 'npc', value: npc }. Interactive targets outrank floor taps: walk intersections nearest-first, take the first tagged target, else fall back to the floor point. A tap on a target never also becomes a floor tap.",
+    "3 TALK ON ARRIVAL: tap on an npc with state 'waiting' -> autoTarget { type: 'npc', action: 'talk', value: npc, position: a point just inside the normal talk radius on the player's side of that NPC }. The walk is locked to that NPC (never retarget to a neighbour; make sure the proximity prompt logic does not open a neighbouring NPC's question while a tapped target is pending -- the Drink Stand guard in targetQuestion is the model). On arrival (in normal talk radius, auto-walk finished) re-validate: still active, phase === 'playing', npc still 'waiting' and still in npcs, no higher-priority transition. If valid: face the NPC, call existing targetQuestion(npc), then if that NPC is now the question target fire the Talk exactly as Zoo/Restaurant do (hud.talkButton.click() -- the same handler as the Talk HUD, so mic vs mic-free fallback stays with src/systems/speechPrompt.js). Never touch browser mic APIs. Fire at most once per tap. If invalid: clear autoTarget, do nothing.",
+    "4 NO PROXIMITY MIC: walking near a waiting NPC without having tapped it must keep today's behaviour (prompt only, no auto Talk). Only an explicit tap intent may click Talk.",
+    "5 FOLLOWERS: tapping an npc whose state is 'following' (or any non-'waiting' state) produces at most a walk ('approach') -- never a new question/mic. Follower trail, Listen Again and zone delivery unchanged.",
+    "6 ZONES: tag each zone's ground mesh and sign (and its post) with userData.sportsTarget = { type: 'zone', value: zone }. Tap -> autoTarget { type: 'zone', action: 'approach', position: zone centre (zone.x, zone.z) clamped to FIELD_LIMIT }. Navigation only: never assign/teleport followers from the pointer handler; checkZones() stays the only place that decides joining, which happens because the player physically walks in.",
+    "7 CANCELLATION: any manual movement (input.getMovement non-zero) immediately sets autoTarget = null (pending talk dropped, the mic must never start later). A new tap replaces the previous target. Leaving 'playing' (answering, replaying, celebration, wave change, exit) clears autoTarget; no intent can be queued outside 'playing'. When a pending talk target is cancelled, do not leave a stale question HUD for an NPC the player is not near (clear the question unless it is already committed/listening, as Drink Stand does).",
+    "8 PURE HELPER: put tap-time intent creation and arrival validation in a new pure module src/minigames/sports/tapIntent.js (shape like zoo/tapIntent.js: createTapIntent(target, context) and advanceTapIntent(intent, context) returning {pending, arrived}), with src/minigames/sports/tapIntent.test.mjs.",
+    "9 LIFECYCLE: add the canvas pointerdown listener in enter(), remove it in exit(), clear autoTarget in exit(). No duplicate listeners after replay/Back.",
+    "10 DEBUG: in the existing Sports debug snapshot (if any; follow Drink Stand's) expose autoTarget {type, action, target} and player.autoWalking.",
+    "TESTS (node --test, existing *.test.mjs style): floor tap -> floor intent; waiting NPC -> talk intent; talk not fired before arrival (pending stays); arrival with valid state -> arrived talk; follower -> no talk intent; manual movement -> intent dropped; non-playing phase -> no intent created and pending cleared; npc no longer waiting at arrival -> dropped; new tap replaces old (helper-level). Plus a source-level wiring test (read index.js as text, like src/minigames/restaurant/robotCustomerWiring.test.mjs) asserting addEventListener('pointerdown', ...) in enter and the matching removeEventListener in exit, and that the pointer handler never calls joinZone/checkZones."
+  ],
+  "constraints": [
+    "Touch only src/minigames/sports/**. Do NOT edit DESIGN_DECISIONS.md, CURRENT_STATE.md, shared systems, or any other minigame.",
+    "Do not change sport assignment, waves, follow behaviour, wrong-zone penalties, scoring, celebration, turnaround question, Listen Again, camera, difficulty or keyboard movement.",
+    "Do not commit or run git write commands (this is a git worktree; the controller handles git). Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/sports/index.js",
+    "src/minigames/zoo/tapIntent.js",
+    "src/minigames/zoo/index.js",
+    "src/minigames/drinkStand/index.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: tap field walks; tap waiting friend -> walk -> Talk starts on arrival; arrow key mid-walk cancels with no later Talk; tapping a zone walks into it and followers join via checkZones."
+  },
+  "category": "feature-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

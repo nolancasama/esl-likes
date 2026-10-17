@@ -6,6 +6,7 @@ import { createListenAgain } from '../../ui/listenAgain.js';
 import { advanceFill, emptyFill, isServable, selectDrink } from './fill.js';
 import { pickDrink, scoreSession, shuffleStations } from './scoring.js';
 import { createDrinkDirector } from './director.js';
+import { advanceTapIntent, createTapIntent } from './tapIntent.js';
 
 const LESSON = LESSON_BY_ID['drink-stand'];
 const STRINGS = UI.drinkStand;
@@ -97,6 +98,7 @@ export function createDrinkStand(ctx) {
   let lastResolvedCustomer = null;
   let pouringStation = null;
   let autoTarget = null;
+  let walkFloor = null;
   let unsubscribeSettings = null;
   let canvas = null;
   let active = false;
@@ -529,7 +531,7 @@ export function createDrinkStand(ctx) {
     const counterMaterial = makeMaterial(0x38b6a5);
     const trimMaterial = makeMaterial(0xffffff);
     const darkMaterial = makeMaterial(0x273858);
-    addPart(world, shared.box, floorMaterial, 0, -0.2, 0, 15, 0.4, 13);
+    walkFloor = addPart(world, shared.box, floorMaterial, 0, -0.2, 0, 15, 0.4, 13);
     addPart(world, shared.box, floorMaterial, 0, 0.3, -5.25, 18, 0.6, 2.3);
     addPart(world, shared.box, wallMaterial, 0, 2.2, -6.55, 14.7, 4.8, 0.28);
     addPart(world, shared.box, counterMaterial, 0, 0.36, -3.58, 13.6, 0.72, 1.05);
@@ -1057,17 +1059,22 @@ export function createDrinkStand(ctx) {
     const dz = destination.z - player.position.z;
     const distance = Math.hypot(dx, dz);
     if (distance <= 0.18) {
-      const arrived = autoTarget;
+      const { arrived } = advanceTapIntent(autoTarget, tapContext({ reached: true }));
       autoTarget = null;
       movementActive = false;
       player.playAnimation?.('idle');
-      if (arrived.type === 'station') beginFill(arrived.value, 'latched');
-      else if (arrived.type === 'customer') {
-        if (arrived.value.state !== 'atWindow') return;
+      if (!arrived) return;
+      if (arrived.type === 'customer') {
         const faceX = arrived.value.character.position.x - player.position.x;
         const faceZ = arrived.value.character.position.z - player.position.z;
         player.rotation.y = Math.atan2(faceX, faceZ);
-        if (arrived.value.asked && heldDrink) serve(arrived.value);
+      }
+      if (arrived.action === 'pour') beginFill(arrived.value, 'latched');
+      else if (arrived.action === 'serve') serve(arrived.value);
+      else if (arrived.action === 'talk') {
+        targetQuestion(arrived.value);
+        // The Talk HUD owns speech settings and the mic-free fallback.
+        if (questionCustomer === arrived.value && !questionCommitted) hud.talkButton.click();
       }
       return;
     }
@@ -1246,13 +1253,31 @@ export function createDrinkStand(ctx) {
     if (serviceDt > 0) promoteQueue();
   }
 
+  function tapContext(extra = {}) {
+    return {
+      active,
+      phase,
+      fillMode,
+      speechCooldown: speechCooldown > 0,
+      heldDrink,
+      servable: isServable(fillState),
+      ...extra,
+    };
+  }
+
   function onCanvasPointer(event) {
-    if (!active || phase !== 'service' || fillMode) return;
+    if (!active || phase !== 'service' || fillMode) {
+      autoTarget = null;
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
     const intersections = raycaster.intersectObject(world, true);
+    let floorPoint = null;
+    let intent = null;
     for (const intersection of intersections) {
+      if (intersection.object === walkFloor && !floorPoint) floorPoint = intersection.point.clone();
       let object = intersection.object;
       let target = null;
       while (object && object !== world) {
@@ -1260,26 +1285,34 @@ export function createDrinkStand(ctx) {
         object = object.parent;
       }
       if (!target) continue;
-      if (target.type === 'customer' && target.value.state !== 'atWindow') continue;
-      if (target.type === 'station') {
-        autoTarget = { type: 'station', value: target.value, position: target.value.interaction };
-      } else if (target.type === 'customer' && target.value.state === 'atWindow') {
+      intent = createTapIntent(target, tapContext());
+      if (!intent) continue;
+      if (target.type === 'station') intent.position = target.value.interaction;
+      else {
         const windowInfo = WINDOWS[target.value.window];
-        autoTarget = {
-          type: 'customer',
-          value: target.value,
-          position: new THREE.Vector3(windowInfo.approachX, 0, windowInfo.approachZ),
-        };
+        intent.position = new THREE.Vector3(windowInfo.approachX, 0, windowInfo.approachZ);
       }
-      if (target) {
-        // A destination may lead the child away, but it must not retarget an
-        // active conversation before they actually leave its talk radius.
-        if (!questionCommitted) clearQuestion();
-        setListenTarget(null);
-        audio.playSfx('interact');
-        break;
+      break;
+    }
+    // Global touch rule: tapping open floor walks there. Stations and
+    // customers above keep priority, so they never degrade into a floor tap.
+    if (!intent && floorPoint) {
+      intent = createTapIntent({ type: 'floor' }, tapContext());
+      if (intent) {
+        intent.position = new THREE.Vector3(
+          THREE.MathUtils.clamp(floorPoint.x, WORK_BOUNDS.minX, WORK_BOUNDS.maxX),
+          0,
+          THREE.MathUtils.clamp(floorPoint.z, WORK_BOUNDS.minZ, WORK_BOUNDS.maxZ),
+        );
       }
     }
+    if (!intent) return;
+    autoTarget = intent;
+    // A destination may lead the child away, but it must not retarget an
+    // active conversation before they actually leave its talk radius.
+    if (!questionCommitted) clearQuestion();
+    setListenTarget(null);
+    audio.playSfx('interact');
   }
 
   function projectObject(object, offsetY = 0) {
@@ -1311,7 +1344,11 @@ export function createDrinkStand(ctx) {
       player: player ? { x: player.position.x, z: player.position.z, autoWalking: Boolean(autoTarget) } : null,
       questionIndex: questionCustomer?.index ?? null,
       question: { customer: questionCustomer?.index ?? null, committed: questionCommitted },
-      autoTarget: autoTarget ? { type: autoTarget.type, target: autoTarget.value?.index ?? autoTarget.value?.id ?? null } : null,
+      autoTarget: autoTarget ? {
+        type: autoTarget.type,
+        action: autoTarget.action,
+        target: autoTarget.value?.index ?? autoTarget.value?.id ?? null,
+      } : null,
       cup: {
         drink: fillState.drink,
         level: fillState.level,
@@ -1497,6 +1534,9 @@ export function createDrinkStand(ctx) {
       if (speechCooldown <= 0) hud.hide();
     }
     updateFillCosmetics(safeDt);
+    // A pending tap belongs to normal service only; it never survives a pour
+    // or a phase change to fire later.
+    if (autoTarget && (phase !== 'service' || fillMode)) autoTarget = null;
 
     if (phase === 'service') {
       if (fillMode) {
@@ -1597,6 +1637,7 @@ export function createDrinkStand(ctx) {
     lastResolvedCustomer = null;
     pouringStation = null;
     autoTarget = null;
+    walkFloor = null;
     serviceDirector = null;
     movementActive = false;
     questionCommitted = false;

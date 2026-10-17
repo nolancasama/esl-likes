@@ -1,0 +1,37 @@
+{
+  "task": "esl-likes Drink Stand: complete the global touch language -- tap floor -> walk; tap unasked customer -> walk -> start the existing Talk flow on arrival; tap asked customer with servable drink -> walk -> serve; tap station -> walk -> pour (unchanged). Explicit action intents re-validated on arrival, as in Restaurant/Zoo.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game. src/minigames/drinkStand/index.js (~1600 lines) already has onCanvasPointer (~line 1249) tagging objects with userData.drinkStandTarget, autoTarget {type:'station'|'customer', value, position}, and an auto-walk branch in updateMovement (~1030-1075) that pours on station arrival and serves an asked customer on arrival if heldDrink. Restaurant's src/minigames/restaurant/tapIntent.js and Zoo's src/minigames/zoo/tapIntent.js are the model for explicit intents. Read DESIGN_DECISIONS.md Drink Stand and tap-to-act entries first.",
+    "1 FLOOR: keep a reference to the walkable floor mesh (the 15x13 floor box built ~line 532; not the raised back counter strip) or raycast to the y=0 plane. In onCanvasPointer, after scanning intersections for drinkStandTarget (targets keep priority -- never turn a station/customer tap into a floor tap), a hit on walkable floor sets autoTarget = { type: 'floor', action: 'approach', value: null, position } clamped to WORK_BOUNDS (canOccupy). Auto-walk faces travel, plays walk, stops and idles on arrival.",
+    "2 EXPLICIT ACTIONS: every autoTarget carries action decided at tap time: station -> 'pour'; customer at window: 'serve' if customer.asked && heldDrink && isServable(fillState) (wrong drink still 'serve' -- the existing serve() wrong-drink path decides); else 'talk' if !customer.asked and the same eligibility targetQuestion already checks holds (speechCooldown <= 0, phase 'service', state 'atWindow') -- an unasked customer can never be served, so a held cup does not block Talk, matching today's proximity prompt; else 'approach' (asked customer without servable drink: walk only, no new question, Listen Again unchanged).",
+    "3 ARRIVAL: in the arrival branch re-validate the stored action against current state before acting (active, phase === 'service', !fillMode, customer still 'atWindow' and same object; for 'talk' still unasked and no speechCooldown; for 'serve' still asked, heldDrink still servable; for 'pour' station action still legal). Invalid -> clear and do nothing; never re-infer a different action. 'talk': face customer, call existing targetQuestion(customer), then if questionCustomer === customer fire the Talk exactly as Zoo/Restaurant do (hud.talkButton.click() -- the same handler as the Talk HUD, so mic vs mic-free stays with src/systems/speechPrompt.js). Never call browser mic APIs. 'serve' -> existing serve(). 'pour' -> existing beginFill(station, 'latched') as today. Fire once per tap. Put tap-time intent creation and arrival validation in a new pure module src/minigames/drinkStand/tapIntent.js.",
+    "4 NO PROXIMITY MIC: walking near a customer without tapping them keeps today's behaviour (prompt only, no auto Talk). The existing targetQuestion guard that blocks a neighbouring window's prompt during a click-walk must keep working.",
+    "5 CANCELLATION: manual movement already nulls autoTarget -- keep it so (no pour/serve/talk later). A new tap (including floor) replaces the previous target and clears an uncommitted question as today. Leaving 'service' or starting fillMode clears pending intents; none can be queued outside service. No stale Talk HUD after cancellation.",
+    "6 PRESERVE: latched short-tap pouring, hold-to-pour, overflow, top-up, cup gauge, station effects, customer patience, scoring, serve/wrong-drink behaviour, Listen Again, keyboard controls.",
+    "7 LIFECYCLE: pointerdown listener is added in enter() and removed in exit() already -- keep it balanced; clear autoTarget on exit.",
+    "8 DEBUG: extend the existing debug autoTarget field to {type, action, target}; keep player.autoWalking.",
+    "TESTS (node --test, existing *.test.mjs style): src/minigames/drinkStand/tapIntent.test.mjs covering floor -> approach; unasked customer -> talk; asked + servable drink -> serve; asked + no drink or unservable -> approach (no talk); station -> pour; talk not fired before arrival; arrival drops stale intents (customer left, already asked, cup changed, phase changed, fillMode started); manual movement drops; non-service phase -> no intent. Plus a source-level wiring test (read index.js as text, like src/minigames/restaurant/robotCustomerWiring.test.mjs): pointer listener add/remove balanced in enter/exit; targets are checked before the floor fallback; talk on arrival goes through targetQuestion + hud.talkButton.click()."
+  ],
+  "constraints": [
+    "Touch only src/minigames/drinkStand/**. Do NOT edit DESIGN_DECISIONS.md, CURRENT_STATE.md, shared systems, or any other minigame.",
+    "No redesign beyond touch consistency.",
+    "Do not commit or run git write commands (this is a git worktree; the controller handles git). Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/drinkStand/index.js",
+    "src/minigames/drinkStand/fill.js",
+    "src/minigames/restaurant/tapIntent.js",
+    "src/minigames/zoo/tapIntent.js"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: floor tap walks; unasked customer tap -> Talk on arrival; arrow key mid-walk cancels; station tap still pours; asked customer + servable drink -> served on arrival."
+  },
+  "category": "feature-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

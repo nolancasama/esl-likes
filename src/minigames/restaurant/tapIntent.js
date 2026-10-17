@@ -30,6 +30,18 @@ export function customerTapIntent(state) {
 }
 
 /**
+ * A tabletop is a delivery target for whoever sits there now: the same intent
+ * as tapping that customer, except it never opens a conversation. Talking stays
+ * attached to the person.
+ */
+export function tableTapIntent(state) {
+  if (!state.customer) return null;
+  const intent = customerTapIntent(state);
+  if (!intent) return null;
+  return intent.action === 'talk' ? { ...intent, action: 'approach' } : intent;
+}
+
+/**
  * Recheck only the captured action; never turn an obsolete delivery into Talk.
  * An arrival is a frame in range with no movement step still being applied.
  */

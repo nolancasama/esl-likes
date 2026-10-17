@@ -3,10 +3,15 @@ import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
 import { pickSport, scoreSession, shuffleZones } from './scoring.js';
+import { advanceTapIntent, createTapIntent } from './tapIntent.js';
 
 const LESSON = LESSON_BY_ID.sports;
 const STRINGS = UI.sports;
 const MOVE_SPEED = 6;
+const AUTO_SPEED = 6;
+const ARRIVAL_RADIUS = 0.2;
+// Where a tap-walk stops in front of a friend: well inside TALK_RADIUS.
+const TALK_APPROACH = 1.6;
 const TALK_RADIUS_SQ = 2.8 * 2.8;
 const ZONE_RADIUS_SQ = 3.25 * 3.25;
 const FOLLOW_GAP = 1.35;
@@ -91,6 +96,9 @@ export function createSports(ctx) {
   let celebrationZone = null;
   let celebrationStart = null;
   let overviewCamera = true;
+  let autoTarget = null;
+  let tappedQuestionNpc = null;
+  let gameCanvas = null;
 
   const zones = [];
   const npcs = [];
@@ -104,6 +112,10 @@ export function createSports(ctx) {
   const move = new THREE.Vector2();
   const followerTarget = new THREE.Vector3();
   const parentQuaternion = new THREE.Quaternion();
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const groundHit = new THREE.Vector3();
 
   const ownGeometry = (geometry) => {
     geometries.add(geometry);
@@ -282,6 +294,8 @@ export function createSports(ctx) {
     zone.group.position.set(corner.x, 0, corner.z);
     zone.group.rotation.y = Math.atan2(-corner.x, -corner.z);
     zone.group.add(zone.props);
+    // The whole zone (ground, props, sign) is one navigation target.
+    zone.group.userData.sportsTarget = { type: 'zone', value: zone };
     world.add(zone.group);
     const ground = sport === 'baseball'
       ? ownGeometry(new THREE.CylinderGeometry(3.05, 3.05, 0.09, 4))
@@ -362,6 +376,9 @@ export function createSports(ctx) {
     world.add(coach);
 
     const configured = DIFFICULTY[level];
+    // A generous invisible body box, so a child need not hit a thin limb.
+    const hitGeometry = ownGeometry(new THREE.BoxGeometry(1.3, 2.3, 1.1));
+    const hitMaterial = makeMaterial(0xffffff, { transparent: true, opacity: 0, depthWrite: false });
     for (let index = 0; index < configured.count; index += 1) {
       const spot = waitingSpot(index);
       const character = characters.create({ model: NPC_MODELS[Math.floor(Math.random() * NPC_MODELS.length)] });
@@ -369,6 +386,9 @@ export function createSports(ctx) {
       character.scale.setScalar(0.79);
       faceToward(character, 0, 0);
       character.visible = false;
+      const hitBox = new THREE.Mesh(hitGeometry, hitMaterial);
+      hitBox.position.y = 1.15;
+      character.add(hitBox);
       world.add(character);
       npcs.push({
         index,
@@ -385,6 +405,8 @@ export function createSports(ctx) {
         playOffset: new THREE.Vector3(),
       });
     }
+
+    for (const npc of npcs) npc.character.userData.sportsTarget = { type: 'npc', value: npc };
 
     let cursor = 0;
     configured.waves.forEach((count, wave) => {
@@ -573,12 +595,111 @@ export function createSports(ctx) {
     return out.set(last.x, 0.08, last.z);
   }
 
+  function tapContext(extra = {}) {
+    return { active, phase, npcs, ...extra };
+  }
+
+  function npcApproach(npc) {
+    let dx = player.position.x - npc.character.position.x;
+    let dz = player.position.z - npc.character.position.z;
+    const length = Math.hypot(dx, dz);
+    if (length < 0.01) { dx = 0; dz = 1; } else { dx /= length; dz /= length; }
+    return new THREE.Vector3(
+      npc.character.position.x + dx * TALK_APPROACH,
+      0,
+      npc.character.position.z + dz * TALK_APPROACH,
+    );
+  }
+
+  function onCanvasPointer(event) {
+    if (!active || phase !== 'playing') {
+      autoTarget = null;
+      return;
+    }
+    const rect = gameCanvas.getBoundingClientRect();
+    pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    let intent = null;
+    let position = null;
+    for (const intersection of raycaster.intersectObject(world, true)) {
+      let object = intersection.object;
+      let target = null;
+      while (object && object !== world) {
+        if (object.userData.sportsTarget) { target = object.userData.sportsTarget; break; }
+        object = object.parent;
+      }
+      if (!target) continue;
+      // The raycaster also hits hidden next-wave friends; they are not there yet.
+      if (target.type === 'npc' && !target.value.character.visible) continue;
+      intent = createTapIntent(target, tapContext());
+      if (!intent) continue;
+      position = target.type === 'npc'
+        ? (intent.action === 'talk' ? npcApproach(target.value) : target.value.character.position.clone())
+        : new THREE.Vector3(target.value.x, 0, target.value.z);
+      break;
+    }
+    // Global touch rule: an ordinary tap on the field walks there. Friends and
+    // zones above keep priority, so they never degrade into a floor command.
+    if (!intent && raycaster.ray.intersectPlane(groundPlane, groundHit)) {
+      intent = createTapIntent({ type: 'floor' }, tapContext());
+      position = groundHit.clone();
+    }
+    if (!intent) return;
+    position.set(clamp(position.x, -FIELD_LIMIT, FIELD_LIMIT), 0, clamp(position.z, -FIELD_LIMIT, FIELD_LIMIT));
+    autoTarget = { ...intent, position };
+    tappedQuestionNpc = null;
+    // A new destination drops an open, unstarted prompt; one already listening
+    // stays until the child actually leaves its talk radius.
+    if (!questionCommitted) clearQuestion();
+    audio.playSfx('interact');
+  }
+
+  function updateAutoWalk(dt) {
+    const destination = autoTarget.position;
+    const dx = destination.x - player.position.x;
+    const dz = destination.z - player.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > ARRIVAL_RADIUS) {
+      if (overviewCamera) restoreFollowCamera();
+      const step = Math.min(distance, AUTO_SPEED * dt);
+      player.position.x = clamp(player.position.x + (dx / distance) * step, -FIELD_LIMIT, FIELD_LIMIT);
+      player.position.z = clamp(player.position.z + (dz / distance) * step, -FIELD_LIMIT, FIELD_LIMIT);
+      const wantedRotation = Math.atan2(dx, dz);
+      const turn = Math.atan2(Math.sin(wantedRotation - player.rotation.y), Math.cos(wantedRotation - player.rotation.y));
+      player.rotation.y += turn * (1 - Math.exp(-12 * dt));
+      player.playAnimation?.('walk');
+      recordTrail();
+      return;
+    }
+    const target = autoTarget;
+    const { arrived } = advanceTapIntent(target, tapContext({
+      reached: true,
+      inRange: target.type !== 'npc' || npcInTalkRange(target.value),
+    }));
+    autoTarget = null;
+    player.playAnimation?.('idle');
+    if (!arrived) return;
+    if (arrived.type === 'npc') faceToward(player, arrived.value.character.position.x, arrived.value.character.position.z);
+    if (arrived.action === 'talk') {
+      tappedQuestionNpc = arrived.value;
+      targetQuestion(arrived.value);
+      // The Talk HUD owns speech settings and the mic-free fallback.
+      if (questionNpc === arrived.value && !questionCommitted) hud.talkButton.click();
+    }
+  }
+
   function updateMovement(dt) {
     input.getMovement(move);
     if (move.lengthSq() === 0) {
+      if (autoTarget) {
+        updateAutoWalk(dt);
+        return;
+      }
       player.playAnimation?.('idle');
       return;
     }
+    // Keyboard always wins: the pending tap, and any Talk it carried, is gone.
+    autoTarget = null;
     if (overviewCamera) restoreFollowCamera();
     player.position.x = clamp(player.position.x + move.x * MOVE_SPEED * dt, -FIELD_LIMIT, FIELD_LIMIT);
     player.position.z = clamp(player.position.z - move.y * MOVE_SPEED * dt, -FIELD_LIMIT, FIELD_LIMIT);
@@ -764,7 +885,14 @@ export function createSports(ctx) {
       }
       clearQuestion();
     }
-    const nearby = nearestWaitingNpc();
+    let nearby = nearestWaitingNpc();
+    // A friend the child tapped keeps the prompt while still in range, even if
+    // a neighbour stands a little closer.
+    if (tappedQuestionNpc && tappedQuestionNpc === questionNpc
+      && tappedQuestionNpc.state === 'waiting' && npcInTalkRange(tappedQuestionNpc)) nearby = tappedQuestionNpc;
+    else tappedQuestionNpc = null;
+    // A tap-walk passing a friend must not open that friend's prompt.
+    if (autoTarget && nearby !== autoTarget.value) nearby = null;
     if (nearby) targetQuestion(nearby);
     else {
       clearQuestion();
@@ -848,18 +976,39 @@ export function createSports(ctx) {
     }
   }
 
+  function projectObject(object, offsetY = 0) {
+    object.getWorldPosition(groundHit);
+    groundHit.y += offsetY;
+    groundHit.project(camera);
+    const rect = gameCanvas?.getBoundingClientRect();
+    const width = rect?.width || window.innerWidth;
+    const height = rect?.height || window.innerHeight;
+    return { x: (groundHit.x * 0.5 + 0.5) * width, y: (-groundHit.y * 0.5 + 0.5) * height };
+  }
+
   function debugSnapshot() {
     return {
       phase,
       level,
-      player: { x: player?.position.x ?? 0, z: player?.position.z ?? 0 },
-      zones: zones.map((zone) => ({ id: zone.id, x: zone.x, z: zone.z })),
+      player: { x: player?.position.x ?? 0, z: player?.position.z ?? 0, autoWalking: Boolean(autoTarget) },
+      autoTarget: autoTarget ? {
+        type: autoTarget.type,
+        action: autoTarget.action,
+        target: autoTarget.value?.index ?? autoTarget.value?.id ?? null,
+      } : null,
+      zones: zones.map((zone) => ({
+        id: zone.id, x: zone.x, z: zone.z, inside: zone.inside, players: zone.players.length,
+        screen: projectObject(zone.group),
+      })),
       npcs: npcs.map((npc) => ({
         state: npc.state,
         asked: npc.asked,
         x: npc.character.position.x,
         z: npc.character.position.z,
+        screen: projectObject(npc.character, 1.1),
       })),
+      questionNpc: questionNpc?.index ?? null,
+      questionCommitted,
     };
   }
 
@@ -907,9 +1056,13 @@ export function createSports(ctx) {
     celebrationZone = null;
     celebrationStart = null;
     overviewCamera = true;
+    autoTarget = null;
+    tappedQuestionNpc = null;
     createOverlay();
     buildWorld();
     installDebugHook();
+    gameCanvas = document.querySelector('#game-canvas');
+    gameCanvas?.addEventListener('pointerdown', onCanvasPointer);
     unsubscribeSettings = settings.subscribe((next) => {
       if (!active) return;
       hud.setMicFree(next.micFree);
@@ -932,6 +1085,10 @@ export function createSports(ctx) {
         dialogueNpc = null;
       }
     }
+
+    // A pending tap belongs to free play only; it never survives an answer,
+    // a replay, a wave end or the celebration to fire later.
+    if (autoTarget && phase !== 'playing') autoTarget = null;
 
     if (phase === 'playing') {
       updateMovement(safeDt);
@@ -995,6 +1152,10 @@ export function createSports(ctx) {
     dialogue.hide();
     dialogue.element?.classList.remove('sports-dialogue');
     cameraRig.setTarget(null);
+    gameCanvas?.removeEventListener('pointerdown', onCanvasPointer);
+    gameCanvas = null;
+    autoTarget = null;
+    tappedQuestionNpc = null;
     listenAgain?.dispose();
     removeDebugHook();
     player?.disposeCharacter?.();

@@ -12,7 +12,7 @@ import {
 import { createRestaurantDirector } from './director.js';
 import { createConveyor } from './conveyor.js';
 import { chooseAction } from './actionPriority.js';
-import { customerTapIntent, resolveCustomerTapIntent } from './tapIntent.js';
+import { customerTapIntent, resolveCustomerTapIntent, tableTapIntent } from './tapIntent.js';
 import {
   RESTAURANT_ONBOARDING_STEPS,
   createRestaurantOnboarding,
@@ -258,6 +258,7 @@ export function createRestaurant(ctx) {
   let conveyor = null;
   let conveyorSurface = null;
   let restaurantFloor = null;
+  let tabletops = [];
   let dishReturnAnchor = null;
   let dishReturnLabel = null;
   let signAnchor = null;
@@ -1093,8 +1094,14 @@ export function createRestaurant(ctx) {
     buildRestaurantSign(box);
 
     const tableTop = ownGeometry(new THREE.CylinderGeometry(1, 1, 0.18, 16));
-    for (const table of TABLES) {
-      addPart(world, tableTop, woodMaterial, table.x, 0.95, table.z);
+    tabletops = [];
+    for (let tableIndex = 0; tableIndex < TABLES.length; tableIndex += 1) {
+      const table = TABLES[tableIndex];
+      // The whole tabletop is a forgiving delivery target; its occupant is
+      // resolved at tap time, never bound here.
+      const top = addPart(world, tableTop, woodMaterial, table.x, 0.95, table.z);
+      top.userData.restaurantTarget = { type: 'table', tableIndex };
+      tabletops.push(top);
       addPart(world, cylinder, woodMaterial, table.x, 0.48, table.z, 0.38, 0.85, 0.38);
       addPart(world, cylinder, woodMaterial, table.x, 0.08, table.z, 0.75, 0.12, 0.75);
       // Seats come from roomCollision so the meshes and their collision boxes
@@ -2968,6 +2975,15 @@ export function createRestaurant(ctx) {
     };
   }
 
+  function customerApproach(customer) {
+    return new THREE.Vector3(customer.table.seatX, 0, customer.table.seatZ - 1.65);
+  }
+
+  function tableOccupant(tableIndex) {
+    return customers.find((customer) => customer.tableIndex === tableIndex
+      && (customer.state === 'seated' || customer.state === 'awaiting')) ?? null;
+  }
+
   function onCanvasPointer(event) {
     // A click into the room during the challenge must not queue a walk for later.
     if (!tapServiceAvailable()) {
@@ -3038,12 +3054,23 @@ export function createRestaurant(ctx) {
           ),
         };
       } else if (target.type === 'customer') {
-        const position = new THREE.Vector3(target.value.table.seatX, 0, target.value.table.seatZ - 1.65);
+        const position = customerApproach(target.value);
         const intent = customerTapIntent(customerTapState(target.value, position));
         if (!intent) continue;
         if (!questionCommitted) {
           clickQuestionCustomer = intent.action === 'talk' ? target.value : null;
         }
+        autoTarget = {
+          ...intent,
+          position,
+        };
+      } else if (target.type === 'table') {
+        // An empty or finished table is not a target and must not fall through
+        // to the floor beneath it either: the tap simply does nothing.
+        const occupant = tableOccupant(target.tableIndex);
+        const position = occupant ? customerApproach(occupant) : null;
+        const intent = occupant ? tableTapIntent(customerTapState(occupant, position)) : null;
+        if (!intent) return;
         autoTarget = {
           ...intent,
           position,
@@ -3205,6 +3232,7 @@ export function createRestaurant(ctx) {
           : [],
         selectedResponse: rivalChallenge?.selectedResponse ?? null,
       },
+      tabletopScreens: tabletops.map((top) => projectObject(top, 0.1)),
       customers: customers.map((customer) => ({
         id: customer.id,
         index: customer.index,

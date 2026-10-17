@@ -1,0 +1,32 @@
+{
+  "task": "esl-likes Restaurant: make the whole visible tabletop of an occupied table a delivery touch target. Carrying a dish + tap occupied tabletop behaves exactly like tapping that table's customer (walk to the same approach point, deliver/refusal on arrival via existing paths). Tabletop never starts Talk.",
+  "requirements": [
+    "CONTEXT: src/minigames/restaurant/index.js (~4500 lines). onCanvasPointer (~line 2990-3065) walks raycast intersections for userData.restaurantTarget: dish, belt, customer (invisible clickTarget ~line 1406), then falls back to floorPoint. Customer taps go through customerTapIntent(customerTapState(customer, position)) in restaurant/tapIntent.js with position = (table.seatX, 0, table.seatZ - 1.65); arrival goes through resolveCustomerTapIntent and the existing deliver(...) etc. Read DESIGN_DECISIONS.md Restaurant tap-to-act entries first.",
+    "1 TAG: where tables are built, keep a reference to the actual tabletop mesh only (not legs, chairs, floor, shadow) and set tabletop.userData.restaurantTarget = { type: 'table', table } (or tableIndex -- use the existing table data structure; do not duplicate customer state).",
+    "2 RESOLVE DYNAMICALLY: on a 'table' hit, find the customer currently occupying that table from the live customers list (same table object, still in a seated/awaiting state the customer-tap path accepts; skip left/finished/stale). No occupant -> treat the hit as nothing (`continue` to the next intersection is NOT wanted if the next hit is floor under the table: an empty-table tap does nothing at all -- no walk, no talk, no ghost selection). Never bind a tabletop permanently to a customer.",
+    "3 DELIVERY-ONLY SEMANTICS: compute intent = customerTapIntent(customerTapState(occupant, samePosition)) exactly as the customer branch does, then if intent.action === 'talk' downgrade it to 'approach' (and do not set clickQuestionCustomer for it). Result: carrying the right dish -> 'deliver'; carrying a wrong dish -> whatever the customer tap already yields (existing return/exchange/approach + existing refusal rules, nothing table-specific); empty-handed -> walk to that customer, no Talk, no mic. Share the code path with the customer branch (small local helper) rather than duplicating it; arrival handling stays the existing customer arrival branch, unchanged, so validity is re-checked and deliver(...) is used.",
+    "4 PRIORITY: dish > belt > customer > occupied tabletop > floor. A tabletop hit with a valid occupant must never fall through to a floor destination.",
+    "5 PRESERVE: customer click target size, customer Talk, context-sensitive tap-to-talk, food matching, delivery scoring, refusals, rival claims, conveyor, table collisions/steering, floor tap-to-walk, progression, first-win choice, mic-free mode. No visible highlight.",
+    "TESTS (node --test, existing restaurant *.test.mjs style): if the table-tap intent logic is factored into tapIntent.js (preferred: e.g. tableTapIntent(state) that wraps customerTapIntent and downgrades talk), unit-test: occupied + correct carried dish -> deliver; occupied + empty-handed -> approach, never talk; empty table (no customer) -> null; customer state left/served -> null; customer tap unchanged (still talk when eligible). Source-level wiring test (read index.js as text, like robotCustomerWiring.test.mjs): tabletop mesh gets restaurantTarget type 'table'; the table branch appears before the floor fallback; arrival still calls deliver( via resolveCustomerTapIntent; pointer listener add/remove still balanced."
+  ],
+  "constraints": [
+    "Touch only src/minigames/restaurant/**. Do NOT edit DESIGN_DECISIONS.md, CURRENT_STATE.md, shared systems, or other minigames.",
+    "Do not commit or run git write commands (this is a git worktree; the controller handles git). Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/tapIntent.js",
+    "src/minigames/restaurant/tapIntent.test.mjs"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: carrying the ordered dish, tap the tabletop -> walks to the customer and delivers; empty-handed tabletop tap -> no Talk."
+  },
+  "category": "feature-3d",
+  "complexity": "easy",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "small"
+}

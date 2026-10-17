@@ -3123,3 +3123,42 @@ first robot of each Coloring visit, read from `roundsStarted`. Going Back to
 Coloring or replaying with `もういちど` starts a fresh Coloring and therefore
 teaches once more. *Rejected:* keying it to saved creations, which survive
 across lesson days and different students on a shared Chromebook.
+
+## 2026-10-17 — One touch language across all five games; tabletops take deliveries
+
+Sports and the Drink Stand now follow the Restaurant/Zoo rule: tap the floor
+to walk there, tap a person to walk there and do the right thing on arrival,
+tap an object to walk there and use it. Each game captures the action when the
+child taps (`sports/tapIntent.js`, `drinkStand/tapIntent.js`), and checks it
+again on arrival. A stale action is dropped and never replaced by a different
+one. Talk on arrival calls the game's own `targetQuestion()` and then
+`hud.talkButton.click()`, so mic or mic-free is still decided by the shared
+speech system. Keyboard movement, a new tap, a pour or a phase change cancels
+the pending action. Only an explicit tap can press Talk: walking near someone
+still just shows the prompt, and a tap-walk passing a neighbour does not open
+that neighbour's prompt.
+
+- **Sports:** field taps walk in a straight line, clamped to `FIELD_LIMIT`
+  (open field, no navmesh). Each friend has an invisible body box; a waiting
+  friend captures Talk, and a follower or joined friend is only walked toward.
+  A zone tap (ground, props or sign) walks to the zone centre. `checkZones()`
+  still decides joining, because the child physically walks in. Hidden
+  next-wave friends are skipped (the raycaster ignores visibility). A tapped
+  friend keeps the prompt while in range, even if a neighbour is a little
+  closer.
+- **Drink Stand:** priority is serve (asked + servable cup, wrong drink
+  included; `serve()` owns the reply) > Talk (unasked; a held cup does not block
+  it, because an unasked customer cannot be served yet) > walk. A station tap
+  pours, unchanged. Floor taps use the 15 × 13 floor mesh, clamped to
+  `WORK_BOUNDS`. Stations and customers outrank the floor.
+- **Restaurant:** each tabletop mesh is a `table` target. Its occupant is
+  looked up at tap time (seated or awaiting). The tap produces the same intent
+  as tapping that customer, except Talk becomes `approach`, so a carried dish
+  delivers or is refused exactly as before. An empty table does nothing and
+  does not fall through to the floor beneath it.
+
+*Rejected:* a shared cross-game tap helper (it would have meant touching
+Coloring/Restaurant/Zoo for no behaviour change); letting an empty-handed
+tabletop tap start Talk (talking stays attached to the person); letting a
+zone tap assign followers directly; an empty table falling through to a floor
+walk, which steers into table geometry.

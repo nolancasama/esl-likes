@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { customerTapIntent, resolveCustomerTapIntent } from './tapIntent.js';
+import { customerTapIntent, resolveCustomerTapIntent, tableTapIntent } from './tapIntent.js';
 
 const unasked = () => ({ state: 'seated', owner: null, reservation: null, food: 'curry' });
 const order = () => ({ ...unasked(), state: 'awaiting', owner: 'player', refusalRemaining: 0 });
@@ -133,4 +133,44 @@ test('scene taps replace intent, gate service/onboarding, and expose the stored 
   assert.match(source, /talkTargetAllowed: !onboarding\?\.active \|\| customer === tutorialCustomer/);
   assert.match(source, /if \(!tapServiceAvailable\(\)\) \{\s*autoTarget = null;\s*clickQuestionCustomer = null;/);
   assert.match(source, /autoTarget: autoTarget \? \{ type: autoTarget.type, action: autoTarget.action/);
+});
+
+test('a tabletop delivers for its occupant but never opens a conversation', () => {
+  const delivery = stateFor(order(), { carried: { food: 'curry' } });
+  const deliverIntent = tableTapIntent(delivery);
+  assert.equal(deliverIntent.action, 'deliver');
+  assert.equal(resolveCustomerTapIntent(deliverIntent, { ...delivery, ...arrival }).action, 'deliver');
+
+  const emptyHanded = stateFor(unasked());
+  assert.equal(customerTapIntent(emptyHanded).action, 'talk');
+  const walkOnly = tableTapIntent(emptyHanded);
+  assert.equal(walkOnly.action, 'approach');
+  assert.equal(resolveCustomerTapIntent(walkOnly, { ...emptyHanded, ...arrival }).action, null);
+
+  // A wrong dish gets exactly what tapping the customer gets; refusal stays with deliver().
+  const wrong = stateFor(order(), { carried: { food: 'sushi' } });
+  assert.deepEqual(tableTapIntent(wrong), customerTapIntent(wrong));
+});
+
+test('an empty, finished or blocked table yields no intent at all', () => {
+  assert.equal(tableTapIntent(stateFor(null)), null);
+  for (const customerState of ['eating', 'leaving', 'delivered', 'left']) {
+    assert.equal(tableTapIntent(stateFor({ ...order(), state: customerState }, { carried: { food: 'curry' } })), null);
+  }
+  assert.equal(tableTapIntent(stateFor(order(), { carried: { food: 'curry' }, present: false })), null);
+  assert.equal(tableTapIntent(stateFor(order(), { carried: { food: 'curry' }, phase: 'result-stage' })), null);
+});
+
+test('tabletops are tagged, resolve their occupant at tap time, and outrank the floor', () => {
+  assert.match(source, /top\.userData\.restaurantTarget = \{ type: 'table', tableIndex \}/);
+  const pointer = section('function onCanvasPointer(', 'function projectObject(');
+  assert.match(pointer, /target\.type === 'table'[\s\S]*tableOccupant\(target\.tableIndex\)[\s\S]*tableTapIntent\(customerTapState\(occupant, position\)\)/);
+  assert.match(pointer, /if \(!intent\) return;/);
+  assert.ok(pointer.indexOf("target.type === 'table'") < pointer.indexOf("type: 'floor'"));
+  assert.doesNotMatch(pointer.slice(pointer.indexOf("target.type === 'table'"), pointer.indexOf('if (target) {')), /clickQuestionCustomer = /);
+  assert.match(source, /function tableOccupant\(tableIndex\) \{[\s\S]*customer\.tableIndex === tableIndex[\s\S]*'seated'[\s\S]*'awaiting'/);
+  const adds = source.match(/addEventListener\('pointerdown', onCanvasPointer\)/g) ?? [];
+  const removes = source.match(/removeEventListener\('pointerdown', onCanvasPointer\)/g) ?? [];
+  assert.equal(adds.length, 1);
+  assert.equal(removes.length, 1);
 });
