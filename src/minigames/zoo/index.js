@@ -1315,6 +1315,18 @@ export function createZoo(ctx) {
     }
   }
 
+  /** Client-pixel position of a world point, so a harness can tap it. */
+  function debugScreenPoint(position, lift = 0) {
+    if (!canvas || !camera) return null;
+    const point = new THREE.Vector3(position.x, position.y + lift, position.z).project(camera);
+    if (point.z < -1 || point.z > 1) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.left + (point.x + 1) / 2 * rect.width,
+      y: rect.top + (1 - point.y) / 2 * rect.height,
+    };
+  }
+
   function debugSnapshot() {
     return {
       phase,
@@ -1360,7 +1372,11 @@ export function createZoo(ctx) {
         served: visitor.served,
         x: visitor.character.position.x,
         z: visitor.character.position.z,
+        screen: debugScreenPoint(visitor.character.position, 1.1),
       })),
+      // The pending tap: what it was for and what it will do on arrival.
+      autoTarget: autoTarget ? { type: autoTarget.type, action: autoTarget.action ?? null } : null,
+      questionCommitted,
       carriedPhoto: carriedPhoto?.animal ?? null,
       shutterReady,
       // Null unless a developer has actually opened the editor. Building the

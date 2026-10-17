@@ -1,0 +1,40 @@
+{
+  "task": "esl-likes Coloring: teach the first student that the robot must be painted in the robot's favourite colour (not any colour they like). Small, local onboarding change; do not redesign the Coloring flow.",
+  "requirements": [
+    "CONTEXT: Three.js/DOM ESL game. Coloring round: student asks 'What color do you like?', robot answers 'I like <color>.', student picks a palette colour, paints; painting meaningful coverage in the favourite colour raises ROBOT POWER; full power enables できた！. Students misread the current hints (いろを えらぼう, then すきなように ぬろう！) as 'paint any colour you like'. Read DESIGN_DECISIONS.md Coloring entries first. State lives in src/minigames/coloring/index.js: `roundsStarted` (incremented per round ~line 1211), `favourite` (the PALETTE entry chosen per round ~line 1222). These are the single sources of truth: the tutorial round is `roundsStarted === 1`; do not add a parallel tutorial counter or duplicate favourite state.",
+    "1. FIRST ROUND ONLY: right after the robot's answer, the instruction is `ロボットの すきな いろを えらぼう！` instead of `いろを えらぼう`. Keep the answer speech bubble visible long enough (at least ~2.5 s, or until the first palette pick, whichever the existing bubble logic supports cleanly) so the spoken answer and the palette choice connect. Later rounds may keep the existing choose-colour text or use the same new text — prefer the new text everywhere if it is a one-line change, since it is accurate.",
+    "2. FIRST ROUND ONLY: the palette button matching `favourite` gets a tutorial emphasis clearly stronger than normal selection styling (pulsing ring/glow plus a small downward arrow above it). Other colours stay fully clickable; this is guidance, not forced input. Mark it with a stable attribute such as `data-tutorial-favourite` for tests/debug. Under `prefers-reduced-motion: reduce` remove the repeating animation but keep a clear static highlight (ring + arrow).",
+    "3. FAVOURITE REMINDER: once the robot has answered, show a compact reminder next to the existing ROBOT POWER UI: `すきないろ: <COLOR NAME IN CAPS, the same English word the robot said>` with a swatch of the actual colour. Derived from `favourite` only. Visible throughout painting, on every round (not only the first). Hidden before the answer and outside the painting screen. Stable attribute e.g. `data-favourite-reminder`.",
+    "4. Replace the painting hint `すきなように ぬろう！` with `ロボットの すきな いろで ぬろう！` (all rounds). Search the whole repo (src/config/lesson.js UI strings, coloring module, playthrough scripts) for the old string and update every reference including tests/harness expectations.",
+    "5. WRONG-COLOUR HINT, FIRST ROUND ONLY: when the student selects a non-favourite palette colour, or makes the first meaningful stroke with a non-favourite colour, show a short hint `ロボットは <COLOR> が すきだよ！` (actual favourite) and re-pulse the favourite palette button. Never erase, block or alter painting. Rate-limit: at most once per wrong palette selection, and the stroke-triggered version at most once per wrong colour (never per frame / brush sample). Once the robot's power starts increasing from favourite-colour painting, stop all strong corrective guidance (tutorial emphasis off, no more wrong-colour hints) for the rest of the round.",
+    "6. From round 2 onward: no arrow/pulse tutorial treatment and no wrong-colour correction; keep the reminder (3) and the new painting hint (4).",
+    "Keep the rule that would make the tutorial logic testable pure: put decision logic (which instruction text, whether to emphasise, whether a wrong-colour hint should fire given selection/stroke history and power) in a small pure helper module, e.g. src/minigames/coloring/favouriteTutorial.js, with its own .test.mjs. index.js wires it to DOM.",
+    "Expose in the existing Coloring debug snapshot (dev only): `tutorialRound` (bool), `tutorialEmphasisVisible`, `favouriteReminderText`. The existing snapshot deliberately does NOT expose the favourite colour itself to the student-facing side — keep that comment's intent; dev-only debug fields that harnesses already gate are fine, but follow the file's existing convention.",
+    "TESTS (node --test, *.test.mjs): first round instruction text; painting hint text; first-round favourite palette button gets emphasis; reminder text reflects the actual favourite; wrong-colour hint names the actual favourite and is rate-limited; round 2 has no emphasis and no correction; emphasis stops once power increases; reduced-motion CSS keeps a static highlight (assert the stylesheet's prefers-reduced-motion block keeps a non-animated outline/arrow for the tutorial selector, or equivalent static check). All existing Coloring tests must keep passing.",
+    "Append a dated (2026-10-17) entry to DESIGN_DECISIONS.md: what changed, why (students read the old hints as free choice), rejected alternative (forcing the favourite colour / disabling other colours)."
+  ],
+  "constraints": [
+    "Touch only src/minigames/coloring/**, Coloring strings in src/config/lesson.js, Coloring CSS (keep rules next to existing coloring rules in src/styles.css, never at end of file), scripts/playthrough-coloring.mjs (string updates only), DESIGN_DECISIONS.md (append one entry). Do NOT edit CURRENT_STATE.md.",
+    "Do not change: favourite-colour generation, coverage maths, ROBOT POWER maths, undo/redo, erase, Done readiness, easel/room flow, touch-to-move, Paint Again, creation persistence, Restaurant/Zoo.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/coloring/index.js",
+    "src/minigames/coloring/coverage.js",
+    "src/minigames/coloring/palette.js",
+    "src/config/lesson.js",
+    "src/styles.css",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller screenshots round 1 (instruction, highlighted palette button + arrow, reminder, wrong-colour hint) and round 2 (no tutorial treatment, reminder present)."
+  },
+  "category": "feature-ui",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "low",
+  "expectedCost": "medium"
+}

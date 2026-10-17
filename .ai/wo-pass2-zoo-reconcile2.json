@@ -1,0 +1,38 @@
+{
+  "task": "esl-likes Zoo: reconcile branch pass-zoo with origin/main. The branch (commit 583ac4c, based on 7cb3021) added visitor tap intents with its OWN tap-to-walk (`tapWalk`, onWorldPointerDown/Up). Meanwhile origin/main commit c187233 added the canonical Zoo tap-to-walk (`autoTarget`, `onCanvasPointer`, `updateAutoMovement`, `finishAutoArrival`, VISITOR_APPROACH_RADIUS etc.) plus src/minigames/zoo/touchMovement.test.mjs. Produce ONE tap system: c187233's autoTarget, extended with the intent logic from the branch.",
+  "requirements": [
+    "The controller has already run git rebase origin/main in this worktree; it stopped with conflict markers in src/minigames/zoo/index.js (2 hunks; other files merged). Resolve the conflicts BY EDITING FILES ONLY so that c187233's autoTarget movement, raycast picking (userData.zooVisitorIndex / animalId), floor taps, pointerdown listener and collision behaviour are the single tap system; remove the branch's parallel tapWalk/pointerStart/onWorldPointerDown/onWorldPointerUp/onWorldPointerCancel/tapDestination/tapStopRadius/finishTapWalk code and its extra listeners wherever they merged in without markers too. No conflict markers may remain.",
+    "Extend autoTarget with the branch's explicit intent: at tap time on a visitor, use createTapIntent-equivalent logic from src/minigames/zoo/tapIntent.js to store `action` ('show-photo' | 'talk' | 'approach') on autoTarget; animal and floor targets are always walk-only. Adapt tapIntent.js's API to the autoTarget shape ({type:'visitor'|'animal'|'floor', value, action, photo}) if that is cleaner; keep it pure and keep its tests meaningful (update tapIntent.test.mjs accordingly).",
+    "Replace c187233's finishAutoArrival (which only shows a photo) with: on arrival, re-validate the stored action via the pure helper (visitor still present & waiting, still unasked for talk, same carried photo for show-photo, phase === 'playing', viewfinder/guide closed, no question committed / speech active). show-photo -> existing showPhotoToVisitor(); talk -> targetQuestion(visitor) then hud.talkButton.click() (the same handler as the Talk HUD; never call mic APIs); illegal -> drop silently. Talk must only fire on arrival inside the normal talk range (VISITOR_APPROACH_RADIUS 2.45 is inside TALK_RADIUS 3.2 — verify visitorInTalkRange holds at arrival).",
+    "Keep the branch's clearing of pending intent: manual movement (already clears autoTarget), a new tap (replaces it), opening viewfinder / animal guide / Listen Again / showPhotoToVisitor / acceptQuestion commit / turnaround / editor / exit, and phase !== 'playing'. autoTarget must not be set while the viewfinder or guide is open or a question is committed.",
+    "Keep ALL of the branch's framing work unchanged in behaviour: scoring.js helpers (measureApparentSize, isFramingEligible, isShutterReady, photoSubjectForPress, thresholds), evaluateFraming changes, framingDebug fields, world.js VISIBILITY_OFFSETS, and their tests; plus canShowPhoto used in updateContext.",
+    "Both touchMovement.test.mjs (from origin/main) and the branch's tests must pass; update touchMovement.test.mjs only where it asserted the old photo-only finishAutoArrival behaviour, and say so in the summary.",
+    "DESIGN_DECISIONS.md: keep the branch's 2026-10-17 Zoo entries; adjust wording if it describes the removed parallel tap system."
+  ],
+  "constraints": [
+    "Touch only src/minigames/zoo/** and DESIGN_DECISIONS.md. Do not edit CURRENT_STATE.md, Restaurant, Coloring or the shell.",
+    "Do NOT run any git command that writes (add, rebase, commit, stash, checkout, reset): the sandbox cannot write git metadata. The controller completes the rebase afterwards. Read-only git (diff, show, log) is fine.",
+    "Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/tapIntent.js",
+    "src/minigames/zoo/tapIntent.test.mjs",
+    "src/minigames/zoo/touchMovement.test.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: tap unasked visitor -> walk -> Talk on arrival; arrow key mid-walk cancels; carrying photo -> show photo on arrival; animal tap walk-only; chicken frame lights the shutter."
+  },
+  "category": "feature-3d",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "composition": "atomic"
+}

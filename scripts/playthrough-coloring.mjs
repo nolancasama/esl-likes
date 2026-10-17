@@ -264,6 +264,8 @@ async function openPage(label, {
 // before the entry Space press and continues at 10 ms so a room-first flash
 // cannot hide behind a later settled canvas snapshot.
 async function enterColoring(h) {
+  // Each entry is a fresh Coloring: its first robot is the tutorial round again.
+  h.coloringVisitRounds = 0;
   await h.hold(['KeyW', 'KeyA'], 1220);
   await h.hold(['KeyW'], 950);
   await h.page.evaluate(() => {
@@ -546,7 +548,45 @@ async function answerCanvasQuestion(h, round, screenshots = true, onAnswer = nul
       listenAgain: state?.listenAgainPresent }));
   check(`round ${round}: the post-answer hint asks the child to choose a colour`,
     state?.hintText === 'ロボットの すきな いろを えらぼう！', state?.hintText);
+  const firstInVisit = (h.coloringVisitRounds ?? 0) === 0;
+  h.coloringVisitRounds = (h.coloringVisitRounds ?? 0) + 1;
+  await checkFavouriteTutorial(h, round, favourite, screenshots && round === 1, firstInVisit);
   return favourite;
+}
+
+/** The first robot of a visit points at the favourite swatch; later ones only keep the reminder. */
+async function checkFavouriteTutorial(h, round, favourite, screenshots, firstInVisit) {
+  const read = () => h.page.evaluate(() => {
+    const marked = [...document.querySelectorAll('.coloring-swatch[data-tutorial-favourite]')];
+    const reminder = document.querySelector('[data-favourite-reminder]');
+    const hint = document.querySelector('.coloring-tutorial-hint');
+    return {
+      marked: marked.map((button) => button.dataset.color),
+      reminder: reminder && !reminder.hidden ? reminder.textContent.trim() : '',
+      hint: hint && !hint.hidden ? hint.textContent.trim() : '',
+    };
+  });
+  const before = await read();
+  const expectedReminder = `すきないろ: ${String(favourite).toUpperCase()}`;
+  check(`round ${round}: the すきないろ reminder names the robot's colour`,
+    before.reminder === expectedReminder, JSON.stringify(before));
+  if (!firstInVisit) {
+    check(`round ${round}: no tutorial highlight after the visit's first robot`,
+      before.marked.length === 0, JSON.stringify(before.marked));
+    return;
+  }
+  check(`round ${round}: only the favourite swatch carries the tutorial highlight`,
+    before.marked.length === 1 && before.marked[0] === favourite, JSON.stringify(before.marked));
+  if (screenshots) await h.page.screenshot({ path: `${OUT}-round-1-tutorial-highlight.png` });
+  const wrong = ['red', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange'].find((c) => c !== favourite);
+  await selectColour(h.page, wrong);
+  await h.page.waitForTimeout(250);
+  const after = await read();
+  check(`round ${round}: a wrong colour gets one gentle reminder of the favourite`,
+    after.hint === `ロボットは ${String(favourite).toUpperCase()} が すきだよ！`, JSON.stringify(after));
+  check(`round ${round}: the favourite stays highlighted after a wrong pick`,
+    after.marked.length === 1 && after.marked[0] === favourite, JSON.stringify(after.marked));
+  if (screenshots) await h.page.screenshot({ path: `${OUT}-round-1-wrong-colour-hint.png` });
 }
 
 async function assertRoundStart(h, round, robotCount) {

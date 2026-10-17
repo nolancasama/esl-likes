@@ -3104,3 +3104,22 @@ three rays must still be clear. Framing dimensions, apparent size, occlusion
 and readiness appear only in the debug snapshot. Rejected: species-specific
 thresholds, which would break when model proportions change, and an always-on
 shutter, which would accept tiny, hidden or poorly aimed subjects.
+
+## 2026-10-17 — The run is five games: Sports and the Drink Stand follow the Zoo
+
+`GAME_SEQUENCE` is Coloring → Restaurant → Zoo → Sports → Drink Stand, then
+`ぜんぶ できた！`. Both older games already ended through `ctx.finish`, so they
+were switched back on (`available: true`) without changes to their mechanics,
+graphics or controls. Back is still one stage at a time (Sports → Zoo,
+Drink Stand → Sports) into a fresh stage; the stamp book and completion card
+list the five games of the run. The Restaurant's `どうぶつえんへ` only skips the
+later rival rounds: it finishes the Restaurant, and the run carries on to the
+Zoo, Sports and the Drink Stand. Their touch controls are unchanged and still
+need their own pass. *Rejected:* ending the run at the Zoo with the two games
+reachable only from the hub (`?hub=1`), which students never see.
+
+The Coloring tutorial (highlighted swatch, wrong-colour reminder) runs on the
+first robot of each Coloring visit, read from `roundsStarted`. Going Back to
+Coloring or replaying with `もういちど` starts a fresh Coloring and therefore
+teaches once more. *Rejected:* keying it to saved creations, which survive
+across lesson days and different students on a shared Chromebook.

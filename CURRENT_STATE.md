@@ -9,7 +9,69 @@ four `agy-*` workers remained under the global coding readiness quarantine
 `supervise.js` does **not** exist in `~/.claude/workers/bin/` — do not plan a
 review around it.
 
-## Latest pass (2026-10-02, follow-up) — paint again anywhere; no ask clue while carrying
+**Worktree gotcha (2026-10-17):** Codex's sandbox cannot write git metadata in a
+`git worktree` (`.git/worktrees/<name>`), so it cannot rebase/commit there. The
+controller runs git; orders say "edit files only". Fresh clones need `npm ci`
+first — the router skips Codex with `vite is not on PATH` otherwise.
+
+## Latest pass (2026-10-17) — five-game run, first-robot tutorial, tap-to-act, first-win exit, shutter fix
+
+**Committed and pushed** to `main` at the owner's request. Built on top of the
+owner's own 2026-10-16 commits (touch-to-move in Coloring, global tap-to-walk in
+Restaurant and Zoo). Codex orders `.ai/wo-pass2-{coloring,restaurant,zoo}.json`
+ran in parallel worktrees; `.ai/wo-pass2-zoo-reconcile2.json` folded the Zoo
+intent work onto the owner's `autoTarget` (Codex had built a second tap system
+on the stale base). Sequence change and polish done directly.
+
+- **Run:** Coloring → Restaurant → Zoo → Sports → Drink Stand → `ぜんぶ できた！`
+  (`GAME_SEQUENCE`; both old games `available: true`, unchanged otherwise).
+- **Coloring:** first robot of each visit: `ロボットの すきな いろを えらぼう！`,
+  pulsing ring + ▼ on the favourite swatch (static under reduced motion),
+  rate-limited `ロボットは X が すきだよ！`, all off once power rises
+  (`coloring/favouriteTutorial.js`). Every round: `ロボットの すきな いろで ぬろう！`
+  and a two-line `すきないろ: ● NAME` reminder under POWER.
+- **Restaurant:** customer taps store `autoTarget.action` (deliver / return /
+  exchange / collect / talk / approach) and re-validate on arrival
+  (`restaurant/tapIntent.js`); talk = `hud.talkButton.click()`. Round-1 win →
+  `つづける` / `どうぶつえんへ` (`restaurant/firstWinChoice.js`); the latter calls
+  the shared `finishRestaurant()`.
+- **Zoo:** visitor taps carry `show-photo` / `talk` / `approach` on the owner's
+  `autoTarget` (`zoo/tapIntent.js`); animals and floor walk only. Framing uses
+  `measureApparentSize` (long-side credit, capped against slivers), thresholds
+  `.32` activate / `.26` hold, occlusion rays pulled to ±0.3. Debug:
+  `framingDebug`, `autoTarget`, `visitors[].screen`.
+
+### Validation
+
+`npm test` 793/793, `npm run build` OK. Harnesses: `sequence` 36/36 (five
+stages, Back, replay); `restaurant` 78/78 (now presses `つづける` on a Round-1 win;
+new `first-win-zoo` scenario: choice shown, `どうぶつえんへ` leaves via the shell and
+records the stamp); `coloring` 379/397 — the 18 failures are the known
+persistence debt below, all new tutorial checks pass (the harness now counts
+rounds per Coloring visit); `zoo` 112/113 on seed 1592594996 (was 90/113), all 8
+animals shutter-ready and photographed correctly incl. chicken and cat; the
+one failure is the scene-stats precondition. Scratch `.tmp/zoo-tap-check.mjs`
+8/8: tap → talk intent, no read-along until arrival, read-along on arrival,
+arrow key cancels with no later Talk. Screenshots checked: first-win choice,
+Coloring highlight / wrong-colour hint / reminder, Sports and Drink Stand inside
+the run.
+
+### Not verified
+
+Restaurant tap-to-talk and carried-dish delivery on arrival were not driven in
+the browser (unit tests only). Sports and Drink Stand were entered via
+`shellFinish`, not played to the end. No real-microphone run. The first-win
+choice screen has no `YOU WIN!` line of its own (the result animation just
+before it shows the win).
+
+### Next Steps
+
+1. Owner plays the run on a Chromebook: does the first-robot tutorial land; does
+   tap-to-talk feel natural; is `どうぶつえんへ` clear.
+2. Touch-control pass for Sports and the Drink Stand (keyboard-era controls).
+3. Coloring harness persistence debt (18 checks that assume a fresh room).
+
+## Previous pass (2026-10-02, follow-up) — paint again anywhere; no ask clue while carrying
 
 **Committed and pushed** to `main` at the owner's request. Coloring by Codex
 (`.ai/wo-coloring-paint-again.json`); Restaurant fix done directly.

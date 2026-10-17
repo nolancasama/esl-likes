@@ -1,0 +1,44 @@
+{
+  "task": "esl-likes Restaurant: (A) tap a customer -> walk -> perform the right contextual action on arrival (deliver > other action > talk), with Talk auto-starting only on arrival for an explicitly tapped, empty-handed, unasked customer; (B) after the first rival match is WON, offer つづける / どうぶつえんへ, where どうぶつえんへ finishes the Restaurant successfully through the normal finish path.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game, src/minigames/restaurant/index.js (~4500 lines). Read DESIGN_DECISIONS.md Restaurant entries first (conveyor, belt exchange, rival progression, onboarding, 'no ask clue while carrying'). Existing touch system: tap customer/food/conveyor -> `autoTarget` auto-walk; `clickQuestionCustomer`; contextual deliver/exchange/return via actionPriority.js; `suppressTalkWhileCarrying()`; onboarding gates the first order to one customer (onboarding.js, director.releaseOnboarding). Extend these; do not build a new interaction framework.",
+    "A1 PENDING INTENT: extend `autoTarget` so a customer tap stores an explicit `action` decided at tap time from current state: 'deliver' (carrying a dish this customer can accept, per existing rules), another existing contextual action if one applies, 'talk' (carried === null AND customer is eligible to be asked AND it is a legitimate talk target incl. onboarding gate), else 'approach' (walk only). Keep it explicit and inspectable. Put the tap-time decision and the arrival re-validation in a pure helper (new module e.g. restaurant/tapIntent.js, or extend actionPriority.js) with unit tests.",
+    "A2 ARRIVAL: fire only when auto-walk has brought the player into the normal interaction radius for that action and the player has effectively stopped. Immediately before firing, re-check the stored action is still legal (customer still present and in the right state, still empty-handed for talk, still carrying the deliverable dish for deliver, phase is normal service, no modal/sequence running). If illegal, drop it silently — never re-infer a different action from stale state. 'talk' invokes the SAME function the Talk HUD button invokes (so mic vs マイクなし fallback stays decided by the shared speech system); never call browser mic APIs here. 'deliver' uses the existing deliver path. Fire at most once per tap.",
+    "A3 CARRYING: carried !== null must never produce a talk intent or an auto-mic. Tapping a customer who cannot accept the carried dish walks there (or keeps existing return/exchange rules) and never starts speech. Already-asked customers: no new question; Listen Again stays as-is.",
+    "A4 CANCELLATION: manual keyboard/touch movement that cancels auto-walk also clears the pending action; a new tap elsewhere replaces it. Walking near a customer without having tapped them never auto-starts the mic. Leaving normal service (rival intro, challenge dialogue, result screen, transitions, any non-service phase) clears pending intents; no intent may be queued during those phases.",
+    "A5 HUD: during a talk-intent approach the normal Talk/question hint may show, but listening starts only on arrival. Never show a Talk prompt when a higher-priority deliver action applies (existing suppressTalkWhileCarrying must still hold).",
+    "B1 FIRST-WIN CHOICE: read rivalProgression.js, resultStage.js and index.js (`pendingRound`, `beginNextRivalIntro`, result presentation, `finish(` ~line 4464). Today a round-1 loss/draw shows the `もう一回 やる？` choice; a round-1 win goes straight to Waiter 1 walking out and Waiter 2's intro. Insert, only after a genuine round-1 WIN (detected from the existing progression/round state, not a new counter) and only if the Restaurant has not finished, a choice in the existing result/choice UI styling: big primary `つづける` (slightly more prominent) and big secondary `どうぶつえんへ`, both large touch targets (>= 64px tall on a 1366x768 Chromebook), no explanatory text, no confirmation dialog. Never after a loss/draw/interruption or in later rounds.",
+    "B2 つづける runs exactly the existing win continuation (Waiter 1 out -> Waiter 2 intro -> round 2), unchanged.",
+    "B3 どうぶつえんへ: resolve/remove the choice UI, prevent the next rival round (clear pendingRound / never call beginNextRivalIntro), cancel pending movement/speech/transitions as the existing finish path requires, and call the SAME `finish({...})` used for a normal successful Restaurant completion, with the stars/result data the first win legitimately earned (follow how existing completion computes stars). Do not navigate to the Zoo directly; the shell routes finish -> next stage. One tap only; guard double-taps.",
+    "B4 INPUT: both buttons work by click/touch. If the existing choice UI has keyboard navigation, add these buttons to it. Escape must not select either option (it keeps the current shell Back behaviour). Remove listeners on exit/destroy.",
+    "Expose dev debug fields: `autoTarget` intent ({type, action}) and `firstWinChoiceVisible` in the existing Restaurant debug snapshot.",
+    "TESTS (node --test): tap empty-handed unasked customer -> talk intent; talk not fired before arrival; carrying -> no talk intent; correct carried dish -> deliver on arrival; asked customer -> no new question; manual movement cancels pending talk; non-service phases clear/refuse pending intent; arrival re-validation drops a stale intent (customer left / started carrying / phase changed). First-win choice: shown after round-1 win with both labels; not after round-1 loss/draw; つづける uses the existing next-round path; どうぶつえんへ calls finish once with normal completion data and does not start round 2; later progression unchanged; existing rematch keyboard handling still works; listeners cleaned up. Prefer pure-module tests; follow the style of existing restaurant *.test.mjs files (e.g. robotCustomerWiring.test.mjs for source-level wiring checks).",
+    "Append dated (2026-10-17) entries to DESIGN_DECISIONS.md for (A) and (B): what, why (young students tap what they want; self-paced exit after demonstrating the loop), rejected alternatives (tap NPC always = mic; a separate early-exit modal / confirmation)."
+  ],
+  "constraints": [
+    "Touch only src/minigames/restaurant/**, Restaurant strings in src/config/lesson.js, Restaurant CSS (next to existing restaurant rules in src/styles.css, never at end of file), DESIGN_DECISIONS.md (append). Do NOT edit CURRENT_STATE.md, the shell (src/systems/gameSequence.js, src/main.js), Coloring or Zoo.",
+    "Do not change: scoring, conveyor, food temperature, rival AI and systems, result animations, onboarding beyond what the intent needs, Listen Again, mic-free fallback, speech recognition, keyboard movement.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/restaurant/index.js",
+    "src/minigames/restaurant/actionPriority.js",
+    "src/minigames/restaurant/rivalProgression.js",
+    "src/minigames/restaurant/resultStage.js",
+    "src/minigames/restaurant/onboarding.js",
+    "src/minigames/restaurant/askFoodHint.js",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: tap unasked customer -> walk -> Talk starts on arrival; arrow key mid-walk cancels; carrying -> deliver, no mic; forced round-1 win shows both buttons; どうぶつえんへ reaches the Zoo."
+  },
+  "category": "feature-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning"
+}

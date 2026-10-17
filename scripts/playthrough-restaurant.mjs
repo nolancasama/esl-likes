@@ -160,12 +160,24 @@ async function endRoundWatchingStaging(h, outcome, untilRound) {
     // Progression phases are transient; a check that looks afterwards misses them.
     if (s?.progression?.phase) transition.phases.add(s.progression.phase);
     if (s?.player) transition.playerTrack.push({ x: s.player.x, z: s.player.z });
+    // A Round 1 win now stops on つづける / どうぶつえんへ. Record what was
+    // offered, then continue, which is the old straight-to-Waiter-2 path.
+    if (s?.firstWinChoiceVisible) {
+      transition.firstWinLabels ??= await firstWinLabels(h);
+      if (untilRound) await h.page.locator('.restaurant-ui__challenge-reply[data-reply="0"]').click().catch(() => {});
+      else break;
+    }
     if (untilRound && s?.progression?.round === untilRound) break;
     if (s?.lifecycle === 'turnaround' || s?.progression?.awaitingChoice) break;
     await h.sleep(40);
   }
   frames.transition = transition;
   return frames;
+}
+
+function firstWinLabels(h) {
+  return h.page.locator('.restaurant-ui__challenge-reply').allTextContents()
+    .then((labels) => labels.map((label) => label.trim()));
 }
 
 const MARKS = { player: { x: -1.35, z: -3.75 }, rival: { x: 1.35, z: -3.75 } };
@@ -296,7 +308,9 @@ if (!ONLY || ONLY === 'progression') {
   checkStaging(frames, 'Round 1 win');
 
   // Waiter 1 leaves and the player walks back at the same time: no teleport.
-  const { sawExit, sawReturnWalk, playerTrack, phases } = frames.transition;
+  const { sawExit, sawReturnWalk, playerTrack, phases, firstWinLabels: offered } = frames.transition;
+  check('a Round 1 win offers つづける and どうぶつえんへ',
+    offered?.join(',') === 'つづける,どうぶつえんへ', JSON.stringify(offered));
   check('winning Round 1 advances through the Round 2 intro',
     phases.has('round2-intro'), `phases seen: ${[...phases].join(', ')}`);
   check('Waiter 1 physically exits after the result', sawExit, `exitWalking seen: ${sawExit}`);
@@ -549,6 +563,30 @@ for (const outcome of (!ONLY || ONLY === 'round2-end') ? ['rival', 'draw'] : [])
   check(`a Round 2 ${outcome} never unlocks Round 3`,
     final?.progression?.round === 2 && final?.beltTempo?.enabled === false,
     JSON.stringify({ round: final?.progression?.round }));
+  check(`${scope}: no runtime errors`, h.errors.length === 0, h.errors.slice(0, 3).join(' | '));
+  await h.context.close();
+}
+
+// =========================================================================
+// E: Round 1 win -> どうぶつえんへ finishes the Restaurant, no Round 2
+// =========================================================================
+if (!ONLY || ONLY === 'first-win-zoo') {
+  scope = 'first-win-zoo';
+  const h = await openGame();
+  await reachRoundOne(h);
+  const frames = await endRoundWatchingStaging(h, 'player', null);
+  check('the first-win choice appears', Boolean(frames.transition.firstWinLabels),
+    JSON.stringify(frames.transition.firstWinLabels));
+  await h.page.screenshot({ path: path.join(ARTIFACT_DIR, 'first-win-choice.png') }).catch(() => {});
+  await h.sleep(600); // past the choice guard
+  await h.page.locator('.restaurant-ui__challenge-reply[data-reply="1"]').click();
+  const left = await h.page.waitForFunction(() => window.__eslDebug?.shell?.stage !== 'restaurant',
+    null, { timeout: 15000 }).then(() => true).catch(() => false);
+  check('どうぶつえんへ finishes the Restaurant through the shell', left,
+    await h.page.evaluate(() => JSON.stringify(window.__eslDebug?.shell)));
+  const save = await h.page.evaluate((key) => JSON.parse(localStorage.getItem(key) || '{}'), SAVE_KEY);
+  check('どうぶつえんへ records a normal Restaurant completion', Boolean(save.stamps?.restaurant),
+    JSON.stringify({ stamps: save.stamps, best: save.bestStars }));
   check(`${scope}: no runtime errors`, h.errors.length === 0, h.errors.slice(0, 3).join(' | '));
   await h.context.close();
 }

@@ -440,8 +440,9 @@ export function createColoring(ctx) {
         outline: .35rem solid #ff9f1c; outline-offset: .25rem;
         animation: coloring-favourite-pulse 1.2s ease-in-out infinite; }
       .coloring-swatch[data-tutorial-favourite]::after { content: '▼'; position: absolute;
-        left: 50%; top: -.95rem; transform: translateX(-50%); color: #273858;
-        font: 900 1.1rem system-ui; line-height: 1; text-shadow: 0 0 .2rem #fff;
+        left: 50%; top: -1.45rem; transform: translateX(-50%); color: #ff9f1c;
+        font: 900 1.5rem system-ui; line-height: 1;
+        text-shadow: 0 0 .12rem #273858, 0 0 .12rem #273858, 0 0 .3rem #fff;
         pointer-events: none; }
       @keyframes coloring-favourite-pulse {
         0%, 100% { box-shadow: 0 0 0 .18rem #273858, 0 0 .3rem .2rem #ffcf33; }
@@ -534,10 +535,14 @@ export function createColoring(ctx) {
       .coloring-power { justify-self: start; width: 4.8rem; height: min(78%, 24rem);
         min-height: 10rem; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
       .coloring-power__icon { font-size: 1.35rem; line-height: 1; }
-      .coloring-favourite-reminder { margin: .15rem 0; max-width: 100%; text-align: center;
-        font: 800 .7rem system-ui; overflow-wrap: anywhere; }
-      .coloring-favourite-reminder__swatch { display: inline-block; width: .8rem; height: .8rem;
-        border: 1px solid #273858; border-radius: 50%; vertical-align: middle; margin-right: .2rem; }
+      .coloring-favourite-reminder { margin: .25rem 0 0; max-width: 100%; text-align: center;
+        font: 900 calc(.9rem * var(--ui-scale, 1)) system-ui, sans-serif; line-height: 1.25;
+        color: #273858; }
+      .coloring-favourite-reminder__label { display: block; white-space: nowrap;
+        font-size: .8em; letter-spacing: -.02em; }
+      .coloring-favourite-reminder__value { white-space: nowrap; }
+      .coloring-favourite-reminder__swatch { display: inline-block; width: 1.05em; height: 1.05em;
+        border: 2px solid #273858; border-radius: 50%; vertical-align: -.2em; margin-right: .25rem; }
       .coloring-power__label { font: 900 calc(.95rem * var(--ui-scale, 1)) system-ui, sans-serif;
         letter-spacing: .04em; text-align: center; line-height: 1.05; }
       .coloring-power__track { position: relative; display: block; flex: 1 1 auto;
@@ -1071,7 +1076,10 @@ export function createColoring(ctx) {
     }
     if (favouriteReminder) {
       favouriteReminder.hidden = !guidance.reminderText || phase !== 'coloring';
-      favouriteReminder.querySelector('span:last-child').textContent = guidance.reminderText;
+      // 'すきないろ: BLUE' reads as two lines in the narrow POWER column: label, then swatch + name.
+      const [label = '', name = ''] = guidance.reminderText.split(' ');
+      favouriteReminder.querySelector('.coloring-favourite-reminder__label').textContent = label;
+      favouriteReminder.querySelector('.coloring-favourite-reminder__name').textContent = name;
       favouriteReminder.querySelector('.coloring-favourite-reminder__swatch').style.background = PALETTE_HEX[favourite];
     }
     if (!guidance.emphasise && tutorialHint) {
@@ -1280,7 +1288,7 @@ export function createColoring(ctx) {
           <span class="coloring-power__icon" aria-hidden="true">⚡</span>
           <span class="coloring-power__track"><span class="coloring-power__fill"></span></span>
           <span class="coloring-power__label"></span>
-          <p class="coloring-favourite-reminder" data-favourite-reminder hidden><span class="coloring-favourite-reminder__swatch" aria-hidden="true"></span><span></span></p>
+          <p class="coloring-favourite-reminder" data-favourite-reminder hidden><span class="coloring-favourite-reminder__label"></span> <span class="coloring-favourite-reminder__value"><span class="coloring-favourite-reminder__swatch" aria-hidden="true"></span><span class="coloring-favourite-reminder__name"></span></span></p>
         </div>
       </div>
       <div class="coloring-screen__bottom">

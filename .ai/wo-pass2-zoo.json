@@ -1,0 +1,44 @@
+{
+  "task": "esl-likes Zoo: (A) tap a visitor -> walk -> contextual action on arrival (show photo > talk > walk only); animals stay walk-only; (B) fix intermittent camera shutter not activating for small/narrow animals (chicken) by making framing size aspect-ratio tolerant, generically, with species-level regression tests.",
+  "requirements": [
+    "CONTEXT: Three.js ESL game, src/minigames/zoo/index.js (~1300 lines), scoring.js, world.js. Read DESIGN_DECISIONS.md Zoo entries first. Roster (8): cat, chicken, dog, horse, pig, raccoon, sheep, wolf (Quaternius gltf). Existing: tap ground/visitor/animal -> walk; viewfinder disables world taps; camera gated on open requests (cameraGate.js); `showPhotoToVisitor()`; Listen Again; wrong-photo refusal.",
+    "A1 PENDING INTENT: extend the existing tap-walk target with an explicit `action` decided at tap time: visitor + carrying a photo + visitor is waiting and can be shown it (per existing rules, incl. wrong-photo refusal) -> 'show-photo'; else visitor waiting and not yet asked and a valid speech target -> 'talk'; else 'approach'. Animal taps and ground taps never carry 'talk'. Put the decision and arrival re-validation in a small pure module (e.g. zoo/tapIntent.js) with tests.",
+    "A2 ARRIVAL: fire only once the auto-walk has reached the normal interaction radius and the player has effectively stopped; re-check legality first (visitor still present/waiting, still unasked for talk, still carrying the photo for show-photo, phase === 'playing', viewfinder and animal guide closed, no sequence running). If illegal, drop it — never re-infer from stale state. 'show-photo' calls the existing showPhotoToVisitor(); 'talk' calls the SAME function the Talk HUD action uses (so the shared speech system decides mic vs マイクなし); never call mic APIs directly. Fire at most once per tap.",
+    "A3 Asked visitor without photo: walk only, no auto-mic; Listen Again unchanged. Merely walking near a visitor never auto-starts the mic.",
+    "A4 CANCELLATION: manual keyboard/touch movement clears the pending action along with auto-walk; a new tap replaces it; opening the viewfinder or the animal guide, or any non-playing phase, clears it and none can be queued then.",
+    "A5 HUD: during a talk approach the normal Talk hint may show but listening starts only on arrival; when carrying a photo the show-photo prompt is favoured over Talk.",
+    "B1 In scoring.js extract ONE pure helper (e.g. `measureApparentSize(width, height)`) that is aspect-ratio tolerant: e.g. max(sqrt(w*h), max(w,h) * K) with K chosen from tests (roughly 0.6-0.75). Square subjects behave about as now; tall/narrow and wide/short subjects are not dragged down by their thin dimension; tiny subjects and thin slivers still fail. Use it in measureFraming() AND replace the hard `Math.sqrt(width * height) >= .11` gate in evaluateFraming() (index.js ~line 809) so the size maths exists in one place. Export the shutter thresholds as named constants (e.g. SHUTTER_ACTIVATE_THRESHOLD ~0.30-0.33, SHUTTER_HOLD_THRESHOLD a bit lower, e.g. ~0.26) replacing the inline `.38/.3`; keep hysteresis.",
+    "B2 Review the centre bounds (x .12-.88, y .1-.84) and keep them unless tests show false negatives at the viewfinder edge; if relaxed, only slightly. Review occlusion sampling (5 samples scaled by photoRadius/photoHalfHeight, visibleFraction >= .6): make sure small/narrow animals are not falsely blocked because edge samples fall outside the silhouette — pull offsets toward centre and/or weight the centre sample more; keep occlusion protection. Keep the 600 ms grace in takePhoto() unless tests justify a small increase (max ~800 ms).",
+    "B3 No species-specific thresholds or ID checks anywhere.",
+    "B4 Debug (dev snapshot only, no student UI): `framingDebug: { habitatId, framing, apparentSize, projectedWidth, projectedHeight, visibleFraction, blockedSampleCount, shutterReady }`.",
+    "TESTS A: unasked visitor tap -> talk intent; talk fires only after arrival; carrying photo -> show-photo over talk; asked visitor without photo -> no auto speech; animal tap never talk; manual movement cancels; viewfinder/guide/non-playing never retain a pending talk; arrival re-validation drops stale intents.",
+    "TESTS B: for all 8 species, using their ACTUAL normalized model proportions (derive from the real model bounds / photoRadius / photoHalfHeight data already in the roster/config or computed in animalModels tests — do not invent dimensions), a reasonable centred framing scores >= SHUTTER_ACTIVATE_THRESHOLD; specific chicken/cat/raccoon cases; a centred tall/narrow subject activates; tiny centred subject does not; large mostly-offscreen subject does not; off-centre scores lower; square subjects within a small tolerance of the old score; heavily occluded stays invalid; hysteresis holds between hold and activate thresholds; grace-window press still works right after readiness drops (test via a pure helper if the logic is in index.js).",
+    "Append dated (2026-10-17) entries to DESIGN_DECISIONS.md for (A) and (B): what, why, rejected alternatives (tap visitor always = mic; species-specific thresholds / always-on shutter)."
+  ],
+  "constraints": [
+    "Touch only src/minigames/zoo/**, Zoo strings in src/config/lesson.js, Zoo CSS (next to existing zoo rules, never at end of file), scripts/playthrough-zoo.mjs if it relies on changed thresholds, DESIGN_DECISIONS.md (append). Do NOT edit CURRENT_STATE.md, the shell (gameSequence.js, main.js), Coloring or Restaurant.",
+    "Do not change: request flow, visitor dialogue, animal roaming, chicken's Run-clip fallback, photo delivery, camera open/close, Animal Guide, camera gate, Listen Again, mic-free fallback, keyboard movement.",
+    "Do not commit. Edit with structured edit tools; on the first shell quoting/escaping failure switch to the edit tools."
+  ],
+  "startingPoints": [
+    "src/minigames/zoo/index.js",
+    "src/minigames/zoo/scoring.js",
+    "src/minigames/zoo/scoring.test.mjs",
+    "src/minigames/zoo/animalModels.test.mjs",
+    "src/minigames/zoo/world.js",
+    "src/minigames/zoo/cameraGate.js",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller checks in the browser: tap unasked visitor -> Talk on arrival; carrying photo -> show photo; chicken centred in viewfinder lights the shutter."
+  },
+  "category": "feature-3d",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning"
+}
