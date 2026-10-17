@@ -8,6 +8,7 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { ANIMAL_MODELS } from './world.js';
 import { resolveAnimalClips } from './animalAnimator.js';
 import { ANIMAL_IDS } from './territories.js';
+import { SHUTTER_ACTIVATE_THRESHOLD, isFramingEligible, measureApparentSize, measureFraming } from './scoring.js';
 
 globalThis.ProgressEvent ??= class ProgressEvent {
   constructor(type, init = {}) {
@@ -18,6 +19,15 @@ globalThis.ProgressEvent ??= class ProgressEvent {
 
 const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
 const assetRoot = new URL('../../../public/assets/animals/', import.meta.url);
+
+const modelPromises = new Map();
+function loadAnimalModel(id) {
+  if (!modelPromises.has(id)) {
+    const file = new URL(ANIMAL_MODELS[id].file, assetRoot);
+    modelPromises.set(id, new GLTFLoader().parseAsync(readFileSync(file, 'utf8'), assetRoot.href));
+  }
+  return modelPromises.get(id);
+}
 
 test('every configured Cube World animal parses, scales sanely, and supplies locomotion clips', async () => {
   assert.deepEqual(Object.keys(ANIMAL_MODELS).sort(), [...ANIMAL_IDS].sort());
@@ -30,7 +40,7 @@ test('every configured Cube World animal parses, scales sanely, and supplies loc
 
     const file = new URL(config.file, assetRoot);
     assert.ok(existsSync(file), `${config.file} does not exist`);
-    const gltf = await new GLTFLoader().parseAsync(readFileSync(file, 'utf8'), assetRoot.href);
+    const gltf = await loadAnimalModel(id);
     assert.ok(gltf.scene, `${id} has no scene`);
 
     gltf.scene.updateMatrixWorld(true);
@@ -59,6 +69,59 @@ test('every configured Cube World animal parses, scales sanely, and supplies loc
       mixer.update(1 / 60);
     }, `${id} clips do not bind to their own model`);
     mixer.stopAllAction();
+  }
+});
+
+test('all eight actual normalised model proportions activate in a reasonable centred frame', async (t) => {
+  for (const id of ANIMAL_IDS) {
+    await t.test(id, async () => {
+      const gltf = await loadAnimalModel(id);
+      gltf.scene.updateMatrixWorld(true);
+      const rawSize = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3());
+      const scale = ANIMAL_MODELS[id].targetHeight / rawSize.y;
+      // Match world.applyPhotoBounds, including its minimum bounds. No invented
+      // species dimensions: these are measured from each real, normalised glTF.
+      const photoRadius = Math.max(0.18, Math.max(rawSize.x, rawSize.z) * scale * 0.5);
+      const photoHalfHeight = Math.max(0.18, rawSize.y * scale * 0.5);
+      for (const aspect of [16 / 9, 9 / 16]) {
+        const camera = new THREE.PerspectiveCamera(34, aspect, 0.1, 100);
+        // A recognisable subject occupies 18% of the long frame dimension;
+        // test the real aspect ratio in landscape and portrait viewfinders.
+        const distance = Math.max(photoRadius / aspect, photoHalfHeight)
+          / (Math.tan(THREE.MathUtils.degToRad(17)) * 0.18);
+        camera.position.set(0, 0, distance);
+        camera.updateMatrixWorld(true);
+        const centre = new THREE.Vector3(0, 0, 0).project(camera);
+        const edgeRight = new THREE.Vector3(photoRadius, 0, 0).project(camera);
+        const edgeUp = new THREE.Vector3(0, photoHalfHeight, 0).project(camera);
+        const frame = {
+          x: (centre.x + 1) / 2,
+          y: (1 - centre.y) / 2,
+          width: Math.abs(edgeRight.x - centre.x),
+          height: Math.abs(edgeUp.y - centre.y),
+        };
+        assert.ok(isFramingEligible(frame, { depth: centre.z }),
+          `${id} at aspect ${aspect}: ${JSON.stringify(frame)}`);
+        assert.ok(measureFraming(frame) >= SHUTTER_ACTIVATE_THRESHOLD,
+          `${id} at aspect ${aspect} scores ${measureFraming(frame)}`);
+        // Smaller cat/chicken/raccoon frames reproduce the former activation
+        // failure while retaining each model's measured projected proportions.
+        if (['chicken', 'cat', 'raccoon'].includes(id)) {
+          const smallerScale = 0.112 / measureApparentSize(frame.width, frame.height);
+          const smaller = {
+            ...frame,
+            width: frame.width * smallerScale,
+            height: frame.height * smallerScale,
+          };
+          const oldSize = Math.sqrt(smaller.width * smaller.height);
+          const oldReady = oldSize >= 0.11 && Math.min(1, oldSize / 0.32) >= 0.38;
+          assert.equal(oldReady, false, `${id} should reproduce the old size/activation failure`);
+          assert.ok(isFramingEligible(smaller), `${id} smaller frame should be eligible`);
+          assert.ok(measureFraming(smaller) >= SHUTTER_ACTIVATE_THRESHOLD,
+            `${id} smaller frame scores ${measureFraming(smaller)}`);
+        }
+      }
+    });
   }
 });
 

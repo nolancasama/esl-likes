@@ -846,7 +846,10 @@ export function createZooWorld({ labels = {}, seed = null } = {}) {
   // occluders: the animal is seen between them.
   const visibilityRight = new THREE.Vector3();
   const visibilityUp = new THREE.Vector3();
-  const VISIBILITY_OFFSETS = [[0, 0], [0, 0.55], [0, -0.45], [0.55, 0], [-0.55, 0]];
+  // The horizontal bound uses the longest ground-plane extent. For a narrow
+  // animal that can put outer samples beside its visible silhouette, where a
+  // sign can obscure empty space. Keep all five rays near the animal's centre.
+  const VISIBILITY_OFFSETS = [[0, 0], [0, 0.3], [0, -0.25], [0.3, 0], [-0.3, 0]];
   function countBlockedSamples(habitat, camera) {
     camera.getWorldPosition(visibilityOrigin);
     visibilityRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();

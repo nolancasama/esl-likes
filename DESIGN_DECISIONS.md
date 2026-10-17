@@ -3069,3 +3069,38 @@ any NPC always opens the microphone, which would ask already-asked customers,
 interrupt deliveries and start speech before the child has reached the customer;
 re-inferring an action on arrival, which could turn an obsolete delivery into an
 unrequested conversation.
+
+## 2026-10-17 — Zoo visitor taps act once after walking into range
+
+A world tap uses the canonical `autoTarget` movement system and records an
+explicit approach, talk or show-photo intent on that target. Visitors
+who can receive a carried photo take delivery priority, including a wrong photo
+that follows the existing refusal rules. Otherwise an unasked waiting visitor
+can be spoken to; asked visitors without a photo, animals and ground only cause
+walking. The controller waits until the child stops within interaction range,
+revalidates the original action, consumes it, and uses the existing delivery
+function or the Talk HUD's shared speech handler. Speech settings still decide
+microphone versus マイクなし.
+
+Manual movement, replacement taps, overlays and non-playing phases discard the
+intent. A stale intent never becomes another action, and proximity alone never
+starts listening. Listen Again remains the way to replay an answer. Rejected:
+every visitor tap starting the microphone, which would interrupt delivery and
+re-open speech for visitors whose answer the child already heard.
+
+## 2026-10-17 — Zoo shutter sizing tolerates animal proportions
+
+Framing and the minimum-size gate share one apparent-size helper: the geometric
+mean or 0.68 of the long dimension, whichever is larger, with the allowance
+capped at six times the thin dimension to reject slivers. Square framing scores
+stay unchanged. Activation is 0.32 and holding readiness is 0.26; the existing
+600 ms press grace and centre bounds remain. Tests project the actual normalized
+Cube World model bounds for all eight species, alongside tiny, narrow, square,
+offscreen and occluded cases.
+
+The five scenery-occlusion rays move closer to the body centre so conservative
+photo bounds do not send edge samples too far outside a narrow silhouette;
+three rays must still be clear. Framing dimensions, apparent size, occlusion
+and readiness appear only in the debug snapshot. Rejected: species-specific
+thresholds, which would break when model proportions change, and an always-on
+shutter, which would accept tiny, hidden or poorly aimed subjects.

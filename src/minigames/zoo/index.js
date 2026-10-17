@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createListenAgain } from '../../ui/listenAgain.js';
-import { measureFraming, pickAnimal, scoreSession } from './scoring.js';
+import {
+  isFramingEligible, isShutterReady, measureApparentSize, measureFraming,
+  photoSubjectForPress, pickAnimal, scoreSession,
+} from './scoring.js';
 import {
   PLAYER_RADIUS,
   bounds as campusBounds,
@@ -25,6 +28,7 @@ import {
   renderAnimalThumbnails,
 } from './animalGuide.js';
 import { canOpenZooCamera } from './cameraGate.js';
+import { advanceTapIntent, canShowPhoto, createTapIntent } from './tapIntent.js';
 
 const LESSON = LESSON_BY_ID.zoo;
 const STRINGS = UI.zoo;
@@ -498,15 +502,34 @@ export function createZoo(ctx) {
       if (!subject) return null;
       return { x: subject.x, z: subject.z, radius: ANIMAL_APPROACH_RADIUS };
     }
-    return { x: target.x, z: target.z, radius: AUTO_ARRIVAL_RADIUS };
+    return { x: target.value.x, z: target.value.z, radius: AUTO_ARRIVAL_RADIUS };
+  }
+
+  function tapContext(visitor) {
+    return {
+      active, phase, carriedPhoto,
+      viewfinderOpen: viewfinder?.hidden === false,
+      guideOpen: animalGuide?.hidden === false,
+      sequenceRunning: questionCommitted || speech.active,
+      visitorPresent: Boolean(visitors.includes(visitor) && visitor.character.visible),
+      validSpeechTarget: Boolean(visitor?.character?.visible && !questionCommitted),
+    };
   }
 
   function finishAutoArrival(arrived) {
-    if (arrived?.type !== 'visitor' || !carriedPhoto) return;
-    const visitor = arrived.value;
-    if (!visitor || visitor.state !== 'waiting' || !visitor.asked || visitor.served) return;
-    actionVisitor = visitor;
-    showPhotoToVisitor();
+    const visitor = arrived?.type === 'visitor' ? arrived.value : null;
+    const { arrived: intent } = advanceTapIntent(arrived, {
+      ...tapContext(visitor), reached: true, stopped: true,
+      validSpeechTarget: Boolean(visitor && visitorInTalkRange(visitor)),
+    });
+    if (intent?.action === 'show-photo') {
+      actionVisitor = visitor;
+      showPhotoToVisitor();
+    } else if (intent?.action === 'talk') {
+      targetQuestion(visitor);
+      // The Talk HUD owns speech settings and the mic-free fallback.
+      hud.talkButton.click();
+    }
   }
 
   function updateAutoMovement(dt) {
@@ -671,6 +694,7 @@ export function createZoo(ctx) {
 
   function acceptQuestion(visitor) {
     if (!active || phase !== 'playing' || visitor.state !== 'waiting' || visitor.asked) return;
+    autoTarget = null;
     clearQuestion(true);
     visitor.asked = true;
     hud.setTalkState('accepted');
@@ -697,7 +721,11 @@ export function createZoo(ctx) {
       isActive: () => active && phase === 'playing' && visitor.state === 'waiting'
         && !visitor.asked && visitorInTalkRange(visitor),
       onCommit: () => {
-        if (questionVisitor === visitor && visitorInTalkRange(visitor)) questionCommitted = true;
+        if (phase !== 'playing' || questionVisitor !== visitor || !visitorInTalkRange(visitor)
+          || visitor.state !== 'waiting' || visitor.asked) return false;
+        autoTarget = null;
+        questionCommitted = true;
+        return true;
       },
       onCancel: () => {
         if (questionVisitor === visitor) questionCommitted = false;
@@ -766,6 +794,7 @@ export function createZoo(ctx) {
 
   function openAnimalGuide() {
     if (!active || phase !== 'playing' || !animalGuide) return;
+    autoTarget = null;
     clearQuestion();
     phase = 'animal-guide';
     animalGuide.hidden = false;
@@ -795,7 +824,11 @@ export function createZoo(ctx) {
     // World taps belong to movement only in the normal park phase. The
     // viewfinder, animal guide, reactions and editor keep full ownership of
     // their own pointer interactions and never queue a walk for later.
-    if (!active || phase !== 'playing' || sceneEditor?.enabled || !zooWorld) return;
+    if (!active || phase !== 'playing' || sceneEditor?.enabled || !zooWorld
+      || questionCommitted || speech.active || viewfinder?.hidden === false
+      || animalGuide?.hidden === false) return;
+    // Even an unreachable new world tap replaces the previous intent.
+    autoTarget = null;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     pointer.set(
@@ -812,7 +845,7 @@ export function createZoo(ctx) {
         if (Number.isInteger(visitorIndex)) {
           const visitor = visitors[visitorIndex];
           if (visitor?.state === 'waiting' && visitor.character.visible) {
-            autoTarget = { type: 'visitor', value: visitor };
+            autoTarget = createTapIntent({ type: 'visitor', value: visitor }, tapContext(visitor));
             audio.playSfx('interact');
             return;
           }
@@ -822,7 +855,7 @@ export function createZoo(ctx) {
         if (animalId) {
           const subject = zooWorld.habitats.find((candidate) => candidate.id === animalId);
           if (subject) {
-            autoTarget = { type: 'animal', value: subject };
+            autoTarget = createTapIntent({ type: 'animal', value: subject }, tapContext());
             audio.playSfx('interact');
             return;
           }
@@ -836,7 +869,7 @@ export function createZoo(ctx) {
     // directly inside the retained landmark collider is ignored.
     const point = raycaster.ray.intersectPlane(groundPlane, groundPoint);
     if (!point || !canOccupy(point.x, point.z)) return;
-    autoTarget = { type: 'floor', x: point.x, z: point.z };
+    autoTarget = createTapIntent({ type: 'floor', value: { x: point.x, z: point.z } }, tapContext());
   }
 
   function updateContext() {
@@ -853,7 +886,7 @@ export function createZoo(ctx) {
       clearQuestion();
     }
     actionVisitor = carriedPhoto
-      ? nearestVisitor((visitor) => visitor.state === 'waiting' && visitor.asked)
+      ? nearestVisitor((visitor) => canShowPhoto(visitor, carriedPhoto))
       : null;
     const unasked = nearestVisitor((visitor) => visitor.state === 'waiting' && !visitor.asked);
     if (actionVisitor) clearQuestion();
@@ -872,6 +905,7 @@ export function createZoo(ctx) {
     if (!active || phase !== 'playing') return;
     const waiting = openRequests();
     if (!waiting.length) return;
+    autoTarget = null;
     clearQuestion();
     replayQueue.splice(0, replayQueue.length, ...waiting);
     for (const visitor of waiting) visitor.replayed = true;
@@ -900,6 +934,7 @@ export function createZoo(ctx) {
 
   async function openViewfinder() {
     if (!cameraCanOpen()) return;
+    autoTarget = null;
     clearQuestion();
     phase = 'opening-viewfinder';
     syncOverlayControls();
@@ -928,6 +963,7 @@ export function createZoo(ctx) {
 
   function resetFraming() {
     framedSubject = null;
+    framingDebug = null;
     lastGoodSubject = null;
     lastGoodAt = 0;
     shutterReady = false;
@@ -959,6 +995,7 @@ export function createZoo(ctx) {
     cameraUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
     let best = null;
     let blockedBest = null;
+    let observedBest = null;
     for (const habitat of zooWorld.habitats) {
       const species = zooPhotoSpecies(habitat);
       if (!species) continue;
@@ -979,9 +1016,10 @@ export function createZoo(ctx) {
         height,
       };
       const framing = measureFraming(frame);
-      const visible = projectedCenter.z >= -1 && projectedCenter.z <= 1
-        && frame.x >= .12 && frame.x <= .88 && frame.y >= .1 && frame.y <= .84
-        && Math.sqrt(width * height) >= .11;
+      const depth = projectedCenter.z;
+      // Keep diagnostics for small and edge subjects too, so a rejected frame
+      // can explain why the shutter is off in the development snapshot.
+      if (depth < -1 || depth > 1 || frame.x < 0 || frame.x > 1 || frame.y < 0 || frame.y > 1) continue;
       // Prefer the animal the child is closest to. Animals roam and can pass
       // each other, so a neighbour further off can frame better than the one
       // being aimed at, and the photo comes back as the wrong animal. Distance
@@ -989,27 +1027,31 @@ export function createZoo(ctx) {
       // considerably better. `habitat.x`/`z` track the roamer, never a pen.
       const away = Math.hypot(player.position.x - habitat.x, player.position.z - habitat.z);
       const score = framing - Math.min(.3, away * .012);
-      if (!visible || (best && score <= best.score)) continue;
       // A frame hidden behind a sign or a building is not a photo of the
       // animal, however well the invisible silhouette would have been framed.
       const blocked = zooWorld.countBlockedSamples(habitat, camera);
       const visibleFraction = 1 - blocked / zooWorld.visibilitySampleCount;
       const candidate = { habitat, species, framing, frame, score, visibleFraction, blocked };
-      if (visibleFraction >= .6) best = candidate;
-      else if (!blockedBest || score > blockedBest.score) blockedBest = candidate;
+      if (!observedBest || score > observedBest.score) observedBest = candidate;
+      if (!isFramingEligible(frame, { depth })) continue;
+      if (isFramingEligible(frame, { depth, visibleFraction })) {
+        if (!best || score > best.score) best = candidate;
+      } else if (!blockedBest || score > blockedBest.score) blockedBest = candidate;
     }
     framedSubject = best;
-    const reported = best ?? blockedBest;
+    // Hysteresis holds a marginal frame after it has first activated.
+    shutterReady = Boolean(best && isShutterReady(best.framing, shutterReady));
+    const reported = best ?? blockedBest ?? observedBest;
     framingDebug = reported ? {
       habitatId: reported.habitat.id,
       framing: Number(reported.framing.toFixed(3)),
+      apparentSize: measureApparentSize(reported.frame.width, reported.frame.height),
+      projectedWidth: reported.frame.width,
+      projectedHeight: reported.frame.height,
       visibleFraction: reported.visibleFraction,
       blockedSampleCount: reported.blocked,
+      shutterReady,
     } : null;
-    // Hysteresis: the animals wander, so a frame hovering at the threshold made
-    // the shutter blink on and off. Once ready it stays ready until the frame is
-    // clearly bad.
-    shutterReady = Boolean(best && best.framing >= (shutterReady ? .3 : .38));
     if (shutterReady && best) {
       lastGoodSubject = best;
       lastGoodAt = performance.now();
@@ -1061,8 +1103,9 @@ export function createZoo(ctx) {
     if (!active || phase !== 'viewfinder') return;
     // Honour a press that lands just after the subject drifted: pressing a lit
     // shutter must never silently do nothing.
-    const subject = (shutterReady && framedSubject)
-      || (performance.now() - lastGoodAt <= 600 ? lastGoodSubject : null);
+    const subject = photoSubjectForPress({
+      shutterReady, framedSubject, lastGoodSubject, lastGoodAt, now: performance.now(),
+    });
     if (!subject) return;
     const id = subject.species;
     const dataUrl = snapshotDataUrl(id);
@@ -1096,6 +1139,7 @@ export function createZoo(ctx) {
   function showPhotoToVisitor() {
     const visitor = actionVisitor;
     if (!visitor || !carriedPhoto || phase !== 'playing') return;
+    autoTarget = null;
     clearQuestion();
     visitor.shows += 1;
     dialogueVisitor = visitor;
@@ -1151,6 +1195,7 @@ export function createZoo(ctx) {
 
   function beginTurnaround() {
     if (!active || phase !== 'round-end') return;
+    autoTarget = null;
     phase = 'turnaround';
     keeper.visible = true;
     // Keep the pair on the open plaza so neither character hides behind the
@@ -1237,6 +1282,7 @@ export function createZoo(ctx) {
           // the Zoo's own state changes, so closing the editor resumes play
           // exactly where it paused.
           editorPausedPhase = phase;
+          autoTarget = null;
           phase = 'editing';
           cameraRig.setEnabled(false);
           zooWorld.setSceneryEditable(true);
@@ -1282,6 +1328,7 @@ export function createZoo(ctx) {
         forward: { x: Math.sin(player?.rotation.y ?? 0), z: Math.cos(player?.rotation.y ?? 0) },
       },
       framing: framingDebug,
+      framingDebug,
       visibleFraction: framingDebug?.visibleFraction ?? null,
       blockedSampleCount: framingDebug?.blockedSampleCount ?? null,
       // Live roaming state. There is no fixed habitat position any more, so
@@ -1403,6 +1450,7 @@ export function createZoo(ctx) {
 
   function update(dt) {
     if (!active) return;
+    if (phase !== 'playing') autoTarget = null;
     // While the editor is open the park is frozen: no walking, no roaming, no
     // timers. Only the editor's own camera keeps moving.
     if (sceneEditor?.enabled) {
@@ -1417,12 +1465,10 @@ export function createZoo(ctx) {
       if (noticeRemaining <= 0 && notice) notice.hidden = true;
     }
 
-    if (phase !== 'playing') autoTarget = null;
-
     if (phase === 'playing') {
       updateMovement(safeDt);
-      updateContext();
-      if (actionVisitor && input.consumeInteract()) showPhotoToVisitor();
+      if (phase === 'playing') updateContext();
+      if (phase === 'playing' && actionVisitor && input.consumeInteract()) showPhotoToVisitor();
     } else if (phase === 'answering') {
       player.playAnimation?.('idle');
       answerRemaining -= safeDt;
@@ -1486,13 +1532,13 @@ export function createZoo(ctx) {
     cameraRig.setEnabled(true);
     active = false;
     phase = 'inactive';
+    autoTarget = null;
     unsubscribeSettings?.();
     unsubscribeSettings = null;
     unregisterEscapeGuard?.();
     unregisterEscapeGuard = null;
     canvas?.removeEventListener('pointerdown', onCanvasPointer);
     window.removeEventListener('keydown', onKeyDown);
-    autoTarget = null;
     speech.clearTarget();
     speech.cancel();
     audio.stop();

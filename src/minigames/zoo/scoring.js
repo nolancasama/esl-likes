@@ -2,6 +2,11 @@ import { ANIMAL_IDS } from './territories.js';
 
 export const ANIMALS = ANIMAL_IDS;
 
+export const MIN_APPARENT_SIZE = 0.11;
+export const SHUTTER_ACTIVATE_THRESHOLD = 0.32;
+export const SHUTTER_HOLD_THRESHOLD = 0.26;
+export const SHUTTER_GRACE_MS = 600;
+
 function randomIndex(length, rng) {
   const sample = Number(rng());
   return Math.min(length - 1, Math.max(0, Math.floor(sample * length)));
@@ -16,6 +21,35 @@ function clampUnit(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return Math.min(1, Math.max(0, number));
+}
+
+/** Give narrow silhouettes credit for their long side without accepting slivers. */
+export function measureApparentSize(width, height) {
+  const w = clampUnit(width);
+  const h = clampUnit(height);
+  // A 0.68 long-side allowance helps ordinary narrow animals. Cap that
+  // allowance at six times the thin side so an almost edge-on sliver fails.
+  return Math.max(Math.sqrt(w * h), Math.min(Math.max(w, h) * 0.68, Math.min(w, h) * 6));
+}
+
+/** Visibility gates shared by the live viewfinder and model-proportion tests. */
+export function isFramingEligible(frame, { depth = 0, visibleFraction = 1 } = {}) {
+  return Boolean(frame && depth >= -1 && depth <= 1
+    && frame.x >= 0.12 && frame.x <= 0.88 && frame.y >= 0.1 && frame.y <= 0.84
+    && measureApparentSize(frame.width, frame.height) >= MIN_APPARENT_SIZE
+    && visibleFraction >= 0.6);
+}
+
+export function isShutterReady(framing, wasReady = false) {
+  return Number.isFinite(framing)
+    && framing >= (wasReady ? SHUTTER_HOLD_THRESHOLD : SHUTTER_ACTIVATE_THRESHOLD);
+}
+
+/** Keep a just-ready frame available for a press while a roaming animal moves. */
+export function photoSubjectForPress({ shutterReady, framedSubject, lastGoodSubject, lastGoodAt, now }) {
+  return (shutterReady && framedSubject)
+    || (now >= lastGoodAt && now - lastGoodAt <= SHUTTER_GRACE_MS ? lastGoodSubject : null)
+    || null;
 }
 
 /**
@@ -34,9 +68,9 @@ export function measureFraming({ x, y, width, height } = {}) {
     / Math.SQRT1_2;
   const centreScore = Math.max(0, 1 - distanceFromCentre ** 1.5);
 
-  // Geometric mean treats tall and wide silhouettes alike. A subject spanning
-  // roughly one third of the frame is already large enough for full size credit.
-  const apparentSize = Math.sqrt(subjectWidth * subjectHeight);
+  // A subject spanning roughly one third of the frame receives full credit;
+  // narrow animals also receive credit for their recognisable long dimension.
+  const apparentSize = measureApparentSize(subjectWidth, subjectHeight);
   const sizeScore = Math.min(1, apparentSize / 0.32);
 
   return clampUnit(centreScore * sizeScore);
