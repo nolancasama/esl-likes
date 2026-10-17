@@ -3010,3 +3010,19 @@ the same frame, and the rival's challenge scene, which skips `updateContext`,
 hides it too. The 🔊 replay of an order already taken still shows while carrying.
 *Rejected:* relying on `chooseAction` alone, which never runs during the
 challenge scene, so a clue shown just before it stayed up.
+
+## 2026-10-17 — Coloring teaches the robot's favourite on the first round
+
+Students read the old choose-colour and painting hints as permission to paint
+any colour they liked. Both hints now explicitly ask for the robot's favourite.
+The first round highlights its palette swatch with a pulsing ring and downward
+arrow (a static ring and arrow with reduced motion), and gives brief, rate-limited
+wrong-colour reminders until favourite-colour painting first increases power.
+Undo or erase does not restart that guidance. Later rounds have no corrective
+tutorial treatment. Every round keeps a compact favourite-name reminder and
+actual-colour swatch beside POWER after the answer, alongside the existing
+persistent answer bubble. These hints derive from the round's existing favourite;
+power, painting and readiness rules are unchanged.
+
+Rejected: forcing the favourite colour or disabling other palette colours.
+Students can still decorate freely while learning which colour powers the robot.

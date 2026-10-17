@@ -133,6 +133,11 @@ export function createPaintingSurface({
       // from "the child has lifted the brush". `finish` clears `live` before it
       // reports, so the stroke that completes the picture arrives as false.
       strokeActive: live !== null,
+      strokeColor: live?.color ?? null,
+      // A changed silhouette area (including repainting) is meaningful;
+      // margin-only marks and erasing do not prompt colour guidance.
+      meaningfulStroke: Boolean(live?.color && (coverage.coverage() !== live.startCoverage
+        || coverage.power() !== live.startPower)),
     });
   }
 
@@ -143,7 +148,8 @@ export function createPaintingSurface({
       onChange?.({ needsColor: true, power: coverage.power(), coverage: coverage.coverage() });
       return false;
     }
-    live = { color: chosen, diameter, points: [[point.x, point.y]] };
+    live = { color: chosen, diameter, points: [[point.x, point.y]],
+      startCoverage: coverage.coverage(), startPower: coverage.power() };
     coverage.beginStroke();
     // A tap alone must mark something, so seed the coverage with a dot.
     coverage.paintSegment([point.x, point.y], [point.x, point.y], diameter, chosen);

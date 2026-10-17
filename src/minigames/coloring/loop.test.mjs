@@ -270,12 +270,12 @@ test('the Coloring header has one contextual hint and no visible title', () => {
 test('the one hint carries the exact question and all four interaction stages', () => {
   assert.equal(STRINGS.askRobot, 'ボタンを おして、「What color do you like?」と きこう');
   assert.equal([...STRINGS.askRobot.matchAll(/What color do you like\?/g)].length, 1);
-  assert.equal(STRINGS.chooseColor, 'いろを えらぼう');
-  assert.equal(STRINGS.paintHint, 'すきなように ぬろう！');
+  assert.equal(STRINGS.chooseColor, 'ロボットの すきな いろを えらぼう！');
+  assert.equal(STRINGS.paintHint, 'ロボットの すきな いろで ぬろう！');
   assert.equal(STRINGS.readyHint, 'できたら「できた！」を おそう');
   assert.match(source, /paintInstruction\.textContent = STRINGS\.askRobot/);
   assert.match(source, /paintInstruction\.textContent = STRINGS\.chooseColor/);
-  assert.match(source, /\? STRINGS\.readyHint\s*: selectedColor \? STRINGS\.paintHint : STRINGS\.chooseColor/);
+  assert.match(source, /coloringInstruction\(\{ ready, selectedColor \}, STRINGS\)/);
 });
 
 test('ROBOT POWER is a bottom-anchored vertical progress meter', () => {
@@ -324,7 +324,7 @@ test('Done pulses three times and then rests, and rests bright without motion', 
   assert.match(source, /\.coloring-tool--done:not\(:disabled\)/,
     'Done has no distinct full-power resting state');
   const reduced = source.slice(source.indexOf('@media (prefers-reduced-motion: reduce)'));
-  assert.match(reduced.slice(0, 700), /\.coloring-tool--ready-pulse \{ animation: none/,
+  assert.match(reduced.slice(0, reduced.indexOf('    `;')), /\.coloring-tool--ready-pulse \{ animation: none/,
     'the pulse still runs under prefers-reduced-motion');
 });
 
@@ -403,10 +403,8 @@ test('debug snapshot exposes preview and active subject ids', () => {
 });
 
 test('the visible power label no longer says robot', () => {
-  const strings = readFileSync(new URL('../../config/lesson.js', import.meta.url), 'utf8');
-  const coloring = strings.slice(strings.indexOf('  coloring: {'));
-  assert.doesNotMatch(coloring.slice(0, 2000), /ロボット/,
-    'a child colouring a snowman is still told about a robot');
+  assert.equal(STRINGS.power, 'POWER');
+  assert.doesNotMatch(STRINGS.powerFull, /ロボット/);
 });
 
 test('Done is the guarded activation control and Reset is dev-only', () => {

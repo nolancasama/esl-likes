@@ -545,7 +545,7 @@ async function answerCanvasQuestion(h, round, screenshots = true, onAnswer = nul
       count: state?.bubbleAnswerCount, speaker: state?.bubbleSpeakerVisible,
       listenAgain: state?.listenAgainPresent }));
   check(`round ${round}: the post-answer hint asks the child to choose a colour`,
-    state?.hintText === 'いろを えらぼう', state?.hintText);
+    state?.hintText === 'ロボットの すきな いろを えらぼう！', state?.hintText);
   return favourite;
 }
 
@@ -609,7 +609,7 @@ async function paintRound(h, round, style, artById, { screenshots = true, detail
     state.donePresent && state.doneVisible && state.doneDisabled === true,
     JSON.stringify({ present: state.donePresent, visible: state.doneVisible, disabled: state.doneDisabled }));
   check(`round ${round}: choosing a colour changes the hint to free painting`,
-    state.hintText === 'すきなように ぬろう！', state.hintText);
+    state.hintText === 'ロボットの すきな いろで ぬろう！', state.hintText);
 
   const beforeDecoration = state.debug?.power ?? 0;
   await stroke(page, box, style.decoration, 8);
@@ -1110,7 +1110,7 @@ async function checkCanvasCentring(viewport) {
   await selectColour(h.page, favourite);
   state = await h.ui();
   check(`${size}: choosing a colour shows the free-painting hint`,
-    state.hintText === 'すきなように ぬろう！', state.hintText);
+    state.hintText === 'ロボットの すきな いろで ぬろう！', state.hintText);
   await selectBrush(h.page, 'medium');
   const box = await canvasBox(h.page);
   const favouritePaths = [];

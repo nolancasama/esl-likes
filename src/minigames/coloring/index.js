@@ -3,6 +3,7 @@ import { LESSON_BY_ID, UI, answerFor } from '../../config/lesson.js';
 import { promptQuestion, promptAnswer } from '../../systems/speechPrompt.js';
 import { createPaintingSurface } from './picture.js';
 import { PALETTE, PALETTE_HEX } from './palette.js';
+import { advanceFavouriteTutorial, coloringInstruction, favouriteGuidance, initialTutorialHistory } from './favouriteTutorial.js';
 import { BRUSHES, BRUSH_IDS, DEFAULT_BRUSH } from './brushes.js';
 import { drawBlankBody, drawLineArt, PAPER } from './robotRenderer.js';
 import { createCoverage, sessionStars } from './coverage.js';
@@ -262,6 +263,10 @@ export function createColoring(ctx) {
   let brushBar = null;
   let powerBar = null;
   let powerFill = null;
+  let favouriteReminder = null;
+  let tutorialHint = null;
+  let tutorialHintTimer = null;
+  let tutorialHistory = initialTutorialHistory();
   let undoButton = null;
   let eraserButton = null;
   let doneButton = null;
@@ -431,6 +436,21 @@ export function createColoring(ctx) {
         border: .3rem solid #fff; border-radius: 50%; box-shadow: 0 0 0 .18rem #273858,
         0 .3rem 0 rgb(39 56 88 / .22); cursor: pointer; }
       .coloring-swatch[aria-pressed="true"] { outline: .34rem solid #273858; outline-offset: .24rem; }
+      .coloring-swatch[data-tutorial-favourite] { position: relative; z-index: 1;
+        outline: .35rem solid #ff9f1c; outline-offset: .25rem;
+        animation: coloring-favourite-pulse 1.2s ease-in-out infinite; }
+      .coloring-swatch[data-tutorial-favourite]::after { content: '▼'; position: absolute;
+        left: 50%; top: -.95rem; transform: translateX(-50%); color: #273858;
+        font: 900 1.1rem system-ui; line-height: 1; text-shadow: 0 0 .2rem #fff;
+        pointer-events: none; }
+      @keyframes coloring-favourite-pulse {
+        0%, 100% { box-shadow: 0 0 0 .18rem #273858, 0 0 .3rem .2rem #ffcf33; }
+        50% { box-shadow: 0 0 0 .18rem #273858, 0 0 .8rem .45rem #ffcf33; }
+      }
+      .coloring-tutorial-hint { position: absolute; left: 50%; bottom: 4.5rem; z-index: 3;
+        transform: translateX(-50%); margin: 0; max-width: 90%; padding: .4rem .7rem;
+        border-radius: .7rem; background: #fff2c9; text-align: center; pointer-events: none;
+        font-size: .85rem; font-weight: 800; color: #273858; }
       .coloring-swatch:focus-visible, .coloring-screen button:focus-visible,
       .coloring-canvas:focus-visible {
         outline: .35rem solid #ff9f1c; outline-offset: .25rem; }
@@ -514,6 +534,10 @@ export function createColoring(ctx) {
       .coloring-power { justify-self: start; width: 4.8rem; height: min(78%, 24rem);
         min-height: 10rem; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
       .coloring-power__icon { font-size: 1.35rem; line-height: 1; }
+      .coloring-favourite-reminder { margin: .15rem 0; max-width: 100%; text-align: center;
+        font: 800 .7rem system-ui; overflow-wrap: anywhere; }
+      .coloring-favourite-reminder__swatch { display: inline-block; width: .8rem; height: .8rem;
+        border: 1px solid #273858; border-radius: 50%; vertical-align: middle; margin-right: .2rem; }
       .coloring-power__label { font: 900 calc(.95rem * var(--ui-scale, 1)) system-ui, sans-serif;
         letter-spacing: .04em; text-align: center; line-height: 1.05; }
       .coloring-power__track { position: relative; display: block; flex: 1 1 auto;
@@ -582,6 +606,10 @@ export function createColoring(ctx) {
         .coloring-power__track { width: 1.6rem; }
       }
       @media (prefers-reduced-motion: reduce) {
+        .coloring-swatch[data-tutorial-favourite] { animation: none;
+          outline: .35rem solid #ff9f1c; outline-offset: .25rem;
+          box-shadow: 0 0 0 .18rem #273858, 0 0 .5rem .25rem #ffcf33; }
+        .coloring-swatch[data-tutorial-favourite]::after { content: '▼'; }
         .coloring-palette--invite .coloring-swatch { animation: none; }
         .coloring-canvas-wrap--alive { animation-duration: .5s; }
         .coloring-canvas-wrap--spark, .coloring-power--pulse,
@@ -1000,6 +1028,7 @@ export function createColoring(ctx) {
     answerSentence = answerFor(LESSON, favourite);
     bubbleAnswer.textContent = answerSentence;
     bubble.hidden = false;
+    refreshFavouriteGuidance();
     flash(canvasWrap, 'coloring-canvas-wrap--speaking', 520);
     blinkOnce(1);
     // The first playback is manual. Only an actual press of the bubble replay
@@ -1019,6 +1048,7 @@ export function createColoring(ctx) {
     refreshTools();
     setPower(coverage.power());
     updateReadiness(coverage.power());
+    refreshFavouriteGuidance();
   }
 
   function selectColor(color) {
@@ -1029,6 +1059,45 @@ export function createColoring(ctx) {
     refreshTools();
     updateReadiness(coverage.power());
     audio.playSfx('interact');
+    updateFavouriteTutorial({ event: 'selection', color });
+  }
+
+  function refreshFavouriteGuidance() {
+    const guidance = favouriteGuidance({ roundsStarted, favourite,
+      answered: Boolean(answerSentence), powerStarted: tutorialHistory.powerStarted });
+    for (const button of palette?.querySelectorAll('button') ?? []) {
+      button.toggleAttribute('data-tutorial-favourite',
+        phase === 'coloring' && guidance.emphasise && button.dataset.color === favourite);
+    }
+    if (favouriteReminder) {
+      favouriteReminder.hidden = !guidance.reminderText || phase !== 'coloring';
+      favouriteReminder.querySelector('span:last-child').textContent = guidance.reminderText;
+      favouriteReminder.querySelector('.coloring-favourite-reminder__swatch').style.background = PALETTE_HEX[favourite];
+    }
+    if (!guidance.emphasise && tutorialHint) {
+      tutorialHint.hidden = true;
+      clearTimeout(tutorialHintTimer);
+    }
+  }
+
+  function updateFavouriteTutorial(event) {
+    const result = advanceFavouriteTutorial(tutorialHistory, {
+      roundsStarted, favourite, power: coverage.power(), ...event,
+    });
+    tutorialHistory = result.history;
+    refreshFavouriteGuidance();
+    if (!result.hint) return;
+    tutorialHint.textContent = result.hint;
+    tutorialHint.hidden = false;
+    clearTimeout(tutorialHintTimer);
+    tutorialHintTimer = setTimeout(() => { if (tutorialHint) tutorialHint.hidden = true; }, 2500);
+    // Restart the favourite's pulse without changing selection or paint.
+    const button = palette.querySelector('[data-tutorial-favourite]');
+    if (button) {
+      button.removeAttribute('data-tutorial-favourite');
+      void button.offsetWidth;
+      button.setAttribute('data-tutorial-favourite', '');
+    }
   }
 
   function selectBrush(id) {
@@ -1092,9 +1161,7 @@ export function createColoring(ctx) {
     // reader announces while the button stays in the tab order's shape.
     doneButton.setAttribute('aria-disabled', String(!ready));
     if (phase === 'coloring') {
-      paintInstruction.textContent = ready
-        ? STRINGS.readyHint
-        : selectedColor ? STRINGS.paintHint : STRINGS.chooseColor;
+      paintInstruction.textContent = coloringInstruction({ ready, selectedColor }, STRINGS);
     }
     if (celebrate) celebrationPending = true;
     // Full power almost always arrives in the middle of a drag, and a button
@@ -1166,6 +1233,8 @@ export function createColoring(ctx) {
 
   /** Answers the surface after every stroke: the meter, tools and live readiness. */
   function onPaintChanged(info) {
+    updateFavouriteTutorial({ event: 'stroke', color: info.strokeColor,
+      meaningful: info.meaningfulStroke === true });
     setPower(info.power);
     updateReadiness(info.power, { strokeActive: info.strokeActive === true });
     if (info.needsColor) {
@@ -1198,6 +1267,7 @@ export function createColoring(ctx) {
         <div class="coloring-side">
           <div class="coloring-palette" role="group"></div>
           <div class="coloring-brushes" role="group"></div>
+          <p class="coloring-tutorial-hint" role="status" hidden></p>
         </div>
         <div class="coloring-canvas-wrap">
           <canvas class="coloring-canvas"></canvas>
@@ -1210,6 +1280,7 @@ export function createColoring(ctx) {
           <span class="coloring-power__icon" aria-hidden="true">⚡</span>
           <span class="coloring-power__track"><span class="coloring-power__fill"></span></span>
           <span class="coloring-power__label"></span>
+          <p class="coloring-favourite-reminder" data-favourite-reminder hidden><span class="coloring-favourite-reminder__swatch" aria-hidden="true"></span><span></span></p>
         </div>
       </div>
       <div class="coloring-screen__bottom">
@@ -1275,6 +1346,8 @@ export function createColoring(ctx) {
     powerBar = paintingOverlay.querySelector('.coloring-power');
     powerBar.querySelector('.coloring-power__label').textContent = STRINGS.power;
     powerFill = paintingOverlay.querySelector('.coloring-power__fill');
+    favouriteReminder = paintingOverlay.querySelector('[data-favourite-reminder]');
+    tutorialHint = paintingOverlay.querySelector('.coloring-tutorial-hint');
 
     undoButton = paintingOverlay.querySelector('.coloring-tool--undo');
     undoButton.textContent = STRINGS.tools.undo;
@@ -1325,6 +1398,7 @@ export function createColoring(ctx) {
   function startRound(subject = activeSubject) {
     activeSubject = subject ?? subjectById(DEFAULT_SUBJECT_ID);
     roundsStarted += 1;
+    tutorialHistory = initialTutorialHistory();
     replayed = false;
     answerSentence = '';
     selectedColor = null;
@@ -1603,6 +1677,10 @@ export function createColoring(ctx) {
   // --- teardown ------------------------------------------------------------
 
   function disposePaintingOverlay() {
+    clearTimeout(tutorialHintTimer);
+    tutorialHintTimer = null;
+    tutorialHint = null;
+    favouriteReminder = null;
     surface?.dispose();
     surface = null;
     for (const swatch of palette?.querySelectorAll('button') ?? []) {
@@ -1650,6 +1728,15 @@ export function createColoring(ctx) {
    */
   function debugSnapshot() {
     return {
+      // Same dev/editor gate as the existing paint reset/spawn tools. The
+      // student-facing snapshot still does not disclose the favourite.
+      ...((Boolean(import.meta.env?.DEV)
+        || new URLSearchParams(window.location.search).has('editor')) ? {
+        tutorialRound: roundsStarted === 1,
+        tutorialEmphasisVisible: Boolean(palette?.querySelector('[data-tutorial-favourite]')),
+        favouriteReminderText: favouriteReminder && !favouriteReminder.hidden
+          ? favouriteReminder.textContent : '',
+      } : {}),
       phase,
       persistence: creationPersistenceStatus(),
       robotsCompleted: livingRobots.length,

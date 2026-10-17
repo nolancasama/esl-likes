@@ -135,8 +135,8 @@ export const UI = Object.freeze({
     roomName: 'おえかきの へや',
     askRobot: 'ボタンを おして、「What color do you like?」と きこう',
     canvasLabel: 'えに いろを ぬろう',
-    chooseColor: 'いろを えらぼう',
-    paintHint: 'すきなように ぬろう！',
+    chooseColor: 'ロボットの すきな いろを えらぼう！',
+    paintHint: 'ロボットの すきな いろで ぬろう！',
     readyHint: 'できたら「できた！」を おそう',
     paletteLabel: 'いろを えらぶ',
     colors: {
