@@ -187,21 +187,45 @@ async function main() {
   await page.evaluate(() => window.__eslDebug.shellFinish(3));
   await waitStage(page, 'zoo', 'zoo a third time');
 
-  // ---- Zoo -> completion ---------------------------------------------------
+  // ---- Zoo -> Sports -> Drink Stand, Back one stage each -------------------
   await page.evaluate(() => window.__eslDebug.shellFinish(1));
+  await waitStage(page, 'sports', 'sports');
+  await page.waitForTimeout(1200);
+  check('finishing the Zoo opens Sports', (await shellOf(page))?.stage === 'sports');
+  check('Back stays in Sports', await backVisible(page));
+  await page.screenshot({ path: `${OUT}-5a-sports.png` });
+  await page.locator('.shell-back-control').click();
+  await waitStage(page, 'zoo', 'zoo after Sports Back');
+  check('Sports Back goes to the Zoo', (await shellOf(page))?.stage === 'zoo');
+  await page.evaluate(() => window.__eslDebug.shellFinish(1));
+  await waitStage(page, 'sports', 'sports again');
+
+  await page.evaluate(() => window.__eslDebug.shellFinish(2));
+  await waitStage(page, 'drink-stand', 'drink stand');
+  await page.waitForTimeout(1200);
+  check('finishing Sports opens the Drink Stand', (await shellOf(page))?.stage === 'drink-stand');
+  await page.screenshot({ path: `${OUT}-5b-drink-stand.png` });
+  await page.keyboard.press('Escape');
+  await waitStage(page, 'sports', 'sports after Drink Stand Escape');
+  check('Drink Stand Escape goes to Sports', (await shellOf(page))?.stage === 'sports');
+  await page.evaluate(() => window.__eslDebug.shellFinish(2));
+  await waitStage(page, 'drink-stand', 'drink stand again');
+
+  // ---- Drink Stand -> completion -------------------------------------------
+  await page.evaluate(() => window.__eslDebug.shellFinish(2));
   await waitStage(page, 'complete', 'completion screen');
   const card = page.locator('.sequence-complete');
-  check('finishing the Zoo shows the completion screen', await card.isVisible());
+  check('finishing the Drink Stand shows the completion screen', await card.isVisible());
   check('the completion screen says ぜんぶ できた！',
     (await card.locator('h1').textContent())?.trim() === 'ぜんぶ できた！');
   const names = await card.locator('.sequence-complete__name').allTextContents();
-  check('the completion screen lists only the three stages', names.join(',') === 'Coloring,Restaurant,Zoo', names.join(','));
+  check('the completion screen lists the five stages',
+    names.join(',') === 'Coloring,Restaurant,Zoo,Sports,Drink Stand', names.join(','));
   check('the completion screen has no Back', !(await backVisible(page)));
   await page.screenshot({ path: `${OUT}-5-complete.png` });
   save = await saved(page, SAVE_KEY);
-  check('all three stamps are earned',
-    save.stamps?.coloring && save.stamps?.restaurant && save.stamps?.zoo, JSON.stringify(save.stamps));
-  check('Drink Stand and Sports earned nothing', !save.stamps?.['drink-stand'] && !save.stamps?.sports);
+  check('all five stamps are earned',
+    ['coloring', 'restaurant', 'zoo', 'sports', 'drink-stand'].every((id) => save.stamps?.[id]), JSON.stringify(save.stamps));
 
   // ---- もういちど -> Coloring, keeping every save ----------------------------
   await card.locator('.sequence-complete__replay').click();

@@ -63,8 +63,8 @@ function lesson(fields) {
 export const LESSONS = Object.freeze([
   lesson({ id: 'restaurant', name: 'Restaurant', category: 'food', question: 'What food do you like?', available: true }),
   lesson({ id: 'coloring', name: 'Coloring', category: 'color', question: 'What color do you like?', available: true }),
-  lesson({ id: 'drink-stand', name: 'Drink Stand', category: 'drink', question: 'What drink do you like?', available: false }),
-  lesson({ id: 'sports', name: 'Sports', category: 'sport', question: 'What sport do you like?', available: false }),
+  lesson({ id: 'drink-stand', name: 'Drink Stand', category: 'drink', question: 'What drink do you like?', available: true }),
+  lesson({ id: 'sports', name: 'Sports', category: 'sport', question: 'What sport do you like?', available: true }),
   lesson({ id: 'zoo', name: 'Zoo', category: 'animal', question: 'What animal do you like?', available: true }),
 ]);
 

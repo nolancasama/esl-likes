@@ -104,27 +104,27 @@ function makeShell({ mode = 'sequence', playable = (id) => Boolean(LESSON_BY_ID[
   return { shell, shown, recorded, last: () => shown.at(-1) };
 }
 
-test('the run is Coloring, Restaurant, Zoo and nothing else', () => {
-  assert.deepEqual([...GAME_SEQUENCE], ['coloring', 'restaurant', 'zoo']);
+test('the run is Coloring, Restaurant, Zoo, Sports, Drink Stand and nothing else', () => {
+  assert.deepEqual([...GAME_SEQUENCE], ['coloring', 'restaurant', 'zoo', 'sports', 'drink-stand']);
   assert.ok(Object.isFrozen(GAME_SEQUENCE));
   assert.equal(nextGameAfter('coloring'), 'restaurant');
   assert.equal(nextGameAfter('restaurant'), 'zoo');
-  assert.equal(nextGameAfter('zoo'), null);
-  assert.equal(nextGameAfter('sports'), null);
+  assert.equal(nextGameAfter('zoo'), 'sports');
+  assert.equal(nextGameAfter('sports'), 'drink-stand');
+  assert.equal(nextGameAfter('drink-stand'), null);
+  assert.equal(nextGameAfter(HUB_STAGE), null);
   assert.equal(previousGameBefore('coloring'), null);
   assert.equal(previousGameBefore('restaurant'), 'coloring');
   assert.equal(previousGameBefore('zoo'), 'restaurant');
-  assert.equal(previousGameBefore('drink-stand'), null);
+  assert.equal(previousGameBefore('sports'), 'zoo');
+  assert.equal(previousGameBefore('drink-stand'), 'sports');
 });
 
-test('Drink Stand and Sports are switched off, not removed', () => {
-  assert.equal(LESSON_BY_ID['drink-stand'].available, false);
-  assert.equal(LESSON_BY_ID.sports.available, false);
+test('all five games of the run are available and registered in the shell', () => {
   for (const id of GAME_SEQUENCE) assert.equal(LESSON_BY_ID[id].available, true, id);
-  // Their vocabulary stays, so switching one back on is a one-line change.
+  assert.equal(GAME_SEQUENCE.length, 5);
   assert.ok(LESSON_BY_ID['drink-stand'].answers.length > 0);
   assert.ok(LESSON_BY_ID.sports.answers.length > 0);
-  // Their factories are still imported and registered in the shell.
   assert.match(mainSource, /import \{ createDrinkStand \} from '\.\/minigames\/drinkStand\/index\.js';/);
   assert.match(mainSource, /import \{ createSports \} from '\.\/minigames\/sports\/index\.js';/);
   assert.match(mainSource, /\['drink-stand', createDrinkStand\]/);
@@ -149,9 +149,15 @@ test('each finish records progress and moves one stage forward, ending on the co
   assert.deepEqual(shown.at(-1), { stage: 'zoo', backAvailable: true, transition: true });
 
   await shell.finish('zoo', { stars: 1, detail: { zooPhoto: 'data:image/png;base64,x' } });
+  assert.deepEqual(shown.at(-1), { stage: 'sports', backAvailable: true, transition: true }, 'the Zoo no longer ends the run');
+
+  await shell.finish('sports', { stars: 2 });
+  assert.deepEqual(shown.at(-1), { stage: 'drink-stand', backAvailable: true, transition: true });
+
+  await shell.finish('drink-stand', { stars: 3 });
   assert.deepEqual(shown.at(-1), { stage: COMPLETE_STAGE, backAvailable: false, transition: true });
 
-  assert.deepEqual(recorded.map((entry) => entry.gameId), ['coloring', 'restaurant', 'zoo']);
+  assert.deepEqual(recorded.map((entry) => entry.gameId), ['coloring', 'restaurant', 'zoo', 'sports', 'drink-stand']);
   assert.equal(recorded[2].result.detail.zooPhoto, 'data:image/png;base64,x');
   assert.ok(!shown.some((entry) => entry.stage === HUB_STAGE), 'the sequence never passes through the hub');
 });
@@ -164,8 +170,14 @@ test('Back goes to the previous stage and does nothing in Coloring', async () =>
 
   await shell.finish('coloring');
   await shell.finish('restaurant');
-  assert.equal(shell.current, 'zoo');
+  await shell.finish('zoo');
+  await shell.finish('sports');
+  assert.equal(shell.current, 'drink-stand');
 
+  await shell.back();
+  assert.deepEqual(shown.at(-1), { stage: 'sports', backAvailable: true, transition: true });
+  await shell.back();
+  assert.deepEqual(shown.at(-1), { stage: 'zoo', backAvailable: true, transition: true });
   await shell.back();
   assert.deepEqual(shown.at(-1), { stage: 'restaurant', backAvailable: true, transition: true });
   await shell.back();
@@ -190,6 +202,9 @@ test('もういちど restarts at Coloring from the completion screen only', asy
   await shell.finish('coloring');
   await shell.finish('restaurant');
   await shell.finish('zoo');
+  assert.equal(await shell.restart(), false, 'no replay after the Zoo any more');
+  await shell.finish('sports');
+  await shell.finish('drink-stand');
   assert.equal(shell.current, COMPLETE_STAGE);
   assert.equal(await shell.back(), false, 'no Back on the completion screen');
 
@@ -240,7 +255,10 @@ test('?hub=1 keeps the old free-play room: every finish and Back return to it', 
   const { shell, shown } = makeShell({ mode: 'hub' });
   await shell.start();
   assert.deepEqual(shown.at(-1), { stage: HUB_STAGE, backAvailable: false, transition: false });
-  assert.equal(await shell.enter('sports'), false, 'disabled doors stay shut in the hub too');
+  assert.equal(await shell.enter('nope'), false, 'unknown doors stay shut in the hub');
+  await shell.enter('sports');
+  assert.deepEqual(shown.at(-1), { stage: 'sports', backAvailable: true, transition: true }, 'Sports is a real door again');
+  await shell.back();
   await shell.enter('zoo');
   assert.deepEqual(shown.at(-1), { stage: 'zoo', backAvailable: true, transition: true });
   await shell.back();
@@ -303,10 +321,10 @@ test('Escape follows the stage: kept in Coloring, previous stage elsewhere, loca
   });
 });
 
-test('the stamp book shows only the three stages of the run', async () => {
+test('the stamp book shows the five stages of the run', async () => {
   await withFakeDom(({ root }) => {
     const lessons = activeLessons(LESSON_BY_ID);
-    assert.deepEqual(lessons.map((lesson) => lesson.name), ['Coloring', 'Restaurant', 'Zoo']);
+    assert.deepEqual(lessons.map((lesson) => lesson.name), ['Coloring', 'Restaurant', 'Zoo', 'Sports', 'Drink Stand']);
     const book = createStampBook({
       root,
       progression: { getState: () => ({ stamps: { sports: true }, bestStars: { sports: 3 }, zooPhotos: {} }) },
@@ -315,7 +333,7 @@ test('the stamp book shows only the three stages of the run', async () => {
     });
     book.open();
     const names = root.findAll('stamp-name').map((element) => element.textContent);
-    assert.deepEqual(names, ['Coloring', 'Restaurant', 'Zoo']);
+    assert.deepEqual(names, ['Coloring', 'Restaurant', 'Zoo', 'Sports', 'Drink Stand']);
     book.destroy?.();
   });
   assert.match(mainSource, /lessons: ACTIVE_LESSONS/);
@@ -335,8 +353,8 @@ test('the completion screen lists the run with best stars and replays on もう�
     screen.enter();
     const [section] = root.findAll('sequence-complete');
     assert.equal(section.children[0].children[0].textContent, 'ぜんぶ できた！');
-    assert.deepEqual(root.findAll('sequence-complete__name').map((e) => e.textContent), ['Coloring', 'Restaurant', 'Zoo']);
-    assert.deepEqual(root.findAll('sequence-complete__stars').map((e) => e.textContent), ['★★★', '★★☆', '☆☆☆']);
+    assert.deepEqual(root.findAll('sequence-complete__name').map((e) => e.textContent), ['Coloring', 'Restaurant', 'Zoo', 'Sports', 'Drink Stand']);
+    assert.deepEqual(root.findAll('sequence-complete__stars').map((e) => e.textContent), ['★★★', '★★☆', '☆☆☆', '☆☆☆', '☆☆☆']);
     const [replay] = root.findAll('sequence-complete__replay');
     assert.equal(replay.textContent, 'もういちど');
     replay.click();

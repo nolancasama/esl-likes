@@ -3,7 +3,7 @@
  * room of doors. The shell owns this; no minigame knows what comes before or
  * after it — each one only calls `ctx.finish(result)`.
  */
-export const GAME_SEQUENCE = Object.freeze(['coloring', 'restaurant', 'zoo']);
+export const GAME_SEQUENCE = Object.freeze(['coloring', 'restaurant', 'zoo', 'sports', 'drink-stand']);
 
 /** The two stages that are not minigames. */
 export const HUB_STAGE = 'hub';

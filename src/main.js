@@ -60,8 +60,8 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
 camera.position.set(7.5, 7.5, 10);
 
-// Only the stages of the run are shown to the student. Drink Stand and Sports
-// stay registered below and keep their saved records; they are simply off.
+// Only the stages of the run are shown to the student: the five games of
+// GAME_SEQUENCE, in order. The hub (?hub=1) is outside the student route.
 const ACTIVE_LESSONS = activeLessons(LESSON_BY_ID, GAME_SEQUENCE);
 
 const progression = createProgression();
@@ -107,8 +107,8 @@ const creationsReady = Promise.race([
   new Promise((resolve) => setTimeout(resolve, CREATION_HYDRATE_HEAD_START_MS)),
 ]);
 
-// All five stay registered. Drink Stand and Sports are switched off by
-// `available: false` in the lesson config, so turning one back on is one line.
+// All five are registered. A lesson can be switched off with
+// `available: false` in the lesson config; `isPlayable` then keeps it unreachable.
 const minigames = new Map([
   ['restaurant', createRestaurant],
   ['coloring', createColoring],
