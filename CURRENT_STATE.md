@@ -2,7 +2,8 @@
 
 ## Usage watch
 
-In the latest pass (touch language) the router chose **Claude direct**: Codex was
+2026-10-18: Codex available again (routed the unlock pass); Gemini/`agy-*`
+still quarantined. In the touch-language pass the router chose **Claude direct**: Codex was
 in a usage-limit window (until 2026-10-17 10:53 UTC) and Gemini plus all four
 `agy-*` workers were under the global coding readiness quarantine
 (`baseline-executor-unready [executor antigravity]`). Re-check with
@@ -15,7 +16,43 @@ review around it.
 controller runs git; orders say "edit files only". Fresh clones need `npm ci`
 first — the router skips Codex with `vite is not on PATH` otherwise.
 
-## Latest pass (2026-10-17, later) — one touch language in all five games; tabletop delivery
+## Latest pass (2026-10-18) — UNLOCKED! card between stages; Stamp Book lock states
+
+**Committed and pushed** to `main` at the owner's request. Router chose Codex
+(Sol, `.ai/wo-unlock.json`), accepted after review; Claude added the uppercase
+and larger stage name, the dashed border on unlocked stamps, and the harness
+screenshots. See DESIGN_DECISIONS 2026-10-18.
+
+- **Shell:** `UNLOCK_STAGE` in `gameSequence.js`. In sequence mode a finish
+  records the stamp, then shows `src/ui/stageUnlock.js` (no wipe in, 1.8 s
+  timer, `unlock` SFX at 0.4 s), then `continueFromUnlock()` wipes into the next
+  game. Drink Stand → `complete` directly. Hub mode, Back, restart: never unlock.
+- **Stamp Book:** `stageProgressState()` → earned / unlocked (dashed blue) /
+  locked (🔒, dimmed), derived from stamps only. Note: the Stamp Book button is
+  only in the hub (`?hub=1`); the student route has no way to open it.
+
+### Validation
+
+`npm test` 828/828, build OK. `sequence` harness 77/77 (unlock between every
+pair, correct name, no Back/Escape on the card, Back never passes through the
+card). Known-bad run (card showing `lesson.id`) failed exactly the 9 name checks.
+Screenshots `.tmp/playthrough/sequence/sequence-unlock-*.png` and
+`.tmp/stampbook.png` checked.
+
+### Not verified
+
+Unlock sound not heard (no audio in headless). Reduced-motion card not
+screenshotted (timer-based continuation is unit-tested). No Chromebook run.
+
+### Next Steps
+
+1. Owner: does the unlock card feel long enough and is the chime pleasant on a
+   Chromebook speaker.
+2. Decide whether students should reach the Stamp Book from the sequence route
+   (now only in `?hub=1`).
+3. Earlier items below (touch feel, harness debt) still stand.
+
+## Previous pass (2026-10-17, later) — one touch language in all five games; tabletop delivery
 
 **Committed and pushed** to `main` at the owner's request. Done directly (router:
 no delegating worker available). Orders kept for the record:

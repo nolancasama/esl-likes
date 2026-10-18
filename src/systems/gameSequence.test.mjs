@@ -5,16 +5,19 @@ import test from 'node:test';
 import { LESSON_BY_ID, UI } from '../config/lesson.js';
 import { createBackControl } from '../ui/backControl.js';
 import { createSequenceComplete } from '../ui/sequenceComplete.js';
+import { createStageUnlock } from '../ui/stageUnlock.js';
 import { createStampBook } from '../ui/stampBook.js';
 import {
   COMPLETE_STAGE,
   GAME_SEQUENCE,
   HUB_STAGE,
+  UNLOCK_STAGE,
   activeLessons,
   createShellNavigator,
   nextGameAfter,
   previousGameBefore,
   shellModeFromSearch,
+  stageProgressState,
 } from './gameSequence.js';
 
 const mainSource = readFileSync(new URL('../main.js', import.meta.url), 'utf8');
@@ -138,21 +141,23 @@ test('startup goes straight to Coloring with no Back', async () => {
   assert.equal(shell.current, 'coloring');
 });
 
-test('each finish records progress and moves one stage forward, ending on the completion screen', async () => {
+test('each finish records progress, shows an unlock without a wipe, then wipes into the next game', async () => {
   const { shell, shown, recorded } = makeShell();
   await shell.start();
 
-  await shell.finish('coloring', { stars: 2 });
-  assert.deepEqual(shown.at(-1), { stage: 'restaurant', backAvailable: true, transition: true });
-
-  await shell.finish('restaurant', { stars: 3 });
-  assert.deepEqual(shown.at(-1), { stage: 'zoo', backAvailable: true, transition: true });
-
-  await shell.finish('zoo', { stars: 1, detail: { zooPhoto: 'data:image/png;base64,x' } });
-  assert.deepEqual(shown.at(-1), { stage: 'sports', backAvailable: true, transition: true }, 'the Zoo no longer ends the run');
-
-  await shell.finish('sports', { stars: 2 });
-  assert.deepEqual(shown.at(-1), { stage: 'drink-stand', backAvailable: true, transition: true });
+  const results = [{ stars: 2 }, { stars: 3 }, { stars: 1, detail: { zooPhoto: 'data:image/png;base64,x' } }, { stars: 2 }];
+  for (const [index, result] of results.entries()) {
+    const completed = GAME_SEQUENCE[index];
+    const next = GAME_SEQUENCE[index + 1];
+    await shell.finish(completed, result);
+    assert.deepEqual(shown.at(-1), {
+      stage: UNLOCK_STAGE, backAvailable: false, transition: false, unlock: { completed, next },
+    });
+    assert.equal(recorded.at(-1).gameId, completed, 'progress is recorded before the unlock');
+    assert.equal(shell.canGoBack(), false);
+    await shell.continueFromUnlock();
+    assert.deepEqual(shown.at(-1), { stage: next, backAvailable: true, transition: true });
+  }
 
   await shell.finish('drink-stand', { stars: 3 });
   assert.deepEqual(shown.at(-1), { stage: COMPLETE_STAGE, backAvailable: false, transition: true });
@@ -169,9 +174,13 @@ test('Back goes to the previous stage and does nothing in Coloring', async () =>
   assert.equal(shown.length, 1, 'Coloring has nowhere to go back to');
 
   await shell.finish('coloring');
+  await shell.continueFromUnlock();
   await shell.finish('restaurant');
+  await shell.continueFromUnlock();
   await shell.finish('zoo');
+  await shell.continueFromUnlock();
   await shell.finish('sports');
+  await shell.continueFromUnlock();
   assert.equal(shell.current, 'drink-stand');
 
   await shell.back();
@@ -188,9 +197,13 @@ test('a stage that was gone back to can be finished again and the run carries on
   const { shell, recorded, last } = makeShell();
   await shell.start();
   await shell.finish('coloring');
+  await shell.continueFromUnlock();
   await shell.finish('restaurant');
+  await shell.continueFromUnlock();
   await shell.back();
   await shell.finish('restaurant', { stars: 1 });
+  assert.equal(last().stage, UNLOCK_STAGE);
+  await shell.continueFromUnlock();
   assert.equal(last().stage, 'zoo');
   assert.deepEqual(recorded.map((entry) => entry.gameId), ['coloring', 'restaurant', 'restaurant']);
 });
@@ -200,10 +213,14 @@ test('もういちど restarts at Coloring from the completion screen only', asy
   await shell.start();
   assert.equal(await shell.restart(), false, 'no replay mid-run');
   await shell.finish('coloring');
+  await shell.continueFromUnlock();
   await shell.finish('restaurant');
+  await shell.continueFromUnlock();
   await shell.finish('zoo');
+  await shell.continueFromUnlock();
   assert.equal(await shell.restart(), false, 'no replay after the Zoo any more');
   await shell.finish('sports');
+  await shell.continueFromUnlock();
   await shell.finish('drink-stand');
   assert.equal(shell.current, COMPLETE_STAGE);
   assert.equal(await shell.back(), false, 'no Back on the completion screen');
@@ -220,7 +237,8 @@ test('only the current game can finish, and only once', async () => {
   assert.equal(await shell.finish('coloring'), false, 'a second finish while routing is ignored');
   await first;
   assert.equal(recorded.length, 1);
-  assert.deepEqual(shown.map((entry) => entry.stage), ['coloring', 'restaurant']);
+  assert.deepEqual(shown.map((entry) => entry.stage), ['coloring', UNLOCK_STAGE]);
+  assert.equal(await shell.finish('coloring'), false, 'a finished controller cannot finish during unlock');
 });
 
 test('a refused transition leaves the shell where it was and able to finish again', async () => {
@@ -235,7 +253,7 @@ test('a refused transition leaves the shell where it was and able to finish agai
   assert.equal(shell.current, 'coloring');
   refuse = false;
   assert.equal(await shell.finish('coloring'), true);
-  assert.equal(shell.current, 'restaurant');
+  assert.equal(shell.current, UNLOCK_STAGE);
 });
 
 test('disabled games and the hub are unreachable in the sequence', async () => {
@@ -245,6 +263,54 @@ test('disabled games and the hub are unreachable in the sequence', async () => {
   assert.equal(await shell.enter('sports'), false);
   assert.equal(await shell.enter('restaurant'), false, 'the sequence offers no door choice');
   assert.deepEqual(shown.map((entry) => entry.stage), ['coloring']);
+});
+
+test('unlock cannot be entered, finished, restarted, or reached with Back', async () => {
+  const { shell, shown } = makeShell();
+  await shell.start();
+  assert.equal(await shell.continueFromUnlock(), false);
+  assert.equal(await shell.enter(UNLOCK_STAGE), false);
+  await shell.finish('coloring');
+  const count = shown.length;
+  assert.equal(await shell.back(), false);
+  assert.equal(await shell.restart(), false);
+  assert.equal(await shell.enter('restaurant'), false);
+  assert.equal(await shell.finish(UNLOCK_STAGE), false);
+  assert.equal(shown.length, count);
+  await shell.continueFromUnlock();
+  assert.equal(await shell.continueFromUnlock(), false, 'continuation is consumed once');
+  await shell.back();
+  assert.equal(shell.current, 'coloring');
+  assert.equal(shown.at(-1).transition, true);
+});
+
+test('refused unlock continuation can retry the pending next game', async () => {
+  let refuse = false;
+  const shell = createShellNavigator({
+    isPlayable: () => true,
+    show: async () => !refuse,
+  });
+  await shell.start();
+  await shell.finish('coloring');
+  refuse = true;
+  assert.equal(await shell.continueFromUnlock(), false);
+  assert.equal(shell.current, UNLOCK_STAGE);
+  refuse = false;
+  assert.equal(await shell.continueFromUnlock(), true);
+  assert.equal(shell.current, 'restaurant');
+});
+
+test('stamp progress derives earned, unlocked and locked states from predecessor stamps', () => {
+  const stamps = Object.freeze({ restaurant: true, sports: true });
+  assert.equal(stageProgressState('coloring', stamps), 'unlocked');
+  assert.equal(stageProgressState('restaurant', stamps), 'earned');
+  assert.equal(stageProgressState('zoo', stamps), 'unlocked');
+  assert.equal(stageProgressState('sports', stamps), 'earned');
+  assert.equal(stageProgressState('drink-stand', stamps), 'unlocked');
+  assert.equal(stageProgressState('restaurant', {}), 'locked');
+  assert.equal(stageProgressState('nope', stamps), 'locked');
+  assert.equal(stageProgressState('second', { first: true }, ['first', 'second']), 'unlocked');
+  assert.equal(stageProgressState('second', {}, ['first', 'second']), 'locked');
 });
 
 test('?hub=1 keeps the old free-play room: every finish and Back return to it', async () => {
@@ -267,6 +333,8 @@ test('?hub=1 keeps the old free-play room: every finish and Back return to it', 
   assert.deepEqual(shown.at(-1), { stage: 'coloring', backAvailable: true, transition: true });
   await shell.finish('coloring');
   assert.equal(shell.current, HUB_STAGE);
+  assert.ok(!shown.some((entry) => entry.stage === UNLOCK_STAGE));
+  assert.equal(await shell.enter(UNLOCK_STAGE), false);
 });
 
 test('Escape follows the stage: kept in Coloring, previous stage elsewhere, local guards first', async () => {
@@ -290,8 +358,14 @@ test('Escape follows the stage: kept in Coloring, previous stage elsewhere, loca
     assert.equal(shell.current, 'coloring', 'Escape does not leave Coloring');
 
     await shell.finish('coloring');
+    assert.equal(back.element.hidden, true, 'no Back during unlock');
+    assert.equal(escape().defaultPrevented, false);
+    await settle();
+    assert.equal(shell.current, UNLOCK_STAGE);
+    await shell.continueFromUnlock();
     assert.equal(back.element.hidden, false, 'Back appears in the Restaurant');
     await shell.finish('restaurant');
+    await shell.continueFromUnlock();
     assert.equal(back.element.hidden, false, 'Back stays in the Zoo');
 
     // The Zoo's viewfinder (or Settings) takes Escape before the shell does.
@@ -334,10 +408,87 @@ test('the stamp book shows the five stages of the run', async () => {
     book.open();
     const names = root.findAll('stamp-name').map((element) => element.textContent);
     assert.deepEqual(names, ['Coloring', 'Restaurant', 'Zoo', 'Sports', 'Drink Stand']);
+    const stamps = root.findAll('stamp');
+    assert.equal(stamps[0].children[0].textContent, '○');
+    assert.equal(stamps[0].children[2].textContent, 'UNLOCKED');
+    assert.equal(stamps[1].children[0].textContent, '🔒');
+    assert.equal(stamps[1].children[2].textContent, 'LOCKED');
+    assert.equal(stamps[1].classList.contains('is-locked'), true);
+    assert.equal(stamps[2].classList.contains('is-locked'), true);
+    assert.equal(stamps[3].classList.contains('is-earned'), true);
+    assert.match(stamps[3].children[2].textContent, /3/);
+    assert.equal(stamps[4].children[2].textContent, 'UNLOCKED');
+    assert.equal(stamps[4].classList.contains('is-locked'), false);
+    assert.ok(stamps.every((stamp) => stamp.tagName === 'ARTICLE' && !stamp.listeners.has('click')));
     book.destroy?.();
   });
   assert.match(mainSource, /lessons: ACTIVE_LESSONS/);
   assert.doesNotMatch(mainSource, /lessons: LESSONS\b/);
+});
+
+test('unlock card automatically continues once and plays its delayed reward sound', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withFakeDom(({ root }) => {
+    let completions = 0;
+    const sounds = [];
+    const screen = createStageUnlock({
+      root,
+      lesson: LESSON_BY_ID.restaurant,
+      strings: { title: 'UNLOCKED!' },
+      audio: { playSfx: (name) => sounds.push(name) },
+      onComplete: () => { completions += 1; },
+    });
+    screen.enter();
+    const [section] = root.findAll('stage-unlock');
+    assert.ok(section);
+    assert.equal(root.findAll('stage-unlock__title')[0].textContent, 'UNLOCKED!');
+    assert.equal(root.findAll('stage-unlock__name')[0].textContent, 'Restaurant');
+    const descendants = (element) => [element, ...element.children.flatMap(descendants)];
+    assert.ok(descendants(section).every((element) => element.tagName !== 'BUTTON' && element.tagName !== 'P'));
+    t.mock.timers.tick(399);
+    assert.deepEqual(sounds, []);
+    assert.equal(completions, 0);
+    t.mock.timers.tick(1);
+    assert.deepEqual(sounds, ['unlock']);
+    t.mock.timers.tick(1399);
+    assert.equal(completions, 0);
+    t.mock.timers.tick(1);
+    assert.equal(completions, 1, 'completion does not need an animationend event');
+    t.mock.timers.tick(5000);
+    assert.equal(completions, 1);
+    screen.exit();
+    assert.equal(section.removed, true);
+  });
+});
+
+test('exiting or reentering unlock clears old sound and continuation timers', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withFakeDom(({ root }) => {
+    let completions = 0;
+    const sounds = [];
+    const screen = createStageUnlock({
+      root,
+      lesson: LESSON_BY_ID.zoo,
+      strings: { title: 'UNLOCKED!' },
+      audio: { playSfx: (name) => sounds.push(name) },
+      durationMs: 900,
+      onComplete: () => { completions += 1; },
+    });
+    screen.enter();
+    t.mock.timers.tick(200);
+    screen.exit();
+    t.mock.timers.tick(1000);
+    assert.deepEqual(sounds, []);
+    assert.equal(completions, 0);
+    screen.enter();
+    t.mock.timers.tick(200);
+    screen.enter();
+    t.mock.timers.tick(400);
+    assert.deepEqual(sounds, ['unlock'], 'only the current enter plays sound');
+    t.mock.timers.tick(500);
+    assert.equal(completions, 1);
+    screen.exit();
+  });
 });
 
 test('the completion screen lists the run with best stars and replays on もういちど', async () => {

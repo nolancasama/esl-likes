@@ -1,4 +1,5 @@
 import { formatUi } from '../config/lesson.js';
+import { stageProgressState } from '../systems/gameSequence.js';
 import { SHELL_MODAL_ESCAPE_PRIORITY } from './backControl.js';
 
 function makeElement(tag, className, text) {
@@ -30,16 +31,17 @@ export function createStampBook({ root, progression, lessons, strings, registerE
     const state = progression.getState();
     grid.replaceChildren();
     for (const lesson of lessons) {
-      const earned = Boolean(state.stamps[lesson.id]);
-      const stamp = makeElement('article', `stamp${earned ? ' is-earned' : ''}`);
-      const mark = makeElement('div', 'stamp-mark', earned ? '★' : '○');
+      const progress = stageProgressState(lesson.id, state.stamps);
+      const earned = progress === 'earned';
+      const stamp = makeElement('article', `stamp is-${progress}`);
+      const mark = makeElement('div', 'stamp-mark', earned ? '★' : progress === 'locked' ? '🔒' : '○');
       const name = makeElement('div', 'stamp-name', lesson.name);
       const status = makeElement(
         'div',
         'stamp-status',
         earned
           ? `${strings.earned} ${formatUi(strings.stars, { count: state.bestStars[lesson.id] || 0 })}`
-          : strings.notEarned,
+          : strings[progress],
       );
       stamp.append(mark, name, status);
 

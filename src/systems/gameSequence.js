@@ -5,9 +5,10 @@
  */
 export const GAME_SEQUENCE = Object.freeze(['coloring', 'restaurant', 'zoo', 'sports', 'drink-stand']);
 
-/** The two stages that are not minigames. */
+/** Stages that are not minigames. */
 export const HUB_STAGE = 'hub';
 export const COMPLETE_STAGE = 'complete';
+export const UNLOCK_STAGE = 'unlock';
 
 /**
  * `sequence` is the normal student flow. `hub` is the old five-door free-play
@@ -33,6 +34,12 @@ export function previousGameBefore(id, sequence = GAME_SEQUENCE) {
 
 export function activeLessons(lessonById, sequence = GAME_SEQUENCE) {
   return Object.freeze(sequence.map((id) => lessonById[id]).filter(Boolean));
+}
+
+export function stageProgressState(id, stamps, sequence = GAME_SEQUENCE) {
+  if (stamps[id]) return 'earned';
+  const index = gameIndex(id, sequence);
+  return index === 0 || (index > 0 && stamps[sequence[index - 1]]) ? 'unlocked' : 'locked';
 }
 
 /** Reads the shell mode from a query string; anything but `?hub` is the sequence. */
@@ -63,8 +70,9 @@ export function createShellNavigator({
   let current = null;
   let routing = false;
   let finishing = false;
+  let pendingNext = null;
 
-  const isGame = (stage) => stage !== HUB_STAGE && stage !== COMPLETE_STAGE;
+  const isGame = (stage) => stage !== HUB_STAGE && stage !== COMPLETE_STAGE && stage !== UNLOCK_STAGE;
 
   function backTarget(stage) {
     if (!isGame(stage)) return null;
@@ -77,7 +85,7 @@ export function createShellNavigator({
     return nextGameAfter(gameId, sequence) ?? COMPLETE_STAGE;
   }
 
-  async function go(stage, { transition = true } = {}) {
+  async function go(stage, { transition = true, unlock } = {}) {
     if (routing || !stage) return false;
     if (isGame(stage) && !isPlayable(stage)) return false;
     if (stage === HUB_STAGE && mode !== HUB_STAGE) return false;
@@ -86,7 +94,7 @@ export function createShellNavigator({
     current = stage;
     let shown = false;
     try {
-      shown = (await show(stage, { backAvailable: backTarget(stage) !== null, transition })) !== false;
+      shown = (await show(stage, { backAvailable: backTarget(stage) !== null, transition, ...(unlock ? { unlock } : {}) })) !== false;
     } finally {
       if (!shown) current = previous;
       routing = false;
@@ -104,12 +112,12 @@ export function createShellNavigator({
     },
     /** From the hub's doors. The sequence never offers a choice. */
     enter(id) {
-      if (mode !== HUB_STAGE || current !== HUB_STAGE) return Promise.resolve(false);
+      if (mode !== HUB_STAGE || current !== HUB_STAGE || !isGame(id)) return Promise.resolve(false);
       return go(id);
     },
     finish(gameId, result = {}) {
       // A controller that has already been replaced cannot finish the run.
-      if (finishing || routing || gameId !== current) return Promise.resolve(false);
+      if (finishing || routing || !isGame(gameId) || gameId !== current) return Promise.resolve(false);
       finishing = true;
       try {
         record(gameId, result);
@@ -117,7 +125,18 @@ export function createShellNavigator({
         finishing = false;
         throw error;
       }
-      return go(finishTarget(gameId));
+      const next = finishTarget(gameId);
+      if (mode === 'sequence' && isGame(next)) {
+        pendingNext = next;
+        return go(UNLOCK_STAGE, { transition: false, unlock: { completed: gameId, next } });
+      }
+      return go(next);
+    },
+    async continueFromUnlock() {
+      if (current !== UNLOCK_STAGE || routing || !pendingNext) return false;
+      const shown = await go(pendingNext);
+      if (shown) pendingNext = null;
+      return shown;
     },
     back() {
       if (routing) return Promise.resolve(false);

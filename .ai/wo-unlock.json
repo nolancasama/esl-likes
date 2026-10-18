@@ -1,0 +1,62 @@
+{
+  "task": "Add a shell-level UNLOCKED! reward screen between stages of the linear run, and show earned/unlocked/locked states in the Stamp Book",
+  "requirements": [
+    "gameSequence.js: export UNLOCK_STAGE='unlock'; it is a non-game stage (backTarget null). In sequence mode, finish(gameId) records, then if nextGameAfter(gameId) is a game it shows UNLOCK_STAGE (transition:false, backAvailable:false) passing {completed, next} via show's options as `unlock`; the last game still goes straight to COMPLETE_STAGE with a transition. Hub mode is unchanged (finish -> hub, no unlock).",
+    "Navigator gains continueFromUnlock(): only acts when current===UNLOCK_STAGE; goes to the pending next game with the normal wipe transition. back(), restart(), enter() never show unlock.",
+    "Export pure stageProgressState(id, stamps, sequence=GAME_SEQUENCE) -> 'earned' | 'unlocked' | 'locked': earned if stamps[id]; else first stage is unlocked; else unlocked iff predecessor stamped; else locked.",
+    "New src/ui/stageUnlock.js createStageUnlock({root, lesson, strings, audio, onComplete, durationMs=1800}) controller (enter/update/exit like sequenceComplete.js): full-screen opaque celebratory card, big CSS/emoji open-lock icon, 'UNLOCKED!', large lesson.name. No buttons, no paragraph. Plays audio.playSfx('unlock') ~400ms after enter; calls onComplete once via setTimeout(durationMs) — never depends on animationend. exit clears timers.",
+    "styles.css: pop-in animations (lock shackle opens, text scales in); under prefers-reduced-motion: no animation, static open lock, same timing.",
+    "audio.js: add 'unlock' SFX distinguishable from complete/interact/accept: a short rising three-note triangle arpeggio (e.g. C6-E6-G6), gain ~0.1. Extend playSfx to support a `notes` list of steps if needed; existing SFX unchanged.",
+    "main.js: makeStage handles UNLOCK_STAGE using the unlock payload, onComplete: () => shellRoute.continueFromUnlock(). __eslDebug.shell keeps reporting stage ('unlock' while shown).",
+    "stampBook.js: per lesson render state from stageProgressState: earned keeps current presentation; unlocked shows ○ + 'UNLOCKED'; locked shows 🔒 + 'LOCKED', class is-locked, dimmed (not error-looking). Entries are not clickable. Strings go in UI.stampBook in lesson.js (English main labels).",
+    "Restaurant's どうぶつえんへ exit already calls ctx.finish, so it must route through the unlock with no Restaurant change.",
+    "Update scripts/playthrough-sequence.mjs so it tolerates/asserts the unlock stage between games and that Back never shows it.",
+    "Record the decision in DESIGN_DECISIONS.md (date 2026-10-18: shell unlock stage, no wipe into the card, derived stamp-book states, rejected: per-game unlock logic, persistent unlock DB, level select)."
+  ],
+  "constraints": [
+    "Do not modify any minigame under src/minigames/.",
+    "No new persistent storage; stamps are the source of truth.",
+    "No Continue button; no level-select from the Stamp Book.",
+    "Edit files only; do not commit.",
+    "Edit files with your structured patch/edit tool. If a shell-based edit fails once because of quoting or escaping, switch to the structured mechanism."
+  ],
+  "startingPoints": [
+    "src/systems/gameSequence.js",
+    "src/systems/gameSequence.test.mjs",
+    "src/main.js",
+    "src/ui/sequenceComplete.js",
+    "src/ui/stampBook.js",
+    "src/systems/audio.js",
+    "src/config/lesson.js",
+    "src/styles.css",
+    "scripts/playthrough-sequence.mjs"
+  ],
+  "validation": [
+    "npm test",
+    "npm run build"
+  ],
+  "tests": [
+    "each of coloring/restaurant/zoo/sports finish shows unlock with the correct next lesson, then continueFromUnlock enters it",
+    "drink-stand finish goes to complete with no unlock",
+    "back never shows unlock; restart starts at coloring; hub finish returns to hub",
+    "stageProgressState rules incl. coloring always unlocked, earned wins",
+    "stageUnlock auto-continues via timer with no animation events, shows lesson name, onComplete once",
+    "stamp book renders earned/unlocked/locked classes and labels"
+  ],
+  "category": "feature",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller views the unlock card in the browser and runs the sequence harness."
+  },
+  "notes": [
+    "Read DESIGN_DECISIONS.md entries about the shell navigator / GAME_SEQUENCE (2026-09-28, 2026-10-17) before editing; minigames only call ctx.finish(result).",
+    "Current flow: navigator.finish -> record (recordFinish plays audio complete) -> go(next) with wipe via transitions.run. The unlock card replaces the finished game WITHOUT a wipe (opaque card covers the canvas), then the exit to the next game uses the normal wipe; total time stays ~2.4s.",
+    "The existing FakeElement DOM in gameSequence.test.mjs can be reused for UI tests; use fake timers (mock.timers from node:test) for the auto-continue test.",
+    "Kids are Japanese elementary students: big bold text, bright colours matching the existing sequence-complete card palette in styles.css."
+  ]
+}

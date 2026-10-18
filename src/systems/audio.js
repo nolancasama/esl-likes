@@ -4,6 +4,14 @@ const SFX = Object.freeze({
   interact: { frequency: 440, endFrequency: 520, duration: 0.08 },
   retry: { frequency: 260, endFrequency: 210, duration: 0.14 },
   stamp: { frequency: 740, endFrequency: 520, duration: 0.18 },
+  unlock: {
+    type: 'triangle', gain: 0.1,
+    notes: [
+      { frequency: 1046.5, duration: 0.12 },
+      { frequency: 1318.5, duration: 0.12 },
+      { frequency: 1568, duration: 0.22 },
+    ],
+  },
 });
 
 function readVolume(settings) {
@@ -109,25 +117,28 @@ export function createAudio(settings = {}) {
 
   function playSfx(name, options = {}) {
     const definition = SFX[name] ?? options;
-    if (!definition?.frequency || readVolume(settings) <= 0 || !ensureContext()) return;
+    if ((!definition?.frequency && !definition?.notes) || readVolume(settings) <= 0 || !ensureContext()) return;
     try {
       syncVolume();
-      const now = context.currentTime;
-      const duration = definition.duration ?? 0.1;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = definition.type ?? 'sine';
-      oscillator.frequency.setValueAtTime(definition.frequency, now);
-      oscillator.frequency.exponentialRampToValueAtTime(
-        Math.max(1, definition.endFrequency ?? definition.frequency),
-        now + duration,
-      );
-      gain.gain.setValueAtTime(options.gain ?? 0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-      oscillator.connect(gain);
-      gain.connect(masterGain);
-      oscillator.start(now);
-      oscillator.stop(now + duration);
+      let now = context.currentTime;
+      for (const note of definition.notes ?? [definition]) {
+        const duration = note.duration ?? definition.duration ?? 0.1;
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = definition.type ?? 'sine';
+        oscillator.frequency.setValueAtTime(note.frequency, now);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          Math.max(1, note.endFrequency ?? note.frequency),
+          now + duration,
+        );
+        gain.gain.setValueAtTime(options.gain ?? definition.gain ?? 0.12, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        oscillator.connect(gain);
+        gain.connect(masterGain);
+        oscillator.start(now);
+        oscillator.stop(now + duration);
+        now += duration;
+      }
     } catch {
       // A blocked AudioContext never blocks play.
     }

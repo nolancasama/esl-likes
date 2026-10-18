@@ -40,6 +40,31 @@ async function poll(read, predicate, timeoutMs, what) {
 
 const waitStage = (page, stage, what = stage) => poll(() => shellOf(page),
   (shell) => shell?.stage === stage && !shell.routing, 12000, `stage ${what}`);
+async function waitUnlockedNext(page, next, what = next) {
+  const unlock = await waitStage(page, 'unlock', `unlock before ${what}`);
+  check(`${what}: shell shows the unlock stage`, Boolean(unlock));
+  check(`${what}: unlock card names the next lesson`,
+    await page.locator('.stage-unlock__name').textContent() === ({
+      restaurant: 'Restaurant', zoo: 'Zoo', sports: 'Sports', 'drink-stand': 'Drink Stand',
+    })[next]);
+  check(`${what}: unlock has no Back`, !(await backVisible(page)));
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: `${OUT}-unlock-${next}.png` });
+  await page.keyboard.press('Escape');
+  check(`${what}: Escape stays on unlock`, (await shellOf(page))?.stage === 'unlock');
+  return waitStage(page, next, what);
+}
+
+async function waitBackStage(page, stage, what) {
+  let sawUnlock = false;
+  const result = await poll(async () => {
+    const shell = await shellOf(page);
+    if (shell?.stage === 'unlock') sawUnlock = true;
+    return shell;
+  }, (shell) => shell?.stage === stage && !shell.routing, 12000, what);
+  check(`${what}: Back never shows unlock`, !sawUnlock);
+  return result;
+}
 const waitColoring = (page, predicate, timeoutMs, what) => poll(() => coloringOf(page), predicate, timeoutMs, what);
 
 async function hold(page, keys, ms) {
@@ -145,7 +170,7 @@ async function main() {
 
   // ---- Forward: Coloring -> Restaurant, by Coloring's own finish ----------
   await completeColoring(page, 'first Coloring');
-  await waitStage(page, 'restaurant', 'restaurant after Coloring');
+  await waitUnlockedNext(page, 'restaurant', 'restaurant after Coloring');
   await page.waitForTimeout(1200);
   check('finishing Coloring opens the Restaurant', (await shellOf(page))?.stage === 'restaurant');
   check('Back appears in the Restaurant', await backVisible(page));
@@ -155,7 +180,7 @@ async function main() {
 
   // ---- Back: Restaurant -> fresh Coloring, creations kept ----------------
   await page.keyboard.press('Escape');
-  await waitStage(page, 'coloring', 'coloring after Restaurant Back');
+  await waitBackStage(page, 'coloring', 'coloring after Restaurant Back');
   const back = await waitColoring(page, (d) => d?.persistence?.count >= 1, 9000, 'saved creation');
   check('Restaurant Escape goes back to Coloring', Boolean(back));
   check('the saved creation is still there', back?.persistence?.count === 1, JSON.stringify(back?.persistence));
@@ -163,53 +188,53 @@ async function main() {
   await page.screenshot({ path: `${OUT}-3-back-to-coloring.png` });
 
   await completeColoring(page, 'second Coloring');
-  await waitStage(page, 'restaurant', 'restaurant again');
+  await waitUnlockedNext(page, 'restaurant', 'restaurant again');
   check('finishing Coloring again opens the Restaurant again', (await shellOf(page))?.stage === 'restaurant');
   save = await saved(page, SAVE_KEY);
 
   // ---- Restaurant -> Zoo, Zoo Back -> fresh Restaurant --------------------
   await page.evaluate(() => window.__eslDebug.shellFinish(2));
-  await waitStage(page, 'zoo', 'zoo');
+  await waitUnlockedNext(page, 'zoo', 'zoo');
   await page.waitForTimeout(1500);
   check('finishing the Restaurant opens the Zoo', (await shellOf(page))?.stage === 'zoo');
   check('Back stays in the Zoo', await backVisible(page));
   await page.screenshot({ path: `${OUT}-4-zoo.png` });
   await page.locator('.shell-back-control').click();
-  await waitStage(page, 'restaurant', 'restaurant after Zoo Back');
+  await waitBackStage(page, 'restaurant', 'restaurant after Zoo Back');
   check('Zoo Back goes to the Restaurant', (await shellOf(page))?.stage === 'restaurant');
 
   await page.evaluate(() => window.__eslDebug.shellFinish(3));
-  await waitStage(page, 'zoo', 'zoo again');
+  await waitUnlockedNext(page, 'zoo', 'zoo again');
   await page.waitForTimeout(800);
   await page.keyboard.press('Escape');
-  await waitStage(page, 'restaurant', 'restaurant after Zoo Escape');
+  await waitBackStage(page, 'restaurant', 'restaurant after Zoo Escape');
   check('Zoo Escape goes to the Restaurant', (await shellOf(page))?.stage === 'restaurant');
   await page.evaluate(() => window.__eslDebug.shellFinish(3));
-  await waitStage(page, 'zoo', 'zoo a third time');
+  await waitUnlockedNext(page, 'zoo', 'zoo a third time');
 
   // ---- Zoo -> Sports -> Drink Stand, Back one stage each -------------------
   await page.evaluate(() => window.__eslDebug.shellFinish(1));
-  await waitStage(page, 'sports', 'sports');
+  await waitUnlockedNext(page, 'sports', 'sports');
   await page.waitForTimeout(1200);
   check('finishing the Zoo opens Sports', (await shellOf(page))?.stage === 'sports');
   check('Back stays in Sports', await backVisible(page));
   await page.screenshot({ path: `${OUT}-5a-sports.png` });
   await page.locator('.shell-back-control').click();
-  await waitStage(page, 'zoo', 'zoo after Sports Back');
+  await waitBackStage(page, 'zoo', 'zoo after Sports Back');
   check('Sports Back goes to the Zoo', (await shellOf(page))?.stage === 'zoo');
   await page.evaluate(() => window.__eslDebug.shellFinish(1));
-  await waitStage(page, 'sports', 'sports again');
+  await waitUnlockedNext(page, 'sports', 'sports again');
 
   await page.evaluate(() => window.__eslDebug.shellFinish(2));
-  await waitStage(page, 'drink-stand', 'drink stand');
+  await waitUnlockedNext(page, 'drink-stand', 'drink stand');
   await page.waitForTimeout(1200);
   check('finishing Sports opens the Drink Stand', (await shellOf(page))?.stage === 'drink-stand');
   await page.screenshot({ path: `${OUT}-5b-drink-stand.png` });
   await page.keyboard.press('Escape');
-  await waitStage(page, 'sports', 'sports after Drink Stand Escape');
+  await waitBackStage(page, 'sports', 'sports after Drink Stand Escape');
   check('Drink Stand Escape goes to Sports', (await shellOf(page))?.stage === 'sports');
   await page.evaluate(() => window.__eslDebug.shellFinish(2));
-  await waitStage(page, 'drink-stand', 'drink stand again');
+  await waitUnlockedNext(page, 'drink-stand', 'drink stand again');
 
   // ---- Drink Stand -> completion -------------------------------------------
   await page.evaluate(() => window.__eslDebug.shellFinish(2));

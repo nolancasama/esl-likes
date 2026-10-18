@@ -140,6 +140,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .stamp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-top: 18px; }
 .stamp { min-height: 145px; display: grid; place-items: center; align-content: center; padding: 12px; border-radius: 22px; background: #e7eef4; text-align: center; }
 .stamp.is-earned { background: #fff0a8; border: 4px solid #ffbf2f; }
+.stamp.is-unlocked { border: 4px dashed #76c7ff; }
+.stamp.is-locked { opacity: 0.55; }
 .stamp-mark { font-size: 2.5rem; filter: grayscale(1); }
 .stamp.is-earned .stamp-mark { filter: none; }
 .stamp-name { font-size: 1.05rem; font-weight: 900; }
@@ -183,6 +185,67 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   color: #26384d;
   font-size: 1.5rem;
   font-weight: 900;
+}
+
+.stage-unlock {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #76c7ff;
+  pointer-events: auto;
+}
+.stage-unlock__card {
+  display: grid;
+  justify-items: center;
+  gap: 24px;
+  width: min(600px, 100%);
+  padding: 48px 24px;
+  border: 6px solid #ffbf2f;
+  border-radius: 36px;
+  background: #fff9e9;
+  box-shadow: 0 10px 0 rgb(48 68 93 / 24%);
+  text-align: center;
+  animation: unlock-pop 350ms both;
+}
+.stage-unlock__lock {
+  position: relative;
+  width: 96px;
+  height: 80px;
+  margin-top: 52px;
+  border: 5px solid #e5a000;
+  border-radius: 18px;
+  background: #ffcf4b;
+}
+.stage-unlock__lock::after { content: '★'; color: #fff9e9; font-size: 48px; line-height: 70px; }
+.stage-unlock__shackle {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  left: 11px;
+  top: -56px;
+  border: 12px solid #30445d;
+  border-bottom: 0;
+  border-radius: 40px 40px 0 0;
+  transform-origin: right bottom;
+  transform: translateY(-8px) rotate(28deg);
+  animation: unlock-shackle 400ms 150ms both;
+}
+.stage-unlock__title { margin: 0; color: #30445d; font-size: clamp(2.4rem, 7vw, 4rem); font-weight: 900; animation: unlock-pop 400ms 350ms both; }
+.stage-unlock__name { color: #c84875; text-transform: uppercase; letter-spacing: 0.04em; font-size: clamp(2.4rem, 7vw, 3.8rem); font-weight: 900; animation: unlock-pop 400ms 500ms both; }
+@keyframes unlock-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  70% { opacity: 1; transform: scale(1.08); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes unlock-shackle {
+  from { transform: translateY(0) rotate(0); }
+  to { transform: translateY(-8px) rotate(28deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-unlock__card, .stage-unlock__shackle, .stage-unlock__title, .stage-unlock__name { animation: none; }
 }
 
 #scene-wipe {

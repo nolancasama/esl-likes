@@ -9,6 +9,7 @@ import { createCharacterSystem } from './systems/characters.js';
 import { createDialogue } from './systems/dialogue.js';
 import {
   COMPLETE_STAGE,
+  UNLOCK_STAGE,
   GAME_SEQUENCE,
   HUB_STAGE,
   activeLessons,
@@ -24,6 +25,7 @@ import { createBackControl } from './ui/backControl.js';
 import { createHud } from './ui/hud.js';
 import { createSequenceComplete } from './ui/sequenceComplete.js';
 import { createStampBook } from './ui/stampBook.js';
+import { createStageUnlock } from './ui/stageUnlock.js';
 import { createHub } from './scenes/hub.js';
 import { createRestaurant } from './minigames/restaurant/index.js';
 import { createColoring } from './minigames/coloring/index.js';
@@ -209,8 +211,17 @@ function makeMinigame(id) {
   return minigames.get(id)(ctx);
 }
 
-function makeStage(stage) {
+function makeStage(stage, unlock) {
   if (stage === HUB_STAGE) return makeHub();
+  if (stage === UNLOCK_STAGE) {
+    return createStageUnlock({
+      root: uiRoot,
+      lesson: LESSON_BY_ID[unlock.next],
+      strings: UI.stageUnlock,
+      audio,
+      onComplete: () => shellRoute.continueFromUnlock(),
+    });
+  }
   if (stage === COMPLETE_STAGE) {
     return createSequenceComplete({
       root: uiRoot,
@@ -223,13 +234,13 @@ function makeStage(stage) {
   return makeMinigame(stage);
 }
 
-async function showStage(stage, { backAvailable, transition }) {
+async function showStage(stage, { backAvailable, transition, unlock }) {
   const build = () => replaceController(() => {
     backControl.setAvailable(backAvailable);
     // The Restaurant has one fixed baseline and ignores this setting, so the
     // control is hidden while it is open rather than lying to the student.
     settings.setDifficultyAvailable?.(!FIXED_DIFFICULTY_GAMES.has(stage));
-    return makeStage(stage);
+    return makeStage(stage, unlock);
   }, settings.get('difficulty'));
   if (!transition) {
     await build();

@@ -3162,3 +3162,24 @@ Coloring/Restaurant/Zoo for no behaviour change); letting an empty-handed
 tabletop tap start Talk (talking stays attached to the person); letting a
 zone tap assign followers directly; an empty table falling through to a floor
 walk, which steers into table geometry.
+
+## 2026-10-18 — Shell unlock stage between games
+
+The shell shows an opaque `UNLOCKED!` card after recording a finish whenever
+another game follows in `GAME_SEQUENCE`. There is no wipe into the card; after
+1.8 seconds it automatically continues with the normal wipe, keeping the whole
+reward and transition around 2.4 seconds. Back is unavailable on the card, and
+Back, restart and hub entry never route through it. Minigames still only call
+`ctx.finish(result)`; the final game goes straight to sequence completion.
+
+The Stamp Book derives earned, unlocked and locked states from stamps: the
+first game is unlocked, and each later game unlocks when its predecessor has a
+stamp. Entries remain informational and cannot launch games.
+
+The unlock chime (three rising triangle notes) starts 0.4 s after the stamp's
+`complete` sound so the two never pile up. The Restaurant's どうぶつえんへ
+exit is a normal finish, so it unlocks the Zoo with no Restaurant change. The
+card is a current-run reward and replays on もういちど; the Stamp Book state is
+the persistent one.
+
+Rejected: a wipe into the card as well as out of it (about 3 s per step); per-game unlock logic, a persistent unlock database, and level select.

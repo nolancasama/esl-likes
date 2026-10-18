@@ -105,7 +105,10 @@ export const UI = Object.freeze({
     replay: 'もういちど きく',
   },
   listenAgain: '🔊 もういちど きく',
+  stageUnlock: { title: 'UNLOCKED!' },
   stampBook: {
+    unlocked: 'UNLOCKED',
+    locked: 'LOCKED',
     title: 'スタンプブック',
     earned: 'ゲット！',
     notEarned: 'まだだよ',
