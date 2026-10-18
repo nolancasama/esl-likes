@@ -86,6 +86,7 @@ const stampBook = createStampBook({
   lessons: ACTIVE_LESSONS,
   strings: UI.stampBook,
   registerEscapeGuard: backControl.registerEscapeGuard,
+  launcherLabel: UI.hub.stampBook,
 });
 const transitions = createTransitions(wipe);
 const unbindSpeech = speech.bind(hud.talkButton);
@@ -240,6 +241,9 @@ async function showStage(stage, { backAvailable, transition, unlock }) {
     // The Restaurant has one fixed baseline and ignores this setting, so the
     // control is hidden while it is open rather than lying to the student.
     settings.setDifficultyAvailable?.(!FIXED_DIFFICULTY_GAMES.has(stage));
+    // The hub has its own Stamp Book button; the unlock card stays uncluttered.
+    stampBook.close();
+    stampBook.setLauncherVisible(stage !== HUB_STAGE && stage !== UNLOCK_STAGE);
     return makeStage(stage, unlock);
   }, settings.get('difficulty'));
   if (!transition) {
@@ -289,7 +293,9 @@ function frame(now) {
   if (disposed) return;
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
-  controller?.update(dt);
+  // The open Stamp Book pauses the game behind it, as the hub already does.
+  if (stampBook.isOpen()) input.clear();
+  else controller?.update(dt);
   cameraRig.update(dt);
   dialogue.update();
   updateTweens(dt);

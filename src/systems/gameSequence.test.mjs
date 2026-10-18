@@ -426,6 +426,29 @@ test('the stamp book shows the five stages of the run', async () => {
   assert.doesNotMatch(mainSource, /lessons: LESSONS\b/);
 });
 
+test('the shell Stamp Book button opens the book and is hidden in the hub and on the unlock card', async () => {
+  await withFakeDom(({ root }) => {
+    const book = createStampBook({
+      root,
+      progression: { getState: () => ({ stamps: {}, bestStars: {}, zooPhotos: {} }) },
+      lessons: activeLessons(LESSON_BY_ID),
+      strings: UI.stampBook,
+      launcherLabel: UI.hub.stampBook,
+    });
+    const [launcher] = root.findAll('stamp-launcher');
+    assert.equal(launcher.attributes['aria-label'], UI.hub.stampBook);
+    assert.equal(launcher.classList.contains('is-hidden'), true);
+    book.setLauncherVisible(true);
+    assert.equal(launcher.classList.contains('is-hidden'), false);
+    launcher.dispatch('click');
+    assert.equal(book.isOpen(), true);
+    book.destroy();
+    assert.equal(launcher.removed, true);
+  });
+  assert.match(mainSource, /setLauncherVisible\(stage !== HUB_STAGE && stage !== UNLOCK_STAGE\)/);
+  assert.match(mainSource, /if \(stampBook\.isOpen\(\)\) input\.clear\(\);\s*else controller\?\.update\(dt\);/);
+});
+
 test('unlock card automatically continues once and plays its delayed reward sound', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   await withFakeDom(({ root }) => {

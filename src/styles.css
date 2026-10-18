@@ -123,6 +123,8 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   padding: 20px;
   background: rgb(20 42 64 / 62%);
   pointer-events: auto;
+  /* Above game HUDs and Back, level with the settings modal. */
+  z-index: 50;
 }
 
 .modal {
@@ -140,6 +142,7 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .stamp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 12px; margin-top: 18px; }
 .stamp { min-height: 145px; display: grid; place-items: center; align-content: center; padding: 12px; border-radius: 22px; background: #e7eef4; text-align: center; }
 .stamp.is-earned { background: #fff0a8; border: 4px solid #ffbf2f; }
+#ui-layer .stamp-launcher { position: absolute; top: 1rem; right: 8.75rem; width: 3.4rem; height: 3.4rem; min-height: 0; padding: 0; border-radius: 50%; border: 4px solid #ffbf2f; background: #fff0a8; color: #e5a000; font-size: 1.8rem; line-height: 1; z-index: 40; pointer-events: auto; }
 .stamp.is-unlocked { border: 4px dashed #76c7ff; }
 .stamp.is-locked { opacity: 0.55; }
 .stamp-mark { font-size: 2.5rem; filter: grayscale(1); }

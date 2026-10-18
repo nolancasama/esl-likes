@@ -9,7 +9,10 @@ function makeElement(tag, className, text) {
   return element;
 }
 
-export function createStampBook({ root, progression, lessons, strings, registerEscapeGuard }) {
+export function createStampBook({ root, progression, lessons, strings, registerEscapeGuard, launcherLabel }) {
+  // The shell's own button, so the sequence route can open the book too. The
+  // hub keeps its button in its own top bar, so the shell hides this one there.
+  const launcher = launcherLabel ? makeElement('button', 'stamp-launcher is-hidden', launcherLabel) : null;
   const backdrop = makeElement('div', 'modal-backdrop is-hidden');
   const modal = makeElement('section', 'modal');
   const header = makeElement('div', 'modal-header');
@@ -25,6 +28,15 @@ export function createStampBook({ root, progression, lessons, strings, registerE
   header.append(title, closeButton);
   modal.append(header, grid);
   backdrop.append(modal);
+  if (launcher) {
+    // A star, not the full label: game prompts already crowd the top-right corner.
+    launcher.textContent = '★';
+    launcher.setAttribute('aria-label', launcherLabel);
+    launcher.title = launcherLabel;
+    launcher.type = 'button';
+    launcher.addEventListener('click', () => open());
+    root.append(launcher);
+  }
   root.append(backdrop);
 
   function render() {
@@ -81,8 +93,14 @@ export function createStampBook({ root, progression, lessons, strings, registerE
     close,
     toggle() { backdrop.classList.contains('is-hidden') ? open() : close(); },
     isOpen() { return !backdrop.classList.contains('is-hidden'); },
+    setLauncherVisible(visible) {
+      if (!launcher) return;
+      if (visible) launcher.classList.remove('is-hidden');
+      else launcher.classList.add('is-hidden');
+    },
     destroy() {
       unregisterEscapeGuard();
+      launcher?.remove();
       backdrop.remove();
     },
   };

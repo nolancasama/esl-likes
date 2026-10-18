@@ -3183,3 +3183,16 @@ card is a current-run reward and replays on もういちど; the Stamp Book stat
 the persistent one.
 
 Rejected: a wipe into the card as well as out of it (about 3 s per step); per-game unlock logic, a persistent unlock database, and level select.
+
+## 2026-10-18 — Stamp Book reachable from the student route
+
+The shell now owns a round gold ★ button beside せってい (label スタンプブック
+as aria-label/tooltip), shown on every stage except the hub (which keeps its own
+text button) and the unlock card. While the book is open the shell skips the
+game's `update` and clears input, so the child does not wander behind it — the
+hub already paused this way. The book's backdrop now has `z-index: 50`, level
+with the settings modal, so game prompts no longer draw over it.
+
+Rejected: a full-text スタンプブック button (at 1024 px it covered Coloring's
+instruction line and crowded the Sports arrival banner); putting the book inside
+the settings panel (hidden from children).

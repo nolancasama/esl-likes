@@ -28,14 +28,17 @@ screenshots. See DESIGN_DECISIONS 2026-10-18.
   timer, `unlock` SFX at 0.4 s), then `continueFromUnlock()` wipes into the next
   game. Drink Stand → `complete` directly. Hub mode, Back, restart: never unlock.
 - **Stamp Book:** `stageProgressState()` → earned / unlocked (dashed blue) /
-  locked (🔒, dimmed), derived from stamps only. Note: the Stamp Book button is
-  only in the hub (`?hub=1`); the student route has no way to open it.
+  locked (🔒, dimmed), derived from stamps only.
+- **Stamp Book button in the run (follow-up):** shell-owned ★ `.stamp-launcher`
+  beside せってい (`stampBook.setLauncherVisible`, hidden in hub and on the unlock
+  card); the open book pauses `controller.update`. Backdrop now `z-index: 50`.
 
 ### Validation
 
-`npm test` 828/828, build OK. `sequence` harness 77/77 (unlock between every
-pair, correct name, no Back/Escape on the card, Back never passes through the
-card). Known-bad run (card showing `lesson.id`) failed exactly the 9 name checks.
+`npm test` 829/829, build OK. `sequence` harness 89/89 (unlock between every
+pair, correct name, no Back/Escape/★ on the card, Back never passes through the
+card; ★ opens the book in the Restaurant with correct states, Escape closes it
+without leaving). Top-right corner screenshotted in all five games at 1024×600. Known-bad run (card showing `lesson.id`) failed exactly the 9 name checks.
 Screenshots `.tmp/playthrough/sequence/sequence-unlock-*.png` and
 `.tmp/stampbook.png` checked.
 
@@ -48,8 +51,7 @@ screenshotted (timer-based continuation is unit-tested). No Chromebook run.
 
 1. Owner: does the unlock card feel long enough and is the chime pleasant on a
    Chromebook speaker.
-2. Decide whether students should reach the Stamp Book from the sequence route
-   (now only in `?hub=1`).
+2. Owner: do children find and understand the ★ Stamp Book button.
 3. Earlier items below (touch feel, harness debt) still stand.
 
 ## Previous pass (2026-10-17, later) — one touch language in all five games; tabletop delivery

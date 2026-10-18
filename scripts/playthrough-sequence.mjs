@@ -48,6 +48,7 @@ async function waitUnlockedNext(page, next, what = next) {
       restaurant: 'Restaurant', zoo: 'Zoo', sports: 'Sports', 'drink-stand': 'Drink Stand',
     })[next]);
   check(`${what}: unlock has no Back`, !(await backVisible(page)));
+  check(`${what}: unlock has no Stamp Book button`, !(await page.locator('.stamp-launcher').isVisible()));
   await page.waitForTimeout(900);
   await page.screenshot({ path: `${OUT}-unlock-${next}.png` });
   await page.keyboard.press('Escape');
@@ -177,6 +178,20 @@ async function main() {
   await page.screenshot({ path: `${OUT}-2-restaurant.png` });
   let save = await saved(page, SAVE_KEY);
   check('Coloring earned its stamp', save.stamps?.coloring === true, JSON.stringify(save.stamps));
+
+  // ---- Stamp Book from inside the run --------------------------------------
+  check('the Restaurant shows a Stamp Book button', await page.locator('.stamp-launcher').isVisible());
+  await page.locator('.stamp-launcher').click();
+  await page.waitForTimeout(300);
+  const bookStates = await page.locator('.stamp').evaluateAll((els) => els.map((e) => e.className));
+  check('the Stamp Book opens in the Restaurant',
+    bookStates.length === 5 && /is-earned/.test(bookStates[0]) && /is-unlocked/.test(bookStates[1]) && /is-locked/.test(bookStates[2]),
+    JSON.stringify(bookStates));
+  await page.screenshot({ path: `${OUT}-2b-stamp-book.png` });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('Escape closes the Stamp Book and stays in the Restaurant',
+    !(await page.locator('.stamp-grid').isVisible()) && (await shellOf(page))?.stage === 'restaurant');
 
   // ---- Back: Restaurant -> fresh Coloring, creations kept ----------------
   await page.keyboard.press('Escape');
