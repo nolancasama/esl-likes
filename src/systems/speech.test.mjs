@@ -61,7 +61,8 @@ function installBrowser() {
     abort() { counters.aborts += 1; }
 
     result(transcript, { isFinal = true } = {}) {
-      const result = [{ transcript }];
+      const alternatives = Array.isArray(transcript) ? transcript : [transcript];
+      const result = alternatives.map((text) => ({ transcript: text }));
       result.isFinal = isFinal;
       this.onresult?.({ results: [result] });
     }
@@ -218,6 +219,82 @@ test('an interim match is accepted immediately', () => {
   browser.restore();
 });
 
+test('pooled question evidence accepts immediately on an interim result', () => {
+  const browser = installBrowser();
+  const accepted = [];
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget(questionTarget({
+    category: 'animal',
+    onAccepted: (result, meta) => accepted.push({ result, meta }),
+  }));
+
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result(['what', 'animal'], { isFinal: false });
+
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].result.ok, true);
+  assert.equal(accepted[0].result.text, 'animal');
+  assert.equal(accepted[0].meta.interim, true);
+  assert.equal(speech.active, false);
+
+  speech.dispose();
+  browser.restore();
+});
+
+test('free-form answers wait for the final transcript before storing the phrase', () => {
+  const browser = installBrowser();
+  const accepted = [];
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget({
+    mode: 'answer',
+    category: 'food',
+    openAnswer: true,
+    onAccepted: (result, meta) => accepted.push({ result, meta }),
+  });
+
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result('I like fried', { isFinal: false });
+  assert.equal(accepted.length, 0);
+  assert.equal(speech.active, true);
+
+  browser.instances[0].result('I like fried chicken', { isFinal: true });
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].result.answer, 'fried chicken');
+  assert.equal(accepted[0].result.freeForm, true);
+  assert.equal(accepted[0].meta.interim, false);
+  assert.equal(speech.active, false);
+
+  speech.dispose();
+  browser.restore();
+});
+
+test('known answers beat free-form alternatives and still accept on interim results', () => {
+  const browser = installBrowser();
+  const accepted = [];
+  const speech = createSpeechSystem();
+  speech.bind(browser.button);
+  speech.setTarget({
+    mode: 'answer',
+    category: 'food',
+    openAnswer: true,
+    onAccepted: (result, meta) => accepted.push({ result, meta }),
+  });
+
+  browser.button.dispatch('click', { button: 0 });
+  browser.instances[0].result(['I like peter', 'I like pizza'], { isFinal: false });
+
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].result.answer, 'pizza');
+  assert.equal(accepted[0].result.freeForm, false);
+  assert.equal(accepted[0].meta.interim, true);
+  assert.equal(speech.active, false);
+
+  speech.dispose();
+  browser.restore();
+});
+
 test('the safety cap finishes and judges after eight seconds', async () => {
   const browser = installBrowser();
   const originalSetTimeout = globalThis.setTimeout;
@@ -350,12 +427,14 @@ test('promptSpeech returns a refused commit and rejects an inactive prompt', () 
   promptSpeech(ctx, {
     mode: 'question',
     category: 'drink',
+    openAnswer: true,
     sentence: 'What drink do you like?',
     isActive: () => active,
     onCommit: () => false,
     onAccepted() {},
   });
 
+  assert.equal(target.openAnswer, true);
   assert.equal(target.onCommit(), false);
   active = false;
   assert.equal(target.onCommit(), false);

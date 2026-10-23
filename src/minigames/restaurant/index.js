@@ -3600,7 +3600,7 @@ export function createRestaurant(ctx) {
       .setTarget(partner)
       .setPreset('closeup', { offset: [0, 2.8, 4.2], lookOffset: [0, 0.72, 0], damping: 5.5 });
     beginFocus('restaurant-turnaround');
-    promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
+    promptAnswer(ctx, LESSON, { openAnswer: true, isActive: () => active, onAccepted: completeTurnaround });
   }
 
   function updateRoundEnd() {
@@ -3863,7 +3863,7 @@ export function createRestaurant(ctx) {
     dialogue.show({ text: LESSON.question, anchor: rivalCharacter, offsetY: 1.8 });
     cameraRig.setTarget(null).setPreset('fixed', fitStageCamera(RESULT_QUESTION_CAMERA));
     beginFocus('restaurant-turnaround');
-    promptAnswer(ctx, LESSON, { isActive: () => active, onAccepted: completeTurnaround });
+    promptAnswer(ctx, LESSON, { openAnswer: true, isActive: () => active, onAccepted: completeTurnaround });
   }
 
   // Where the rival would ask the final question, the progression decides:

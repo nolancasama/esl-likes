@@ -37,11 +37,11 @@ export const CATEGORY = {
  * @type {Record<string, string[]>}
  */
 export const VARIANTS = {
-  food:   ['food', 'foot', 'hood', 'foods', 'fud', 'whod', 'fudo', 'foodo', 'hudo'],
-  color:  ['color', 'colour', 'caller', 'collar', 'cooler', 'kara', 'kalar', 'karaa', 'colors'],
-  drink:  ['drink', 'dring', 'drinks', 'junk', 'trink', 'dorinku', 'drinku', 'dorink'],
-  sport:  ['sport', 'spot', 'sports', 'spore', 'support', 'supotsu', 'supo', 'sportu'],
-  animal: ['animal', 'anime', 'animals', 'aniaml', 'enemal', 'animaru', 'animol', 'anemal'],
+  food:   ['food', 'foot', 'hood', 'foods', 'fud', 'whod', 'fudo', 'foodo', 'hudo', 'fooddo', 'fuudo', 'foodu', 'fuud'],
+  color:  ['color', 'colour', 'caller', 'collar', 'cooler', 'kara', 'kalar', 'karaa', 'colors', 'kalaa', 'karra', 'colorr'],
+  drink:  ['drink', 'dring', 'drinks', 'junk', 'trink', 'dorinku', 'drinku', 'dorink', 'dorinks', 'drinko', 'dlink', 'dorinko'],
+  sport:  ['sport', 'spot', 'sports', 'spore', 'support', 'supotsu', 'supo', 'sportu', 'supootsu', 'supoto', 'spooto', 'spots'],
+  animal: ['animal', 'anime', 'animals', 'aniaml', 'enemal', 'animaru', 'animol', 'anemal', 'anima', 'animo', 'aniaru', 'animarus'],
   // The park's short animal names get no fuzz slack at all (len <= 4), so their
   // plurals and usual mis-hearings have to be listed explicitly.
   dog:    ['dog', 'dogs', 'doggu', 'dogu', 'dock', 'doggy'],
@@ -53,8 +53,8 @@ export const VARIANTS = {
   // A loanword the class already says as ラーメン, so the recogniser returns the
   // long-vowel and l/r shapes far more often than the dictionary spelling.
   ramen:  ['ramen', 'raamen', 'rahmen', 'lamen', 'laamen', 'ramon', 'raman', 'ramenu', 'lamon'],
-  what:   ['what', 'wat', 'hwat', 'watt', 'wot', 'but', 'watto', 'whatto', 'hut'],
-  like:   ['like', 'lick', 'light', 'rike', 'raiku', 'laiku', 'riku'],
+  what:   ['what', 'wat', 'hwat', 'watt', 'wot', 'but', 'watto', 'whatto', 'hut', 'whatt', 'hwatto', 'howatto', 'wha'],
+  like:   ['like', 'lick', 'light', 'rike', 'raiku', 'laiku', 'riku', 'raik', 'laik', 'rikes', 'likes', 'liked'],
 };
 
 /**
@@ -136,6 +136,13 @@ function maxDistance(len) {
   return 2;
 }
 
+/** Town Builder question slack; answers and hasWord keep the stricter profile. */
+function questionMaxDistance(len) {
+  if (len <= 4) return 1;
+  if (len <= 7) return 2;
+  return 3;
+}
+
 /**
  * How closely `word` was heard among the tokens: 0 for an exact or listed-variant
  * hit, the edit distance for a fuzzy hit inside the length-scaled slack, and
@@ -143,9 +150,10 @@ function maxDistance(len) {
  *
  * @param {string[]} tokens
  * @param {string} word
+ * @param {(len: number) => number} maxDist
  * @returns {number}
  */
-function wordDistance(tokens, word) {
+function wordDistance(tokens, word, maxDist = maxDistance) {
   const w = normalise(word);
   const variants = VARIANTS[w];
   let best = Infinity;
@@ -153,7 +161,7 @@ function wordDistance(tokens, word) {
     const t = normalise(token);
     if (t === w || (variants && variants.includes(t))) return 0;
     const d = levenshtein(t, w);
-    if (d <= maxDistance(w.length) && d < best) best = d;
+    if (d <= maxDist(w.length) && d < best) best = d;
   }
   return best;
 }
@@ -174,41 +182,78 @@ export function hasWord(tokens, word) {
 /**
  * Judge the child ASKING the question: "What ___ do you like?"
  *
- * Accepts when a question word, the category noun, and "like" are all heard.
- * "do" and "you" are NOT required — they are the first words a classroom
- * microphone drops.
+ * Requires the category noun plus either "what" or "like", heard in a separate
+ * token. A clearly heard different category blocks a merely fuzzy noun hit.
  *
  * @param {string} transcript raw text from the recogniser
  * @param {string} category one of CATEGORY
  * @returns {{ ok: boolean, what: boolean, noun: boolean, like: boolean,
- *             text: string, tokens: string[] }}
+ *             wrongCategory: boolean, text: string, tokens: string[] }}
  *          the per-part hits so the UI can give useful, gentle feedback
  */
 export function matchQuestion(transcript, category) {
+  return matchQuestionAlternatives([transcript], category);
+}
+
+// Keep distance-0 evidence separate from fuzzy hits so alternatives can pool
+// support without joining transcripts or losing a clearly heard category.
+function questionEvidence(transcript, category) {
   const text = normalise(transcript);
   const tokens = text ? text.split(' ') : [];
+  const nounDistances = tokens.map((token) => wordDistance([token], category, questionMaxDistance));
+  const nounDistance = Math.min(...nounDistances);
+  const noun = nounDistance !== Infinity;
+  const nounIndex = noun ? nounDistances.indexOf(nounDistance) : -1;
+  const anchorTokens = tokens.filter((_, index) => index !== nounIndex);
 
-  const what = hasWord(tokens, 'what');
-  const noun = hasWord(tokens, category);
-  const like = hasWord(tokens, 'like');
-  const ok = what && noun && like;
+  return {
+    what: wordDistance(anchorTokens, 'what', questionMaxDistance) !== Infinity,
+    noun,
+    like: wordDistance(anchorTokens, 'like', questionMaxDistance) !== Infinity,
+    exactNoun: nounDistance === 0,
+    otherCategory: Object.values(CATEGORY).some((other) => (
+      other !== category && wordDistance(tokens, other, questionMaxDistance) === 0
+    )),
+    text,
+    tokens,
+  };
+}
 
-  return { ok, what, noun, like, text, tokens };
+/**
+ * Pool question evidence across recogniser alternatives, without concatenating.
+ * @param {string[]} alternatives
+ * @param {string} category one of CATEGORY
+ * @returns {{ ok: boolean, what: boolean, noun: boolean, like: boolean,
+ *             wrongCategory: boolean, text: string, tokens: string[] }}
+ */
+export function matchQuestionAlternatives(alternatives, category) {
+  const evidence = (alternatives?.length ? alternatives : [''])
+    .map((text) => questionEvidence(text, category));
+  const what = evidence.some((result) => result.what);
+  const noun = evidence.some((result) => result.noun);
+  const like = evidence.some((result) => result.like);
+  const wrongCategory = evidence.some((result) => result.otherCategory)
+    && !evidence.some((result) => result.exactNoun);
+  const ok = noun && (what || like) && !wrongCategory;
+  const { text, tokens } = evidence.find((result) => result.noun) || evidence[0];
+  return { ok, what, noun, like, wrongCategory, text, tokens };
 }
 
 /**
  * Judge the child ANSWERING the turnaround beat: "I like ___."
  *
  * Any valid answer word for the category is correct — this is expression,
- * not a quiz. Requires "like" plus one recognised answer word. Returns which
- * answer was heard so the game can save and later reference it.
+ * not a quiz. Requires "like" plus one recognised answer word, or a personal
+ * phrase when openAnswer is enabled. Returns which answer was heard so the
+ * game can save and later reference it; known words keep their canonical id.
  *
  * @param {string} transcript
  * @param {string} category one of CATEGORY
+ * @param {{ openAnswer?: boolean }} options allow a personal phrase after "like"
  * @returns {{ ok: boolean, like: boolean, answer: string|null,
- *             text: string, tokens: string[] }}
+ *             freeForm: boolean, text: string, tokens: string[] }}
  */
-export function matchAnswer(transcript, category) {
+export function matchAnswer(transcript, category, { openAnswer = false } = {}) {
   const text = normalise(transcript);
   const tokens = text ? text.split(' ') : [];
 
@@ -241,8 +286,43 @@ export function matchAnswer(transcript, category) {
     }
   }
 
+  if (openAnswer && answer === null && like) {
+    const likeIndex = tokens.findIndex((token) => hasWord([token], 'like'));
+    const phraseTokens = likeIndex < 0 ? [] : tokens.slice(likeIndex + 1);
+    const leading = new Set(['a', 'an', 'the', 'some', 'to', 'eat']);
+    while (leading.has(phraseTokens[0])) phraseTokens.shift();
+    const phrase = phraseTokens.join(' ').replace(/(?:^| )(very much|so much|a lot|too)$/, '');
+    const remaining = phrase ? phrase.split(' ') : [];
+    const filler = new Set(['it', 'that', 'this', 'you', 'them', 'me', 'uh', 'um', 'ah', 'eh', 'so', 'very', 'much', 'lot', 'and', 'i']);
+    if (remaining.length && !remaining.every((token) => filler.has(token))) {
+      const words = remaining.slice(0, 4);
+      while (words.join(' ').length > 32) words.pop();
+      if (words.length) {
+        return { ok: true, like: true, answer: words.join(' '), freeForm: true, text, tokens };
+      }
+    }
+  }
+
   const ok = like && answer !== null;
-  return { ok, like, answer, text, tokens };
+  return { ok, like, answer, freeForm: false, text, tokens };
+}
+
+/**
+ * Prefer a known answer from any alternative, then the first free-form answer.
+ * @param {string[]} alternatives
+ * @param {string} category one of CATEGORY
+ * @param {{ openAnswer?: boolean }} options
+ * @returns {ReturnType<typeof matchAnswer>}
+ */
+export function matchAnswerAlternatives(alternatives, category, options) {
+  if (!options?.openAnswer) {
+    return matchBest(alternatives, (text) => matchAnswer(text, category));
+  }
+  const results = (alternatives?.length ? alternatives : [''])
+    .map((text) => matchAnswer(text, category, options));
+  return results.find((result) => result.ok && !result.freeForm)
+    || results.find((result) => result.ok)
+    || results[0];
 }
 
 /**

@@ -3196,3 +3196,30 @@ with the settings modal, so game prompts no longer draw over it.
 Rejected: a full-text スタンプブック button (at 1024 px it covered Coloring's
 instruction line and crowded the Sports arrival banner); putting the book inside
 the settings panel (hidden from children).
+
+## 2026-10-23 — Forgiving questions and Restaurant personal food answers
+
+Question recognition follows Town Builder: the category noun is mandatory,
+with either "what" or "like" as a separate-token grammar anchor. Question-only
+edit-distance slack is 1 for up to four letters, 2 for five to seven, and 3 for
+eight or more; answer matching and exported `hasWord` keep their existing fuzz
+thresholds. Expanded accent variants support classroom recognition.
+
+Web Speech alternatives pool evidence with OR, including exact/variant noun
+hits. A clearly heard different category rejects a question only when the
+expected noun has no exact/variant hit. Displayed text comes from the first
+alternative containing the expected noun, or the first alternative otherwise.
+Pooled questions can still succeed during interim recognition.
+
+Only Restaurant's two personal turnaround prompts allow a free-form food
+phrase after "like" when no known answer is heard. Leading articles and eating
+words and trailing intensifiers are removed; empty or filler-only phrases fail,
+and saved phrases are limited to four words and 32 characters at word boundaries.
+Known vocabulary keeps its canonical id and takes priority across alternatives.
+Free-form answers wait for final recognition so a partial food name is not saved.
+The existing finish/progression path stores the phrase; NPC orders, fallback
+choices, and other minigames keep their existing behaviour.
+
+Rejected: keeping `what && noun && like`, which rejects understandable questions
+when classroom recognition drops an anchor; concatenating transcripts, which
+invents a sentence from competing hypotheses instead of pooling evidence.

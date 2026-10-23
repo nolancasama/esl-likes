@@ -9,7 +9,9 @@ import {
   levenshtein,
   hasWord,
   matchQuestion,
+  matchQuestionAlternatives,
   matchAnswer,
+  matchAnswerAlternatives,
   matchBest,
 } from './speechMatch.js';
 
@@ -240,6 +242,10 @@ test('matchQuestion accepts clean "What animal do you like?"', () => {
 // ---------------------------------------------------------------------------
 // matchQuestion — accepts realistic mis-hearings
 // ---------------------------------------------------------------------------
+test('free-form food answer rejects "I like a lot"', () => {
+  assert.equal(matchAnswer('I like a lot', 'food', { openAnswer: true }).ok, false);
+});
+
 test('matchQuestion accepts "wat foot like"', () => {
   assert.ok(matchQuestion('wat foot like', 'food').ok);
 });
@@ -284,9 +290,9 @@ test('matchQuestion rejects missing category noun', () => {
   assert.ok(!r.noun);
 });
 
-test('matchQuestion rejects missing "like"', () => {
-  const r = matchQuestion('What food do you want?', 'food');
-  assert.ok(!r.ok);
+test('matchQuestion accepts a noun and "what" without "like"', () => {
+  const r = matchQuestion('What food', 'food');
+  assert.ok(r.ok);
   assert.ok(!r.like);
 });
 
@@ -570,4 +576,179 @@ test('matchAnswer picks the closest answer, not the first within fuzz range', ()
   assert.equal(matchAnswer('I like bassball', 'sport').answer, 'baseball');
   assert.equal(matchAnswer('I like apple juice', 'drink').answer, 'apple juice');
   assert.equal(matchAnswer('I like orange juice', 'drink').answer, 'orange juice');
+});
+
+// Questions require the noun and either grammar anchor, with extra tolerance
+// for recogniser noise. Answers retain their stricter short-word guards.
+test('matchQuestion accepts a category noun and either grammar anchor', () => {
+  const cases = [
+    ['What animal', 'animal'], ['Animal like', 'animal'],
+    ['Animaru rike', 'animal'], ['Wat anime', 'animal'],
+    ['What fooddo', 'food'], ['Fooddo like', 'food'],
+    ['What karaa', 'color'], ['Karaa rike', 'color'],
+    ['What dorinku', 'drink'], ['Dorinku like', 'drink'],
+    ['What supotsu', 'sport'], ['Supotsu rike', 'sport'],
+  ];
+  for (const [text, category] of cases) {
+    assert.equal(matchQuestion(text, category).ok, true, text);
+  }
+});
+
+test('matchQuestion rejects missing nouns or both grammar anchors', () => {
+  for (const text of ['animal', 'what do you like', 'like', 'something unrelated']) {
+    assert.equal(matchQuestion(text, 'animal').ok, false, text);
+  }
+  assert.equal(matchQuestion('food', 'food').ok, false);
+});
+
+test('matchQuestion uses looser question fuzz without relaxing hasWord', () => {
+  assert.equal(matchQuestion('whaq foad', 'food').ok, true);
+  assert.equal(matchQuestion('what anixxl', 'animal').ok, true);
+  assert.equal(hasWord(['foad'], 'food'), false);
+  assert.equal(hasWord(['anixxl'], 'animal'), false);
+  assert.equal(hasWord(['bike'], 'like'), false);
+});
+
+test('matchQuestion rejects clearly heard other categories even when the noun fuzz matches', () => {
+  for (const [text, category] of [
+    ['What color do you like?', 'animal'],
+    ['What sport do you like?', 'food'],
+    ['What color do you like?', 'food'],
+    ['What food do you like?', 'sport'],
+  ]) {
+    const result = matchQuestion(text, category);
+    assert.equal(result.ok, false, text);
+    assert.equal(result.wrongCategory, true, text);
+  }
+  const result = matchQuestion('What karaa', 'color');
+  assert.equal(result.ok, true);
+  assert.equal(result.wrongCategory, false);
+});
+
+test('matchQuestion permits an exact expected noun alongside another category', () => {
+  const result = matchQuestion('what food sport', 'food');
+  assert.equal(result.ok, true);
+  assert.equal(result.wrongCategory, false);
+});
+
+test('VARIANTS adds the frozen pronunciation variants without duplicates', () => {
+  const additions = {
+    food: ['fooddo', 'fuudo', 'foodu', 'fuud'],
+    color: ['kalaa', 'karra', 'colorr'],
+    drink: ['dorinks', 'drinko', 'dlink', 'dorinko'],
+    sport: ['supootsu', 'supoto', 'spooto', 'spots'],
+    animal: ['anima', 'animo', 'aniaru', 'animaru', 'animarus'],
+    like: ['raik', 'laik', 'rikes', 'likes', 'liked'],
+    what: ['whatt', 'hwatto', 'howatto', 'wha'],
+  };
+  for (const [word, variants] of Object.entries(additions)) {
+    for (const variant of variants) assert.ok(VARIANTS[word].includes(variant), variant);
+    assert.equal(new Set(VARIANTS[word]).size, VARIANTS[word].length, word);
+  }
+});
+
+test('matchQuestionAlternatives pools separate evidence without concatenating transcripts', () => {
+  const cases = [
+    [['what animal', 'animal do you like'], 'animal'],
+    [['what', 'animaru like'], 'animal'],
+    [['what food', 'fooddo'], 'food'],
+    [['what', 'animal'], 'animal'],
+  ];
+  for (const [alternatives, category] of cases) {
+    const result = matchQuestionAlternatives(alternatives, category);
+    assert.equal(result.ok, true, alternatives.join(' / '));
+    const nounText = alternatives.find((text) => matchQuestion(text, category).noun);
+    assert.equal(result.text, nounText);
+    assert.deepEqual(result.tokens, nounText.split(' '));
+  }
+  const pooled = matchQuestionAlternatives(['what', 'animal like'], 'animal');
+  assert.equal(pooled.what, true);
+  assert.equal(pooled.noun, true);
+  assert.equal(pooled.like, true);
+});
+
+test('matchQuestionAlternatives requires a noun and preserves the pooled wrong-category guard', () => {
+  const missing = matchQuestionAlternatives(['what do you like', 'something unrelated'], 'animal');
+  assert.equal(missing.ok, false);
+  assert.equal(missing.text, 'what do you like');
+  const wrong = matchQuestionAlternatives(['what color do you like', 'what colour do you like'], 'animal');
+  assert.equal(wrong.ok, false);
+  assert.equal(wrong.wrongCategory, true);
+  const corrected = matchQuestionAlternatives(['what color do you like', 'animaru'], 'animal');
+  assert.equal(corrected.ok, true);
+  assert.equal(corrected.wrongCategory, false);
+});
+
+test('matchQuestionAlternatives handles empty or missing alternatives', () => {
+  assert.deepEqual(matchQuestionAlternatives([], 'animal'), matchQuestion('', 'animal'));
+  assert.deepEqual(matchQuestionAlternatives(undefined, 'animal'), matchQuestion('', 'animal'));
+});
+
+test('matchAnswer preserves short answer-word guards', () => {
+  assert.equal(matchAnswer('I like bed', 'color').ok, false);
+  assert.equal(matchAnswer('I like glue', 'color').ok, false);
+  assert.equal(matchAnswer('I like sea', 'drink').ok, false);
+});
+
+test('matchAnswer recognises free-form food only when enabled', () => {
+  for (const [text, answer] of [
+    ['I like steak', 'steak'],
+    ['I like fried chicken', 'fried chicken'],
+    ['I like spaghetti', 'spaghetti'],
+    ['like noodles', 'noodles'],
+    ['I rike steak', 'steak'],
+  ]) {
+    const result = matchAnswer(text, 'food', { openAnswer: true });
+    assert.equal(result.ok, true, text);
+    assert.equal(result.like, true, text);
+    assert.equal(result.answer, answer, text);
+    assert.equal(result.freeForm, true, text);
+  }
+  assert.equal(matchAnswer('I like steak', 'food').ok, false);
+});
+
+test('matchAnswer retains canonical known answers in open-answer mode', () => {
+  for (const [text, answer] of [['I like pizza', 'pizza'], ['I like hamburgers', 'hamburger']]) {
+    const result = matchAnswer(text, 'food', { openAnswer: true });
+    assert.equal(result.ok, true);
+    assert.equal(result.answer, answer);
+    assert.equal(result.freeForm, false);
+  }
+});
+
+test('matchAnswer rejects empty and filler-only free-form answers', () => {
+  for (const text of ['I like', 'like', 'I like it', 'I like the', 'I like uh um and it', 'steak']) {
+    assert.equal(matchAnswer(text, 'food', { openAnswer: true }).ok, false, text);
+  }
+});
+
+test('matchAnswer trims free-form articles, sentence tails, and word limits', () => {
+  for (const tail of ['very much', 'so much', 'a lot', 'too']) {
+    assert.equal(matchAnswer(`I like a an the some to eat fried chicken ${tail}`, 'food', { openAnswer: true }).answer, 'fried chicken');
+  }
+  assert.equal(matchAnswer('I like steak noodles tofu beans peas', 'food', { openAnswer: true }).answer, 'steak noodles tofu beans');
+  const limited = matchAnswer('I like caramelised barbecued vegetables noodles', 'food', { openAnswer: true });
+  assert.equal(limited.answer, 'caramelised barbecued vegetables');
+  assert.ok(limited.answer.length <= 32);
+});
+
+test('matchAnswerAlternatives prefers known answers over earlier free-form answers', () => {
+  const result = matchAnswerAlternatives(['I like peter', 'I like pizza'], 'food', { openAnswer: true });
+  assert.equal(result.answer, 'pizza');
+  assert.equal(result.freeForm, false);
+  const free = matchAnswerAlternatives(['I like', 'I like steak', 'I like noodles'], 'food', { openAnswer: true });
+  assert.equal(free.answer, 'steak');
+  assert.equal(free.freeForm, true);
+});
+
+test('matchAnswerAlternatives preserves matchBest semantics without openAnswer', () => {
+  for (const alternatives of [undefined, [], ['I like steak', 'I like pizza'], ['I like steak', 'I like noodles']]) {
+    assert.deepEqual(
+      matchAnswerAlternatives(alternatives, 'food'),
+      matchBest(alternatives, (text) => matchAnswer(text, 'food')),
+    );
+  }
+  const failed = matchAnswerAlternatives(['I like', 'like it'], 'food', { openAnswer: true });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.text, 'i like');
 });

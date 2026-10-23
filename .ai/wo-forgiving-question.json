@@ -1,0 +1,43 @@
+{
+  "task": "Make question speech recognition forgiving (Town Builder philosophy: noun mandatory + one grammar anchor, looser question-only fuzz, pooled evidence across Web Speech alternatives, wrong-category guard) and give the Restaurant's personal turnaround answer free-form food recognition. All matching logic stays centralized in src/systems/speechMatch.js.",
+  "requirements": [
+    "FROZEN DESIGN — implement exactly this; do not redesign. Read DESIGN_DECISIONS.md first and append one dated entry (2026-10-23) recording these decisions and the rejected alternative (keeping what&&noun&&like; concatenating transcripts).",
+    "speechMatch.js: add a QUESTION fuzz profile `questionMaxDistance(len)`: len<=4 -> 1, len<=7 -> 2, len>=8 -> 3 (Town Builder). Keep the existing `maxDistance` (<=4 ->0, 5-6 ->1, 7+ ->2) for answers and for the exported `hasWord`. Refactor `wordDistance(tokens, word, maxDist = maxDistance)` (or equivalent) so the question path passes the looser profile; answer behaviour must be byte-for-byte unchanged.",
+    "Expand VARIANTS (keep all existing entries): food add 'fooddo','fuudo','foodu','fuud'; color add 'kalaa','karra','colorr'; drink add 'dorinks','drinko','dlink','dorinko'; sport add 'supootsu','supoto','spooto','spots'; animal add 'anima','animo','aniaru','animaru','animarus'; like add 'raik','laik','rikes','likes','liked'; what add 'whatt','hwatto','howatto','wha'. No duplicates within a list.",
+    "matchQuestion(transcript, category) keeps its signature and return fields {ok, what, noun, like, text, tokens} and adds `wrongCategory: boolean`. New acceptance: ok = noun && (what || like) && !wrongCategory. Uses the question fuzz profile for what/noun/like. The token that satisfied the noun must not also be counted as the what/like anchor.",
+    "Wrong-category rule: wrongCategory = (some token is an EXACT or VARIANTS hit (distance 0) for a DIFFERENT category in CATEGORY) && (the expected noun has NO distance-0 hit, i.e. it was absent or only fuzzily matched). Other categories are detected with distance 0 only, never fuzz, so the guard can only reject on a clearly-heard other noun.",
+    "Add exported `matchQuestionAlternatives(alternatives, category)`: compute per-alternative evidence once, then pool with OR across all alternatives for what, like, noun, and for 'expected noun heard at distance 0' and 'other category heard at distance 0'; apply the same ok/wrongCategory rule to the pooled flags. Return the same shape as matchQuestion; text/tokens come from the first alternative that contained the noun (else the first alternative). Empty/undefined list behaves like matchQuestion(''). Do NOT concatenate transcripts.",
+    "speech.js judge(): for mode 'question' (when no target.judge override) call matchQuestionAlternatives(alternatives, target.category) instead of matchBest(..., matchQuestion). Interim (onLiveResult) acceptance stays as it is: an interim pooled result that is ok accepts immediately.",
+    "Free-form answer: extend `matchAnswer(transcript, category, { openAnswer = false } = {})`. When a known ANSWERS word is found, behaviour/return is unchanged (canonical id, e.g. 'pizza'). When openAnswer is true, no known answer, and 'like' is heard: take the tokens after the first token that matches 'like' (exact, VARIANTS, or the existing answer fuzz), drop leading 'a','an','the','some','to','eat', drop trailing 'very much','so much','a lot','too', then reject if empty or every remaining token is in a filler set {'it','that','this','you','them','me','uh','um','ah','eh','so','very','much','and','i'}; keep at most 4 words and 32 chars (trim on a word boundary). Return {ok:true, like:true, answer:<phrase>, freeForm:true, text, tokens}. Known answers return freeForm:false. 'I like' / 'like' / 'I like it' fail.",
+    "Add exported `matchAnswerAlternatives(alternatives, category, options)`: a known-answer ok result from ANY alternative beats a free-form ok result from an earlier alternative; otherwise first free-form ok; otherwise fall back to matchBest semantics (first result). Without openAnswer it must equal matchBest(alternatives, t => matchAnswer(t, category)).",
+    "speech.js: answer mode uses matchAnswerAlternatives(alternatives, target.category, { openAnswer: Boolean(target.openAnswer) }). In onLiveResult, an ok result with freeForm === true must NOT accept while the result is interim (meta.isFinal false) — free-form waits for the final result so 'I like fried' is not stored before 'chicken' arrives. Known answers still accept on interim.",
+    "speechPrompt.js: promptSpeech accepts an `openAnswer = false` option and passes it to speech.setTarget. promptAnswer forwards it via options (no API change for other callers).",
+    "Restaurant only (src/minigames/restaurant/index.js): both promptAnswer calls (beginTurnaround ~L3603 and beginResultQuestion ~L3866) pass openAnswer: true. Do NOT touch NPC order recognition, fallback buttons/choices, or Coloring/Zoo/Sports/Drink Stand. completeTurnaround already stores the string; free text flows to progression.setAnswer via the existing finish detail — no new storage path.",
+    "Tests in src/systems/speechMatch.test.mjs (keep all existing tests; update only those that assert the OLD rule, e.g. 'rejects missing \"like\"' must now expect PASS for 'what food' and the reject case should become noun-only). Add: PASS per category — 'What animal', 'Animal like', 'Animaru rike', 'Wat anime', 'What fooddo', 'Fooddo like', 'What karaa', 'Karaa rike', 'What dorinku', 'Dorinku like', 'What supotsu', 'Supotsu rike', plus clean full sentences for all five. FAIL — 'animal' alone, 'what do you like', 'like', unrelated speech, Animal prompt + 'What color do you like?', Food prompt + 'What sport do you like?'. Color prompt + 'What karaa' passes. Pooled: ['what animal','animal do you like'] pass; ['what','animaru like'] pass (animal); ['what food','fooddo'] pass (food); ['what do you like','something unrelated'] fail (animal); a pooled wrong-category case ['what color do you like','what colour do you like'] fails for animal and reports wrongCategory. Answer guards unchanged: bed!=red, glue!=blue, sea!=tea (matchAnswer for color/drink), baseball vs basketball disambiguation still returns the right sport, and hasWord('like') still rejects 'bike'. Free-form (food, openAnswer:true): 'I like steak'->'steak', 'I like fried chicken'->'fried chicken', 'I like spaghetti'->'spaghetti', 'like noodles'->'noodles', 'I like pizza'->'pizza' with freeForm false, 'I like hamburgers'->'hamburger', 'I like' fails, 'I like it' fails, and WITHOUT openAnswer 'I like steak' still fails. matchAnswerAlternatives: ['I like peter','I like pizza'] with openAnswer -> 'pizza'.",
+    "Add a speech.js-level test only if an existing test file already exercises createSpeechSystem with a fake recognizer; otherwise skip it (do not build a new harness)."
+  ],
+  "constraints": [
+    "Edit files only; do not commit (the controller runs git).",
+    "Do not change answer-mode fuzz thresholds or the exported hasWord behaviour.",
+    "Do not duplicate speech logic in minigames; only Restaurant's two promptAnswer calls change there.",
+    "Do not change fallback/mic-free UI, NPC order matching, or progression storage.",
+    "Match the surrounding code style: JSDoc on exported functions, the existing explanatory comment density, British 'normalise' spelling in this module.",
+    "Use structured Write/Edit for source edits; the first shell quoting/escaping failure ends shell-based editing."
+  ],
+  "startingPoints": [
+    "src/systems/speechMatch.js",
+    "src/systems/speech.js",
+    "src/systems/speechPrompt.js",
+    "src/systems/speechMatch.test.mjs",
+    "src/minigames/restaurant/index.js",
+    "DESIGN_DECISIONS.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": { "owner": "controller", "notes": "Controller reviews the matcher diff and tests; no browser run required (pure matching logic, no visual change)." },
+  "category": "logic",
+  "complexity": "medium",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium"
+}

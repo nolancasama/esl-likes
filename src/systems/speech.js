@@ -1,4 +1,4 @@
-import { matchAnswer, matchBest, matchQuestion } from './speechMatch.js';
+import { matchAnswerAlternatives, matchBest, matchQuestionAlternatives } from './speechMatch.js';
 
 const MAX_ALTERNATIVES = 5;
 const MAX_SESSION_MS = 8000;
@@ -280,10 +280,10 @@ export function createSpeechSystem() {
 
   const judge = (alternatives) => {
     if (!target) return null;
-    const matcher = target.judge || (target.mode === 'answer'
-      ? (text) => matchAnswer(text, target.category)
-      : (text) => matchQuestion(text, target.category));
-    return matchBest(alternatives, matcher);
+    if (target.judge) return matchBest(alternatives, target.judge);
+    return target.mode === 'answer'
+      ? matchAnswerAlternatives(alternatives, target.category, { openAnswer: Boolean(target.openAnswer) })
+      : matchQuestionAlternatives(alternatives, target.category);
   };
 
   const accept = (result, meta) => {
@@ -320,7 +320,9 @@ export function createSpeechSystem() {
         emitState(SPEECH_STATE.DETECTED, alternatives);
         target.onDetected?.(alternatives, meta);
         const result = judge(alternatives);
-        if (result?.ok) accept(result, { ...meta, interim: !meta.isFinal });
+        if (result?.ok && (result.freeForm !== true || meta.isFinal)) {
+          accept(result, { ...meta, interim: !meta.isFinal });
+        }
       },
       onResult: (alternatives, meta) => {
         if (!target || target.accepted) return;

@@ -16,6 +16,7 @@ export function promptSpeech(ctx, {
   sentence,
   choices = null,
   fallbackAnswer = null,
+  openAnswer = false,
   isActive = () => true,
   onCommit,
   onCancel,
@@ -36,6 +37,7 @@ export function promptSpeech(ctx, {
   speech.setTarget({
     mode,
     category,
+    openAnswer,
     micFree: () => Boolean(settings.get('micFree')),
     onCommit: () => {
       if (!isActive()) return false;

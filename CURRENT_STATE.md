@@ -16,7 +16,33 @@ review around it.
 controller runs git; orders say "edit files only". Fresh clones need `npm ci`
 first — the router skips Codex with `vite is not on PATH` otherwise.
 
-## Latest pass (2026-10-18) — UNLOCKED! card between stages; Stamp Book lock states
+## Latest pass (2026-10-23) — forgiving question recognition; free-form Restaurant food answer
+
+**Committed and pushed** at the owner's request. Router chose Codex (Sol,
+`.ai/wo-forgiving-question.json`), accepted after review; Claude added "lot" to
+the free-form filler. See DESIGN_DECISIONS 2026-10-23.
+
+- **Questions (all five games, `speechMatch.js`):** `noun && (what || like)`,
+  Town Builder question fuzz (≤4→1, ≤7→2, else 3), expanded VARIANTS,
+  `matchQuestionAlternatives` pools evidence across Web Speech alternatives.
+  A clearly heard other category (exact/variant only) rejects when the
+  expected noun has no exact/variant hit. Answers keep the strict fuzz.
+- **Restaurant turnaround:** `promptAnswer(..., { openAnswer: true })` accepts
+  any food phrase after "like" (≤4 words/32 chars); known foods keep canonical
+  ids and win across alternatives; free-form waits for the final result.
+
+### Validation
+
+`npm test` 849/849, build OK. No browser or Chromebook run (pure matching).
+
+### Next Steps
+
+1. Owner: classroom check — do Grade 3 questions now pass first try, and are
+   any clearly wrong questions slipping through ("what good do you like" is
+   accepted for Food by design).
+2. Add new mis-hearings to `VARIANTS` from real classroom transcripts.
+
+## Previous pass (2026-10-18) — UNLOCKED! card between stages; Stamp Book lock states
 
 **Committed and pushed** to `main` at the owner's request. Router chose Codex
 (Sol, `.ai/wo-unlock.json`), accepted after review; Claude added the uppercase
