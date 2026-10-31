@@ -1,6 +1,32 @@
 # Current State
 
-## Latest pass (2026-10-31) — Coloring locomotion per creation
+## Latest pass (2026-10-31, later) — true hero flight; gingerbread walks forward/back
+
+Done directly by Claude (router: Codex in a usage-limit window, other workers
+quarantined; order kept as `.ai/wo-coloring-flight-gingerbread.json`).
+
+- **Hero:** flies at ~2.6–3.1 units (was ~1.2), level and head-first while a
+  leg is under way, upright hover between legs and during reactions. Turns by
+  yawing an `attitude` group (root → attitude → body, pivot at mid-figure),
+  never by mirror flip; rolls into turns; dives toward / climbs away from the
+  camera on legs along z so it is never edge-on. One fist raised past the head,
+  other arm along the side, legs together, cape billowing (pitch) and rippling.
+  Arms slimmed to 0.135 wide (shape change also on the colouring page).
+- **Gingerbread:** limbs swing by a new per-piece `pitches` channel (local X).
+  Its arms are drawn sticking out sideways, so `swingAxes` turns them about
+  local Y instead (signed by side); legs pitch on X. No Z flapping.
+
+Validation: `npm test` **862/862**, build OK. Browser (headless Chrome, scratch
+scripts in `.tmp/`): hero flight on toward-camera, sideways and turning legs,
+gingerbread stride, and a five-creation regression (right style, inside the
+room, no page errors, robot beacon still `#2e6cda`) checked by eye from burst
+contact sheets. A new attitude test failed on the first (slerp-based) version,
+which flipped near a half-turn, and passes on the fix.
+
+Not verified: reduced motion and the newcomer greeting in a browser (unit
+tests only); no Chromebook run.
+
+## Previous pass (2026-10-31) — Coloring locomotion per creation
 
 Coloring now layers snowman hops, robot pistons with a painted-colour beacon,
 gingerbread swing-walks, hero flight and ninja tiptoes/checks over the existing

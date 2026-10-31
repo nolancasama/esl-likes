@@ -67,6 +67,13 @@ const LEAN = 0.17;
  */
 export const PUPPET_TEXTURE_SIZE = 640;
 
+/** World up, the figure's long axis, and roughly the room camera's direction. */
+const FLIGHT_UP = Object.freeze(new THREE.Vector3(0, 1, 0));
+const FLIGHT_AXIS = Object.freeze(new THREE.Vector3(0, 1, 0));
+const TOWARD_CAMERA = Object.freeze(new THREE.Vector3(0, 10.5, 13.5).normalize());
+
+const wrapAngle = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
+
 /** Picture units to world units. The picture is a unit square. */
 /**
  * One piece's texture, cut out of the child's paint.
@@ -218,6 +225,23 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
   const locomotionContext = { moving: false, cycleTime: 0, idleTime: 0, plan: null, reducedMotion };
   let blendTime = 1;
   let heldAltitude = 0;
+  /**
+   * A pitch swings a limb's free end toward or away from the camera. A hanging
+   * limb does that about its local X; a limb drawn sticking out sideways (the
+   * gingerbread's arms) would only spin about its own length on X, so it turns
+   * about local Y instead — signed by side so a positive pitch is always "back".
+   */
+  const swingYaw = Object.fromEntries(subject.pieces.map((piece) => [
+    piece,
+    subject.swingAxes?.[piece] === 'y' ? (subject.pivots[piece].x < 0.5 ? -1 : 1) : 0,
+  ]));
+  const flying = locomotion.style === 'fly';
+  const flight = { flat: 0, yaw: 0, roll: 0, climb: 0 };
+  const flightHead = new THREE.Vector3();
+  const flightFront = new THREE.Vector3();
+  const flightRight = new THREE.Vector3();
+  const flightBasis = new THREE.Matrix4();
+  const flightRollQuat = new THREE.Quaternion();
   const liveScale = PUPPET_HEIGHT * subject.liveScale;
   const feet = silhouetteBounds(subject).maxY;
   const rootPiece = subject.pieces[0];
@@ -225,9 +249,19 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
   const root = new THREE.Group();
   root.name = `paper-${subject.id}`;
 
+  /**
+   * Flight attitude, turning about the middle of the figure. Identity for
+   * everything except a roaming flyer, so every other pose is unaffected.
+   */
+  const attitude = new THREE.Group();
+  attitude.name = `paper-${subject.id}-attitude`;
+  const attitudePivot = liveScale * 0.5;
+  root.add(attitude);
+
   /** The squash/stretch group, so a scale never disturbs where the puppet stands. */
   const body = new THREE.Group();
-  root.add(body);
+  body.position.y = -attitudePivot;
+  attitude.add(body);
 
   // Shared across every puppet, and so never in this puppet's disposal bag.
   const quad = quadGeometry();
@@ -377,15 +411,18 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
     // noticing the air -> land edge here needs no second clock.
     if (newPose.stage === 'land' && lastPose.stage !== 'land') onLand?.();
     lastPose = newPose;
-    body.position.set(
+    attitude.position.set(
       newPose.root.x * liveScale * 0.5,
-      newPose.root.y * liveScale * 0.5,
+      newPose.root.y * liveScale * 0.5 + attitudePivot,
       0,
     );
     body.rotation.z = newPose.root.tilt * (newPose.worldTilt ? 1 : mirror);
     body.scale.set(newPose.root.scale.x * mirror, newPose.root.scale.y, 1);
     for (const piece of subject.pieces) {
       pieces[piece].group.rotation.z = newPose.rotations[piece] ?? 0;
+      const pitch = newPose.pitches?.[piece] ?? 0;
+      pieces[piece].group.rotation.x = swingYaw[piece] ? 0 : pitch;
+      pieces[piece].group.rotation.y = swingYaw[piece] ? pitch * swingYaw[piece] : 0;
       pieces[piece].group.position.y = pieces[piece].restY + (newPose.translations?.[piece] ?? 0) * liveScale;
     }
     lidMaterial.opacity = newPose.blink;
@@ -414,6 +451,7 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
     for (const piece of subject.pieces) {
       handoff.rotations[piece] = lastPose.rotations[piece] ?? 0;
       handoff.translations[piece] = lastPose.translations?.[piece] ?? 0;
+      handoff.pitches[piece] = lastPose.pitches?.[piece] ?? 0;
     }
     blendTime = 0;
   }
@@ -437,8 +475,52 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
     for (const piece of subject.pieces) {
       result.rotations[piece] = handoff.rotations[piece] + (result.rotations[piece] - handoff.rotations[piece]) * k;
       result.translations[piece] = handoff.translations[piece] + (result.translations[piece] - handoff.translations[piece]) * k;
+      result.pitches[piece] = handoff.pitches[piece] + (result.pitches[piece] - handoff.pitches[piece]) * k;
     }
     return result;
+  }
+
+  /**
+   * The flyer's attitude: yaw towards a smoothed heading, lay the figure along
+   * it head first with its front up and tipped towards the camera, roll into
+   * turns. Blended from upright by how level the pose asks to be, and eased
+   * back to upright whenever roaming is paused, so nothing ever snaps.
+   */
+  function updateAttitude(dt, pose) {
+    const k = 1 - Math.exp(-dt / 0.25);
+    flight.flat += ((roam ? pose.flat ?? 0 : 0) - flight.flat) * k;
+    let rate = 0;
+    if (roam) {
+      const delta = wrapAngle(roam.facing - flight.yaw);
+      const step = delta * (1 - Math.exp(-dt / 0.38));
+      flight.yaw = wrapAngle(flight.yaw + step);
+      rate = dt > 0 ? step / dt : 0;
+    }
+    const rollTarget = Math.max(-0.45, Math.min(0.45, -rate * 0.3)) * (reducedMotion ? 0.4 : 1);
+    flight.roll += (rollTarget - flight.roll) * k;
+    flight.climb += ((pose.climb ?? 0) - flight.climb) * k;
+    if (flight.flat < 1e-3) {
+      attitude.quaternion.identity();
+      return;
+    }
+    // Tip the head from straight up towards the heading by `flat` of a right
+    // angle, then build the frame around it. Not a slerp from upright: flying
+    // at the camera is nearly a half-turn from upright, where a slerp's
+    // shortest path flips between frames.
+    const tip = flight.flat * Math.PI / 2;
+    flightHead.set(Math.sin(flight.yaw), flight.climb * flight.flat, Math.cos(flight.yaw)).normalize();
+    // Half-way into the screen plane: flying straight at or away from the
+    // camera, a level sheet is edge-on, so it dives towards the viewer or
+    // climbs away instead. Sideways flight is unaffected.
+    flightHead.addScaledVector(TOWARD_CAMERA, -0.5 * flightHead.dot(TOWARD_CAMERA)).normalize()
+      .multiplyScalar(Math.sin(tip)).addScaledVector(FLIGHT_UP, Math.cos(tip)).normalize();
+    flightFront.copy(FLIGHT_UP).addScaledVector(TOWARD_CAMERA, 0.55);
+    flightFront.addScaledVector(flightHead, -flightFront.dot(flightHead)).normalize();
+    flightRight.crossVectors(flightHead, flightFront);
+    flightBasis.makeBasis(flightRight, flightHead, flightFront);
+    attitude.quaternion.setFromRotationMatrix(flightBasis);
+    flightRollQuat.setFromAxisAngle(FLIGHT_AXIS, flight.roll * flight.flat);
+    attitude.quaternion.multiply(flightRollQuat);
   }
 
   const api = {
@@ -537,6 +619,7 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
       roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from, speed, locomotion });
       pausedRoam = null;
       heldAltitude = 0;
+      flight.yaw = roam.facing;
       if (from === undefined) api.placeAt(roam.position.x, roam.position.z, roam.facing);
       state = roam.state;
       stateTime = phase;
@@ -581,10 +664,16 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
         root.position.x = roam.position.x;
         root.position.z = roam.position.z;
         api.setHeading(roam.facing);
+        if (flying) {
+          // A flyer turns by yawing its attitude, not by flipping the sheet.
+          mirror = 1;
+          root.rotation.y = 0;
+        }
       }
 
       const nextPose = roam ? roamingPose(safeDt) : poseFor(subject, state, stateTime);
-      if (!roam && pausedRoam && locomotion.style === 'fly') nextPose.root.y += heldAltitude;
+      if (!roam && pausedRoam && flying) nextPose.root.y += heldAltitude;
+      if (flying) updateAttitude(safeDt, nextPose);
       applyPose(nextPose);
       return api;
     },

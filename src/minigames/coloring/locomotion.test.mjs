@@ -71,7 +71,8 @@ test('rigid styles stay grounded, keep piston overlap, and reuse output safely',
       const pose = sample(subject, plan, false, out);
       if (subject.id !== 'snowman') assert.equal(pose, out);
       for (const axis of ['x', 'y']) assert.ok(Math.abs(pose.root.scale[axis] - 1) <= SQUASH_LIMIT);
-      if (['robot', 'gingerbread', 'ninja'].includes(subject.id)) assert.equal(pose.root.y, 0);
+      if (['robot', 'ninja'].includes(subject.id)) assert.equal(pose.root.y, 0);
+      if (subject.id === 'gingerbread') assert.ok(pose.root.y >= 0 && pose.root.y <= 0.03);
       if (subject.id === 'robot') {
         for (const leg of ['leftLeg', 'rightLeg']) {
           assert.ok(pose.translations[leg] >= 0 && pose.translations[leg] <= subject.locomotion.retract && subject.locomotion.retract <= 0.12);
@@ -79,9 +80,14 @@ test('rigid styles stay grounded, keep piston overlap, and reuse output safely',
         }
       }
       if (subject.id === 'gingerbread') {
-        assert.equal(pose.rotations.leftArm, pose.rotations.rightLeg);
-        assert.equal(pose.rotations.rightArm, pose.rotations.leftLeg);
-        assert.ok(Math.abs(pose.rotations.leftArm + pose.rotations.rightArm) < 1e-12);
+        // Forward/back on local X only: a Z turn on a camera-facing sheet flaps.
+        for (const limb of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) {
+          assert.equal(pose.rotations[limb], 0);
+        }
+        const { armSwing, legSwing } = subject.locomotion;
+        assert.ok(Math.abs(pose.pitches.leftArm / armSwing - pose.pitches.rightLeg / legSwing) < 1e-12);
+        assert.ok(Math.abs(pose.pitches.rightArm / armSwing - pose.pitches.leftLeg / legSwing) < 1e-12);
+        assert.ok(Math.abs(pose.pitches.leftArm + pose.pitches.rightArm) < 1e-12);
       }
     }
   }
@@ -96,6 +102,9 @@ test('reduced motion retains flight and navigation while damping style amplitude
     if (subject.id === 'hero') {
       assert.ok(reduced.root.y * 1.75 * subject.liveScale * 0.5 > 1.1);
       assert.ok(Math.abs(reduced.rotations.cape) <= Math.abs(regular.rotations.cape));
+    } else if (subject.id === 'gingerbread') {
+      assert.ok(Math.abs(reduced.pitches.leftArm) <= Math.abs(regular.pitches.leftArm) * 0.401);
+      assert.ok(Math.abs(regular.pitches.leftArm) > 0);
     } else {
       assert.ok(Math.abs(reduced.rotations.leftArm) <= Math.abs(regular.rotations.leftArm) * 0.401);
     }

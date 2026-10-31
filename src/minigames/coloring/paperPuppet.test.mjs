@@ -97,6 +97,7 @@ const createPaperPuppet = (options = {}) => buildPaperPuppet({ subject: robot, .
 const silhouetteBounds = () => subjectBounds(robot);
 const pieceLayout = (piece) => subjectPieceLayout(robot, piece);
 const THREE = await import('three');
+const { SUBJECTS } = await import('./subjectRegistry.js');
 const { readFileSync } = await import('node:fs');
 const puppetSource = readFileSync(new URL('./paperPuppet.js', import.meta.url), 'utf8');
 
@@ -395,6 +396,48 @@ test('hero rises from the handoff, hovers in idle, and preserves altitude across
   assert.equal(puppet.roamPlan, plan);
   assert.equal(puppet.pose.root.y, restingAltitude, 'resume snapped altitude');
   puppet.dispose(); other.dispose();
+});
+
+test('only a roaming hero leaves upright: level in flight, yawing not flipping, upright to hover', async () => {
+  const attitudeOf = (puppet) => puppet.group.children.find((child) => child.name.endsWith('-attitude'));
+  const headOf = (puppet) => new THREE.Vector3(0, 1, 0).applyQuaternion(attitudeOf(puppet).quaternion);
+  for (const subject of SUBJECTS.filter((s) => s.id !== 'hero')) {
+    const puppet = buildPaperPuppet({ subject });
+    puppet.startRoaming(undefined, { idlePause: 0.1, stateTime: 0.1 });
+    for (let i = 0; i < 400; i += 1) {
+      puppet.update(1 / 60);
+      assert.ok(attitudeOf(puppet).quaternion.angleTo(new THREE.Quaternion()) < 1e-9, subject.id);
+    }
+    puppet.dispose();
+  }
+
+  const { default: hero } = await import('./subjects/hero.js');
+  const puppet = buildPaperPuppet({ subject: hero });
+  puppet.startRoaming(undefined, { idlePause: 0.1, stateTime: 0.1 });
+  let frames = 0;
+  while (!(puppet.roamPlan.state === 'move' && puppet.roamPlan.travelTime > 1.5) && frames++ < 2000) {
+    puppet.update(1 / 60);
+    assert.equal(puppet.mirror, 1, 'a roaming hero flipped its sheet');
+  }
+  assert.ok(Math.abs(headOf(puppet).y) < 0.45, 'not level in flight');
+
+  // A reversal turns through the air over several frames, never in one.
+  let previous = headOf(puppet);
+  puppet.roamPlan.facing += Math.PI;
+  for (let i = 0; i < 20; i += 1) {
+    puppet.update(1 / 60);
+    const head = headOf(puppet);
+    assert.ok(head.dot(previous) > 0.9, 'heading snapped');
+    assert.equal(puppet.mirror, 1);
+    previous = head;
+  }
+
+  while (puppet.roamPlan.state !== STATES.IDLE && frames++ < 4000) puppet.update(1 / 60);
+  for (let i = 0; i < 6; i += 1) puppet.update(1 / 60);
+  puppet.roamPlan.idlePause = 5;
+  for (let i = 0; i < 60; i += 1) puppet.update(1 / 60);
+  assert.ok(headOf(puppet).y > 0.97, 'not upright while hovering');
+  puppet.dispose();
 });
 
 test('gingerbread swing stays rigid and mirrors its world pose in both directions', async () => {

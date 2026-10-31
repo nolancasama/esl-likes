@@ -1,0 +1,52 @@
+{
+  "task": "Coloring room: (1) make the hero fly like a classic superhero — horizontal body, higher altitude, yawing (not mirroring) to its heading with roll on turns, arm(s) forward, trailing flapping cape, upright hover between legs; (2) slim the hero's arms; (3) fix the gingerbread walk so limbs swing forward/back (local X pitch) instead of flapping in the picture plane (local Z).",
+  "context": [
+    "Previous pass (commit 098b200, DESIGN_DECISIONS 2026-10-31 'Coloring creations have their own locomotion'): src/minigames/coloring/locomotion.js holds pure per-style poses (hop/piston/swing-walk/fly/tiptoe); paperPuppet.js applies them; robotPuppet.js stepRoam owns navigation (MOVE_STATE, travelTime/travelDuration, leg, facing/previousFacing, elapsed).",
+    "Creations are FLAT PAPER CUT-OUTS facing the camera: each piece is a rigid textured quad in a THREE.Group at its pivot; pieces currently only rotate on group.rotation.z (in the picture plane) and translate in y. Hierarchy: root (world position, rotation.y = small LEAN, contains the floor shadow) -> body (pose offset, rotation.z tilt, scale.x = mirror for facing) -> piece groups. Facing is a mirror flip via setHeading.",
+    "Gingerbread bug: swing-walk rotates arms/legs on local Z, which on a camera-facing sheet reads as up/down flapping (jumping-jack). Forward/back is a pitch about each limb's local X axis through its existing pivot (shoulder/hip): the limb's free end swings toward/away from the camera, passing through the body plane (limbs are drawn just behind the body at depth -0.5/-0.7 * PAPER_DEPTH; a forward-swung limb in front of the torso is correct, like a real arm).",
+    "Room camera preset: offset [0, 10.5, 13.5] looking at player+[0,1.05,-2.7]. Room 18 x 16 (roomLayout.js); check wall height in the coloring world build in index.js when choosing altitude.",
+    "Hero arm shapes today: rect(0.17,0.34,0.23,0.34,0.1) and rect(0.6,0.34,0.23,0.34,0.1) against a torso rect(0.32,0.29,0.36,0.46) — too thick."
+  ],
+  "requirements": [
+    "POSE CHANNEL: add an optional per-piece pitch (local X rotation, radians) to the locomotion pose output (e.g. `pitches`), applied in paperPuppet.applyPose to pieces[piece].group.rotation.x, reset to 0 for poses that do not carry it (legacy poseFor poses, all other styles). Include it in the handoff blend. No allocation per frame.",
+    "GINGERBREAD swing-walk: arms and legs swing ONLY by pitch (local X) about existing shoulder/hip pivots; Z rotation of limbs is 0 while walking (no flapping). Opposite pairs: leftArm and rightLeg share a phase, rightArm and leftLeg the opposite phase. Amplitude to tune by eye from the room camera — start around arms ±0.6 rad, legs ±0.45 rad. Keep the tiny body sway/bob only. Idle unchanged (gentle sway). Mirror flip must not invert the alternation visibly. Reduced motion scales amplitude ~0.4.",
+    "HERO attitude layer: insert a group between root and body (e.g. `attitude`) that is identity for every other style and for all non-roaming/legacy poses (cinematic, Restaurant/Zoo via paperCharacter must be unchanged). For the fly style while roaming, the hero does NOT mirror-flip and ignores LEAN; instead attitude = yaw toward a smoothed heading (angular interpolation, time constant ~0.3–0.4 s, shortest path, so a reversal visibly rotates through rather than flipping) then lays the figure horizontal while MOVING: picture-up (head) points along the travel direction, and the sheet's front faces mostly up but tilted ~25–35° toward the camera so face/star/arms stay readable from the room camera. Add roll about the body's long axis proportional to yaw rate (clamped ~0.45 rad) so turns bank. Small nose pitch following vertical velocity during swoops.",
+    "HERO hover vs flight: during the idle pause between legs (and during the newcomer CELEBRATE reaction / paused roaming), ease (~0.5 s) to an upright hover (small forward lean, still airborne, bobbing, arms relaxed/one fist on hip OK, cape hanging with light wave). When a leg starts, ease to the horizontal flight attitude; ease back before arrival. No snaps at leg start/end, reaction start/end, or the startup->roaming handoff (the hero still rises from the floor after coming to life).",
+    "HERO flight pose (moving): leading arm (e.g. rightArm) stretched straight overhead along the body axis so it points in the travel direction; the other arm either also forward or swept back along the side — choose what reads best; legs together, straight, slight trailing kick; cape trails toward the feet (behind the direction of travel) and flaps: a sine on cape pitch (local X, lifting it off the back) plus a small Z wave, frequency ~2–3 Hz, small amplitude. Transform-only.",
+    "HERO altitude: raise hoverHeight so it flies clearly above floor characters in the upper part of the room (start around 2.4–2.8 world units, tune), staying below the wall tops and fully visible in the room camera everywhere on the route. Gentle continuous rise/fall and the existing occasional swoop (keep it gentle). Shadow stays on the floor (keep altitude on body/attitude, not root.position.y).",
+    "HERO arms: slim both arm shapes to about 0.12–0.14 wide (keep height and rounded ends, keep each pivot inside its arm's top, keep enough overlap behind the torso that no gap shows at any pose), and move the arm detail cuff lines to match. This changes the colouring page shape, which is intended. Check any tests/harness that pin hero geometry and update deliberately.",
+    "No regressions: snowman hop, robot piston + painted beacon, ninja tiptoe (including Claude's tuned values in tiptoePose), navigation, cinematic, Restaurant/Zoo, reduced motion (hero keeps flying; amplitudes damped; no swoops). Existing tests keep passing except where they assert the old gingerbread Z swing or the old hero hover height/arm shapes — update those deliberately and add tests: gingerbread limb Z rotations are 0 while walking and pitches alternate in opposite pairs; hero attitude is identity for every other subject and for legacy poses; hero heading interpolates (no single-frame reversal) and the hero never mirror-flips while roaming; hero altitude >= new hover floor after the rise including across pause/celebrate/resume; horizontal while moving, upright while idle.",
+    "Update DESIGN_DECISIONS.md (2026-10-31, later): limbs that swing forward/back pitch on local X (rotations on Z read as flapping on a camera-facing sheet); hero flight uses an attitude layer and yaw instead of mirror; slimmer hero arms; rejected alternatives (Z swing; mirror flip for hero; cloth sim). Update CURRENT_STATE.md latest pass briefly."
+  ],
+  "constraints": [
+    "Do not change roomLayout, navigation routes/safe area/obstacles, robotCrowd, player movement, touch-to-walk, easel, Paint Again, transitions, persistence, Coloring UI.",
+    "Do not change legacy poseFor output (idle/startup/hop/celebrate) or paperCharacter.js behaviour.",
+    "No bones, skinning, vertex deformation, cloth or physics; transforms and sines only; no per-frame allocation.",
+    "Edit files only; the controller runs git. Do not run browser acceptance — the controller owns it.",
+    "Edit source with structured edit tools; if a shell-based edit hits a quoting/escaping problem once, stop using shell edits for that change."
+  ],
+  "startingPoints": [
+    "src/minigames/coloring/locomotion.js",
+    "src/minigames/coloring/locomotion.test.mjs",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/paperPuppet.test.mjs",
+    "src/minigames/coloring/subjects/hero.js",
+    "src/minigames/coloring/subjects/gingerbread.js",
+    "src/minigames/coloring/index.js (world build: wall height only)",
+    "DESIGN_DECISIONS.md, CURRENT_STATE.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "controller",
+    "description": "Controller renders the hero and gingerbread in the room (scratch capture scripts in .tmp) and judges flight attitude, altitude, turning, cape, arm silhouette and gingerbread forward/back swing by eye; also spot-checks the other three for regressions."
+  },
+  "category": "3d-animation",
+  "complexity": "hard",
+  "composition": "atomic",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "medium",
+  "executionStyle": "deep-reasoning",
+  "visual": true
+}

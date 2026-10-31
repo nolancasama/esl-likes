@@ -1,5 +1,29 @@
 # Design Decisions
 
+## 2026-10-31 (later) — Forward/back swings pitch; the hero flies by attitude, not mirror
+
+**A limb that swings forward and back turns out of the sheet, not in it.** The
+creations are camera-facing paper, so a Z turn swings a limb in the picture
+plane — on the gingerbread that read as flapping. Hanging limbs pitch on local
+X; limbs drawn sticking out sideways (gingerbread arms) turn on local Y, signed
+by side, because an X turn would only spin them about their own length. Pose
+data carries this as `pitches`; subjects opt arms into Y with `swingAxes`.
+Rejected: the Z swing (flaps), deforming or bending pieces.
+
+**The hero turns by yawing, not flipping.** A roaming hero gets an `attitude`
+group between root and body (identity for everyone else and every legacy pose):
+the head points along a smoothed heading, the front faces up and tips toward the
+camera, it rolls into turns, and it eases to an upright hover between legs. On
+legs toward or away from the camera the flight line is tipped half-way into the
+screen plane (a dive at the viewer, a climb away), since a level sheet seen
+end-on is a sliver. The blend from upright is built from the head direction,
+never slerped from identity — flying at the camera is nearly a half-turn from
+upright, where a slerp's shortest path flipped between frames. Altitude ~2.6
+units; one fist raised past the head (also slid up the shoulder, or the head
+hides it); slimmer arms (0.135 wide, was 0.23). Rejected: keeping the mirror
+flip for the hero (it slides sideways instead of turning); cloth simulation for
+the cape (pitch flap + Z ripple suffices).
+
 ## 2026-10-31 — Coloring creations have their own locomotion
 
 Snowman keeps its original hop and idle. Robot uses vertically retracting leg
