@@ -48,7 +48,8 @@ const ninja = {
     hop: { root: { hopHeightScale: 0.72, tilt: 0.1 }, rotations: { leftArm: { base: -0.12, lagAir: -0.42 }, rightArm: { base: 0.12, lagAir: 0.42 }, leftLeg: { air: -0.13 }, rightLeg: { air: 0.13 } }, blink: true },
     celebrate: { root: { hopHeightScale: 0.88, tilt: 0.12 }, rotations: { leftArm: { lagAir: -0.7 }, rightArm: { lagAir: 0.7 }, leftLeg: { air: -0.18 }, rightLeg: { air: 0.18 } }, blink: false },
   },
-  motionProfile: { speed: 1.28, idleMin: 0.65, idleMax: 1.1 },
+  locomotion: { style: 'tiptoe', checkEvery: 3, checkDuration: 0.85 },
+  motionProfile: { speed: 0.98, idleMin: 0.65, idleMax: 1.1 },
   liveScale: LIVE_SCALE,
 };
 

@@ -364,3 +364,117 @@ test('startRoaming with no variation still behaves as it always did', () => {
   assert.equal(puppet.group.position.z, puppet.roamPlan.points[0].z);
   puppet.dispose();
 });
+
+test('hero rises from the handoff, hovers in idle, and preserves altitude across a reaction', async () => {
+  const { default: hero } = await import('./subjects/hero.js');
+  const puppet = buildPaperPuppet({ subject: hero });
+  const other = buildPaperPuppet({ subject: hero });
+  puppet.setState(STATES.STARTUP);
+  puppet.update(0);
+  const before = puppet.pose.root.y;
+  puppet.startRoaming(undefined, { idlePause: 0.1, stateTime: 0.1 });
+  puppet.update(0);
+  assert.equal(puppet.pose.root.y, before, 'handoff jumped on its first frame');
+  for (let i = 0; i < 180; i += 1) puppet.update(1 / 60);
+  assert.ok(puppet.pose.root.y * PUPPET_HEIGHT * hero.liveScale * 0.5 > 1.1);
+  assert.equal(other.pose.root.y, 0, 'another hero inherited the flight clock');
+  const plan = puppet.roamPlan;
+  const altitude = puppet.pose.root.y;
+  puppet.pauseRoaming().setState(STATES.CELEBRATE);
+  puppet.update(0);
+  assert.equal(puppet.pose.root.y, altitude);
+  for (let i = 0; i < 28; i += 1) {
+    puppet.update(1 / 60);
+    assert.ok(puppet.pose.root.y > altitude - 0.1, 'reaction dropped to the floor');
+  }
+  puppet.setState(STATES.IDLE);
+  puppet.update(0);
+  const restingAltitude = puppet.pose.root.y;
+  puppet.resumeRoaming();
+  puppet.update(0);
+  assert.equal(puppet.roamPlan, plan);
+  assert.equal(puppet.pose.root.y, restingAltitude, 'resume snapped altitude');
+  puppet.dispose(); other.dispose();
+});
+
+test('gingerbread swing stays rigid and mirrors its world pose in both directions', async () => {
+  const { default: gingerbread } = await import('./subjects/gingerbread.js');
+  const left = buildPaperPuppet({ subject: gingerbread });
+  const right = buildPaperPuppet({ subject: gingerbread });
+  const options = { idlePause: 0.1, stateTime: 0.1 };
+  for (const puppet of [left, right]) {
+    puppet.startRoaming(undefined, options);
+    for (let i = 0; i < 90; i += 1) puppet.update(1 / 60);
+  }
+  left.roamPlan.facing = -Math.PI / 2;
+  right.roamPlan.facing = Math.PI / 2;
+  left.update(0); right.update(0);
+  left.group.updateMatrixWorld(true); right.group.updateMatrixWorld(true);
+  for (const piece of gingerbread.pieces) {
+    const l = left.pieces[piece].mesh.getWorldPosition(new THREE.Vector3());
+    const r = right.pieces[piece].mesh.getWorldPosition(new THREE.Vector3());
+    assert.ok(Math.abs((l.x - left.group.position.x) + (r.x - right.group.position.x)) < 1e-8, piece);
+    assert.ok(Math.abs(l.y - r.y) < 1e-8, piece);
+  }
+  left.dispose(); right.dispose();
+});
+
+test('motion preference is read once per puppet and keeps the restored hero airborne', async () => {
+  const { default: hero } = await import('./subjects/hero.js');
+  const original = globalThis.matchMedia;
+  let reads = 0;
+  globalThis.matchMedia = (query) => {
+    assert.equal(query, '(prefers-reduced-motion: reduce)');
+    reads += 1;
+    return { matches: true };
+  };
+  const puppet = buildPaperPuppet({ subject: hero });
+  try {
+    puppet.startRoaming();
+    for (let i = 0; i < 180; i += 1) puppet.update(1 / 60);
+    assert.equal(reads, 1);
+    assert.ok(puppet.pose.root.y * PUPPET_HEIGHT * hero.liveScale * 0.5 > 1.1);
+    assert.equal(puppet.locomotion, 'fly');
+    assert.equal(puppet.beaconColor, null);
+  } finally {
+    puppet.dispose();
+    if (original) globalThis.matchMedia = original;
+    else delete globalThis.matchMedia;
+  }
+});
+
+test('each beacon tints the shared halo from its own artwork once at build', () => {
+  const original = document.createElement;
+  let rgb = [40, 110, 220];
+  const sampled = [];
+  document.createElement = (tag) => {
+    const canvas = original(tag);
+    if (tag === 'canvas') {
+      const ctx = canvas.getContext('2d');
+      ctx.getImageData = (x, y, width = 1, height = 1) => {
+        sampled.push(canvas);
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let i = 0; i < data.length; i += 4) data.set([...rgb, 255], i);
+        return { data };
+      };
+    }
+    return canvas;
+  };
+  let first; let second;
+  try {
+    first = createPaperPuppet({ paint: paint(910) });
+    rgb = [220, 70, 90];
+    second = createPaperPuppet({ paint: paint(911) });
+    assert.deepEqual(sampled, [first.pieces.body.artwork, second.pieces.body.artwork]);
+    assert.equal(first.beaconColor, '#286edc');
+    assert.equal(second.beaconColor, '#dc465a');
+    const halo = (puppet) => puppet.pieces.body.group.children.find((child) => child.material?.blending === THREE.AdditiveBlending);
+    assert.equal(halo(first).material.map, halo(second).material.map);
+    assert.equal(halo(first).material.color.getHexString(), '286edc');
+    first.startRoaming(); second.startRoaming();
+    for (let i = 0; i < 120; i += 1) { first.update(1 / 60); second.update(1 / 60); }
+    assert.equal(sampled.length, 2, 'animation sampled the artwork again');
+  } finally {
+    first?.dispose(); second?.dispose(); document.createElement = original;
+  }
+});

@@ -18,6 +18,8 @@ import * as THREE from 'three';
 
 import { pieceAt, silhouetteBounds } from './robotDefinition.js';
 import { drawPiece, pieceTextureBounds } from './robotRenderer.js';
+import { createLocomotionPose, locomotionConfigFor, locomotionPose } from './locomotion.js';
+import { sampleBeaconColor } from './beaconColor.js';
 import {
   DURATIONS,
   HOP_DISTANCE,
@@ -147,9 +149,9 @@ const shadowTexture = () => radialTexture([
  * itself, and the centre is nearly clear.
  */
 const glowTexture = () => radialTexture([
-  [0, 'rgba(255,240,170,0.16)'],
-  [0.42, 'rgba(255,230,140,0.6)'],
-  [1, 'rgba(255,214,90,0)'],
+  [0, 'rgba(255,255,255,0.16)'],
+  [0.42, 'rgba(255,255,255,0.6)'],
+  [1, 'rgba(255,255,255,0)'],
 ]);
 
 // --- what every puppet can share -------------------------------------------
@@ -209,6 +211,13 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
   const own = (bag, thing) => { disposables[bag].add(thing); return thing; };
   let disposed = false;
   let pausedRoam = null;
+  const locomotion = locomotionConfigFor(subject);
+  const reducedMotion = Boolean(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  const locomotionOutput = createLocomotionPose(subject);
+  const handoff = createLocomotionPose(subject);
+  const locomotionContext = { moving: false, cycleTime: 0, idleTime: 0, plan: null, reducedMotion };
+  let blendTime = 1;
+  let heldAltitude = 0;
   const liveScale = PUPPET_HEIGHT * subject.liveScale;
   const feet = silhouetteBounds(subject).maxY;
   const rootPiece = subject.pieces[0];
@@ -298,7 +307,7 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
 
     // `artwork` is this piece's own cut-out canvas, kept so the puppet can be
     // fingerprinted without re-deriving anything.
-    pieces[piece] = { group, layout, mesh, edge, artwork: canvas };
+    pieces[piece] = { group, layout, mesh, edge, artwork: canvas, restY: group.position.y, textureBox: pieceTextureBounds(piece, { subject, size: textureSize }) };
   }
 
   // Blinking. The eyes are baked into the body texture, so a blink is two
@@ -323,9 +332,11 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
   // The antenna light glowing when the robot powers up. A gradient, not a flat
   // quad: additive blending over a plain square gave it a white box for a halo.
   const glowSpec = subject.personality.glow;
+  const beaconColor = glowSpec ? sampleBeaconColor(pieces[glowSpec.piece].artwork,
+    glowSpec, pieces[glowSpec.piece].textureBox, textureSize) : null;
   const glowArt = glowSpec ? sharedGlowArt() : null;
   const glowMaterial = glowSpec ? own('materials', new THREE.MeshBasicMaterial({
-    map: glowArt.texture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+    map: glowArt.texture, color: beaconColor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
     depthWrite: false, side: THREE.DoubleSide,
   })) : null;
   const glow = glowSpec ? new THREE.Mesh(quad, glowMaterial) : null;
@@ -371,14 +382,16 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
       newPose.root.y * liveScale * 0.5,
       0,
     );
-    body.rotation.z = newPose.root.tilt * mirror;
+    body.rotation.z = newPose.root.tilt * (newPose.worldTilt ? 1 : mirror);
     body.scale.set(newPose.root.scale.x * mirror, newPose.root.scale.y, 1);
     for (const piece of subject.pieces) {
       pieces[piece].group.rotation.z = newPose.rotations[piece] ?? 0;
+      pieces[piece].group.position.y = pieces[piece].restY + (newPose.translations?.[piece] ?? 0) * liveScale;
     }
     lidMaterial.opacity = newPose.blink;
     for (const lid of lids) lid.visible = newPose.blink > 0.02;
-    if (glowMaterial) glowMaterial.opacity = Math.max(glowFloor, newPose.glow) * 0.75;
+    if (glowMaterial) glowMaterial.opacity = (roam && locomotion.style !== 'hop'
+      ? newPose.glow : Math.max(glowFloor, newPose.glow)) * 0.75;
 
     // The shadow tracks height, not the piece hierarchy: tighter and fainter
     // the higher the puppet is.
@@ -390,6 +403,44 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
 
   applyPose(lastPose);
 
+  function beginHandoff() {
+    // Capture at boundaries only; the continuous per-frame output is reused.
+    handoff.root.x = lastPose.root.x;
+    handoff.root.y = lastPose.root.y;
+    handoff.root.tilt = lastPose.root.tilt * (lastPose.worldTilt ? 1 : mirror);
+    handoff.root.scale.x = lastPose.root.scale.x;
+    handoff.root.scale.y = lastPose.root.scale.y;
+    handoff.glow = lastPose.glow;
+    for (const piece of subject.pieces) {
+      handoff.rotations[piece] = lastPose.rotations[piece] ?? 0;
+      handoff.translations[piece] = lastPose.translations?.[piece] ?? 0;
+    }
+    blendTime = 0;
+  }
+
+  function roamingPose(dt) {
+    locomotionContext.plan = roam;
+    locomotionContext.moving = roam.state !== STATES.IDLE && !roam.checking;
+    locomotionContext.cycleTime = roam.cycleTime;
+    locomotionContext.idleTime = roam.stateTime;
+    const result = locomotionPose(subject, locomotionContext, locomotionOutput);
+    if (locomotion.style === 'hop') return result;
+    blendTime = Math.min(1, blendTime + dt / 0.4);
+    const k = blendTime * blendTime * (3 - 2 * blendTime);
+    result.root.x = handoff.root.x + (result.root.x - handoff.root.x) * k;
+    result.root.y = handoff.root.y + (result.root.y - handoff.root.y) * k;
+    result.root.tilt = handoff.root.tilt + (result.root.tilt * (result.worldTilt ? 1 : mirror) - handoff.root.tilt) * k;
+    result.worldTilt = true;
+    result.root.scale.x = handoff.root.scale.x + (result.root.scale.x - handoff.root.scale.x) * k;
+    result.root.scale.y = handoff.root.scale.y + (result.root.scale.y - handoff.root.scale.y) * k;
+    result.glow = handoff.glow + (result.glow - handoff.glow) * k;
+    for (const piece of subject.pieces) {
+      result.rotations[piece] = handoff.rotations[piece] + (result.rotations[piece] - handoff.rotations[piece]) * k;
+      result.translations[piece] = handoff.translations[piece] + (result.translations[piece] - handoff.translations[piece]) * k;
+    }
+    return result;
+  }
+
   const api = {
     group: root,
     pieces,
@@ -397,6 +448,8 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
     get stateTime() { return stateTime; },
     get pose() { return lastPose; },
     get roamPlan() { return roam; },
+    get locomotion() { return locomotion.style; },
+    get beaconColor() { return beaconColor; },
 
     /**
      * A few numbers that depend only on this puppet's own artwork.
@@ -480,29 +533,36 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
       points = ROAM_POINTS,
       { start = 0, idlePause, stateTime: phase = 0, from, speed = 1 } = {},
     ) {
-      roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from, speed });
+      beginHandoff();
+      roam = createRoamPlan(points, start, { idlePause, stateTime: phase, from, speed, locomotion });
       pausedRoam = null;
+      heldAltitude = 0;
       if (from === undefined) api.placeAt(roam.position.x, roam.position.z, roam.facing);
       state = roam.state;
       stateTime = phase;
       return api;
     },
 
-    stopRoaming() { roam = null; pausedRoam = null; return api; },
+    stopRoaming() { roam = null; pausedRoam = null; heldAltitude = 0; return api; },
 
     /** Temporarily yields the roam clock to a reaction without losing its route. */
     pauseRoaming() {
-      if (roam) pausedRoam = roam;
+      if (roam) {
+        pausedRoam = roam;
+        heldAltitude = locomotion.style === 'fly' ? lastPose.root.y : 0;
+      }
       roam = null;
       return api;
     },
 
     resumeRoaming() {
       if (pausedRoam) {
+        beginHandoff();
         roam = pausedRoam;
         pausedRoam = null;
         state = roam.state;
         stateTime = roam.stateTime * roam.speed;
+        heldAltitude = 0;
       }
       return api;
     },
@@ -523,7 +583,9 @@ export function createPaperPuppet({ subject, paint = null, textureSize = PUPPET_
         api.setHeading(roam.facing);
       }
 
-      applyPose(poseFor(subject, state, stateTime));
+      const nextPose = roam ? roamingPose(safeDt) : poseFor(subject, state, stateTime);
+      if (!roam && pausedRoam && locomotion.style === 'fly') nextPose.root.y += heldAltitude;
+      applyPose(nextPose);
       return api;
     },
 

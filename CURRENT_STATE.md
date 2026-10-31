@@ -1,5 +1,36 @@
 # Current State
 
+## Latest pass (2026-10-31) — Coloring locomotion per creation
+
+Coloring now layers snowman hops, robot pistons with a painted-colour beacon,
+gingerbread swing-walks, hero flight and ninja tiptoes/checks over the existing
+shared route. Continuous legs use style world speeds; hero altitude survives
+newcomer reactions and resume. Reduced motion keeps navigation and flight while
+damping animation. Debug robots include `locomotion` and `beaconColor`.
+The cinematic pose functions and Restaurant/Zoo walking are unchanged.
+
+Codex (Sol) implemented (`.ai/wo-coloring-locomotion.json`); Claude tuned the
+ninja tiptoe (deeper crouch, arms up for balance, larger steps, weight shift)
+and the robot piston retract (0.075 → 0.1) after looking at the rendered frames.
+New dev-only hooks (DEV / `?editor`): `__eslDebug.coloringSkipToRoom()` and
+`coloringSpawn(count, paint, subjectId)`.
+
+Validation: `npm test` **861/861 passed**; `npm run build` passed (Vite's large
+chunk advisory remains). The original `robotPuppet.test.mjs` passes unmodified.
+Browser check (headless Chrome, 1366×768, scratch scripts in `.tmp/`, not
+committed): each of the five subjects spawned in the room reports the right
+`locomotion`, stays inside the room for 12 s, no page errors; hero lift ≈1.3–1.5
+while travelling; a robot with a blue-painted antenna reports `#2e6cda`
+(painted `#2f6fe0`). Burst contact sheets checked by eye for all five.
+
+Not verified: reduced motion in a browser (unit-tested only); the newcomer
+greeting with a hero in the room (unit-tested only); no Chromebook run; no
+pulse visible in stills (beacon pulse is time-based).
+
+Next steps: owner — do the five creations feel distinct on a classroom
+Chromebook, and does the ninja read as sneaking. Possible follow-up: carry the
+styles into the Restaurant/Zoo walks (`paperCharacter.js` still uses the hop).
+
 ## Usage watch
 
 2026-10-18: Codex available again (routed the unlock pass); Gemini/`agy-*`

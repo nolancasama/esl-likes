@@ -118,7 +118,8 @@ const robot = {
     },
     glow: { piece: 'body', cx: 0.5, cy: 0.065, r: 0.036 },
   },
-  motionProfile: { speed: 0.94, idleMin: 1.25, idleMax: 1.85 },
+  locomotion: { style: 'piston', retract: 0.1 },
+  motionProfile: { speed: 1, idleMin: 1.25, idleMax: 1.85 },
   liveScale: LIVE_SCALE,
 };
 

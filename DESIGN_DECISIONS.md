@@ -1,5 +1,33 @@
 # Design Decisions
 
+## 2026-10-31 — Coloring creations have their own locomotion
+
+Snowman keeps its original hop and idle. Robot uses vertically retracting leg
+pistons, gingerbread a rigid opposing arm/leg swing, hero sustained flight, and
+ninja a crouched tiptoe with a short check every third leg. This supersedes the
+2026-09-22 robot-hops decision for the four non-snowman creations: distinct
+movement now helps a roomful of different drawings read as different characters.
+All pieces remain rigid paper cutouts with hidden overlapping joints.
+
+Navigation still owns route points, safe floor, easel obstacle, crowd offsets
+and endpoint idle pauses. A pure locomotion module owns poses, while continuous
+legs use a world speed with brief acceleration/deceleration ramps. Nominal speeds
+are robot 0.47, gingerbread 0.55, hero 0.62 and ninja 0.37 units/s before its
+occasional checks; snowman's existing ~0.49 hop cadence is unchanged. Subject
+motion-profile multipliers continue through the crowd into each plan. Continuous
+travel has a separate `move` navigation state; the four legacy cinematic pose
+states and their outputs remain intact, including Restaurant/Zoo animation.
+
+Hero lift belongs to the body pose so its shadow stays on the floor. Per-puppet
+handoff blending and retained altitude keep startup/reaction/resume continuous.
+Reduced motion dampens pose amplitudes and removes swoops while preserving travel
+and flight. Robot's additive halo shares a neutral texture, tinted once from its
+own antenna artwork after filtering ink and bare paper, with warm yellow fallback.
+
+Rejected: separate roam systems per creature (route and safety policy would
+diverge); vertex/bone deformation (unnecessary cost and loss of rigid-paper
+character); changing Restaurant/Zoo walks (outside the Coloring room's scope).
+
 This file records meaningful product, UX, visual, architectural, or behavioral decisions for this project.
 
 For each significant decision, record:

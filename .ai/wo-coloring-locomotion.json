@@ -1,0 +1,62 @@
+{
+  "task": "Coloring room: give each living creation its own locomotion style (snowman hop, robot piston walk with painted-colour beacon, gingerbread rigid swing-walk, hero flight, ninja stealth tiptoe) on top of the existing roam/navigation, without changing navigation, the come-to-life cinematic, or other minigames.",
+  "context": [
+    "Creations are FLAT PAPER CUT-OUTS: each piece is a rigid textured quad parented at an authored pivot (subjects/*.js: pieces, pivots, parents, depth). Pieces rotate only on local Z (in the picture plane); the sheet never yaws to face its heading — it mirror-flips plus a small LEAN (paperPuppet.setHeading). So every limb swing is a group.rotation.z about the existing pivot; that IS the correct local axis for the gingerbread swing (it reads as a forward/back toy walk from the fixed three-quarter camera). Do not add yaw/X rotations to limbs.",
+    "Motion is pure maths in robotPuppet.js (poseFor, hopPhase, createRoamPlan, stepRoam — no three.js) and applied in paperPuppet.js (applyPose). Subject personality is declarative data; DESIGN_DECISIONS 2026-09-23 'One motion engine reads declarative personality' — keep it that way: per-subject locomotion config lives in the subject files, one engine interprets it.",
+    "DESIGN_DECISIONS 2026-09-22 'the paper robot hops; it does not walk' is being deliberately superseded by the owner for robot/gingerbread/hero/ninja. Snowman keeps the hop exactly.",
+    "Current motionProfile speeds (hop cadence multipliers): snowman 0.72, robot 0.94, gingerbread 1.12, hero 0.88, ninja 1.28 (ninja is currently the FASTEST; the owner wants it the slowest). Hop travel speed ~ HOP_DISTANCE / (0.92 / speed) world units/s; snowman ~0.49 u/s is the baseline to keep.",
+    "Restaurant/Zoo reuse the puppet through src/systems/paperCharacter.js ('walk' -> STATES.HOP). Out of scope: STATES.HOP, STATES.CELEBRATE, STATES.STARTUP and their poses must stay byte-for-byte behaviourally identical so those games and the easel cinematic do not change.",
+    "The newcomer greeting (createNewcomerReaction in coloring/index.js) pauses nearby creations' roaming and plays a CELEBRATE beat, then resumeRoaming(). A flying hero must not drop to the floor during that beat or snap when it resumes."
+  ],
+  "requirements": [
+    "Separation: navigation (createRoamPlan/stepRoam: route points, safe area, easel obstacle, idle pauses, crowd offsets) decides WHERE; a new locomotion layer decides HOW. Add a pure module (e.g. src/minigames/coloring/locomotion.js, no three.js) exporting the style table and a pose function per style, e.g. locomotionPose(subject, { moving, cycleTime, idleTime, plan, reducedMotion }). Each subject file declares `locomotion: { style: 'hop'|'piston'|'swing-walk'|'fly'|'tiptoe', ...tunables }`; a subject without it falls back to 'hop' (current behaviour).",
+    "stepRoam generalised minimally: the 'hop' style keeps its current hop-quantised travel (hops rounded so legs end on points) unchanged. Continuous styles travel the leg at a constant world speed (units/s from the style config times plan.speed) with a short ease in/out, still ending exactly on the point, then idle as now. Route, safe area and obstacle logic untouched. Existing robotPuppet tests must still pass unmodified except where they assert the robot/gingerbread/hero/ninja roam state is literally 'hop' (update those deliberately and say so).",
+    "Roaming state names: keep STATES.HOP for hop-style roaming; continuous styles may use a new state such as STATES.MOVE. Debug snapshot (coloring/index.js debugSnapshot robots[]) adds `locomotion` (style name), `beaconColor` (hex or null) and keeps `lift` meaningful (pose root.y).",
+    "Travel speeds (modest differences, world units/s, before crowd speed jitter): snowman unchanged (~0.49), robot ~0.47, gingerbread ~0.55, hero ~0.62 smooth, ninja ~0.36 including its pauses feeling deliberate not sluggish. Replace each motionProfile.speed so the crowd jitter still applies but ninja is clearly slowest and hero clearly smooth/fastest; tune by eye, keep within ~0.6x..1.3x of snowman.",
+    "SNOWMAN: unchanged hop roaming and idle.",
+    "ROBOT 'piston': torso/head rigid; alternating leg pistons by TRANSLATING each leg group vertically (one retracts up behind the torso while the other is fully extended), with sharp-in/eased-out mechanical timing, not a human swing; at most a tiny mechanical bob/tick on the body (no hop, no big tilt); arms small stiff counter-swing or held. Legs must never visibly detach from the torso at full extension (legs are drawn behind the body; keep the overlap). Idle: tiny servo ticks (small stepped arm/body rotations).",
+    "ROBOT beacon: the existing antenna glow (subject.personality.glow, a shared radial texture with additive blending) must take the colour the child painted the antenna ball. Sample once at puppet build from that piece's own cut-out artwork canvas (pieces[glowSpec.piece].artwork) inside the glowSpec circle: average pixels that are opaque and are neither the outline ink nor bare paper/cream; if too few usable pixels, fall back to the current warm yellow. To tint, make the shared glow gradient neutral (white-ish, keeping its 'halo, nearly clear centre' shape so the painted light stays readable) and set the per-puppet material colour; the fallback colour must reproduce today's look. While moving: soft sine pulse brightness = base + pulse (no hard blink). Idle: dim/static glow. The startup/celebrate glow values keep working.",
+    "GINGERBREAD 'swing-walk': rigid limbs, rotation.z only, about the existing shoulder/hip pivots: left arm and right leg swing one way while right arm and left leg swing the other, then reverse; amplitude playful but legs stay attached (overlap hidden behind body); tiny torso sway allowed; no vertical hop (a very small step bob is OK). Mirror flip already handles facing — verify the swing reads correctly both directions. Idle: gentle body sway.",
+    "HERO 'fly': altitude via the pose root.y (body offset) so the floor shadow stays on the floor and fades/tightens as it already does with lift. Rises smoothly from 0 to hover height (~1.0–1.3 world units of feet clearance, tune by eye so it reads 'around chest/head height' and is never cut off by walls or camera) over ~1 s when roaming starts, including restored/saved heroes. While travelling: gentle sinusoidal rise/fall, bank (body tilt) into the direction of travel and when a new leg begins (ease the bank, no snapping on mirror flip), occasional small up/down swoop (deterministic per leg, e.g. on some legs), legs together trailing, cape flutter from existing cape piece, arms forward/up superhero pose. Idle (between legs): hover bob, never lands during roaming. During the newcomer CELEBRATE beat and on resume: keep altitude (no drop/snap).",
+    "NINJA 'tiptoe': slightly crouched (small negative squash within the existing SQUASH_LIMIT and/or legs angled), arms held in a sneaky bent pose (base rotations), careful alternating small leg steps with a slight lift of the stepping foot; slowest travel. Occasional mid-leg 'stop and check': on some legs (deterministic per plan, roughly every 2nd–3rd leg, never every leg) pause ~0.7–1.0 s partway, do a glance (quick mirror look-back and/or head-tilt), then continue. Idle: crouched alert pose with occasional glance. No hopping.",
+    "Reduced motion: read matchMedia('(prefers-reduced-motion: reduce)') once (guard for absence, as src/systems/transitions.js does). When set: scale style amplitudes down (~0.4), remove hero swoops and most bob, keep the hero airborne and keep navigation moving.",
+    "Switching/replaying creations must not leak state: all locomotion state lives in the per-puppet roam plan / puppet closure, never module-level. Startup -> celebrate -> roaming hand-off must not snap (pose continuity at the moment roaming begins).",
+    "Performance (school Chromebooks): transforms and sines only; no per-frame allocation in the hot path beyond what already exists, no new geometry, no new textures per frame, no physics/particles.",
+    "Record the decision in DESIGN_DECISIONS.md (dated 2026-10-31): per-creation locomotion styles, superseding the 2026-09-22 robot-hops decision for the four non-snowman creations, why, and rejected alternatives (separate roam systems per creature; vertex/bone deformation; changing Restaurant/Zoo walks). Update CURRENT_STATE.md with a short new 'Latest pass' section."
+  ],
+  "constraints": [
+    "Do not change: roomLayout, SAFE_AREA/OBSTACLES/ROAM_POINTS, robotCrowd, player movement, touch-to-walk, easel click, Paint Again, scene transitions, coloringSession/creationStorage persistence, coloring UI.",
+    "Do not change STATES.HOP/CELEBRATE/STARTUP pose output or paperCharacter.js behaviour (Restaurant/Zoo).",
+    "No skinned rigs, bones, vertex deformation, or bending of quads; scale stays inside SQUASH_LIMIT.",
+    "Edit files only; the controller runs git (no commits).",
+    "Edit source with structured edit tools; if a shell-based edit hits a quoting/escaping problem once, stop using shell edits for that change."
+  ],
+  "startingPoints": [
+    "src/minigames/coloring/robotPuppet.js",
+    "src/minigames/coloring/paperPuppet.js",
+    "src/minigames/coloring/subjects/robot.js",
+    "src/minigames/coloring/subjects/snowman.js",
+    "src/minigames/coloring/subjects/gingerbread.js",
+    "src/minigames/coloring/subjects/hero.js",
+    "src/minigames/coloring/subjects/ninja.js",
+    "src/minigames/coloring/subjectRegistry.js",
+    "src/minigames/coloring/index.js (debugSnapshot, newcomer reaction, revealRoom, restoreSavedRobots)",
+    "src/minigames/coloring/robotPuppet.test.mjs",
+    "src/minigames/coloring/paperPuppet.test.mjs",
+    "scripts/playthrough-coloring.mjs, scripts/lib (existing browser harness patterns)",
+    "DESIGN_DECISIONS.md, CURRENT_STATE.md"
+  ],
+  "validation": ["npm test", "npm run build"],
+  "behavioralAcceptance": {
+    "owner": "worker",
+    "description": "Add unit tests in a new locomotion.test.mjs: each subject resolves the intended style; snowman roam is identical to before; continuous styles end each leg exactly on the route point and stay inside insideSafeArea along the leg; ninja is the slowest and pauses on some but not all legs; hero root.y stays >= hover floor after the rise and through a pause/celebrate/resume; robot legs alternate (one retracted while the other extended) and never translate beyond the overlap bound; gingerbread opposite arm/leg phases; reduced motion lowers amplitudes and removes swoops; HOP/CELEBRATE/STARTUP poses unchanged vs. a snapshot taken before your edit. Then a browser check (vite dev server + the existing playwright harness patterns in scripts/lib): for EACH of the five subjects, spawn/complete one creation (dev hooks behind DEV/?editor exist, e.g. spawnRobots with activeSubject set, or the playthrough flow), let it roam ~8 s, record debugSnapshot robots[] (locomotion, state, position inside SAFE_AREA, lift for hero > 0, beaconColor for robot), and save 3 screenshots per subject mid-stride/mid-flight to .tmp/locomotion/<subject>-<n>.png at 1366x768. Also a robot painted with a distinctly non-yellow antenna (e.g. paint the antenna ball blue via the dev/paint path) must report a bluish beaconColor. Prove the harness: one deliberate known-bad run (e.g. force snowman style onto robot) must fail its style check. Report exact pass/fail counts and the screenshot paths. Note the coloring harness has 18 known pre-existing failures (persistence assumptions); report whether that number changed."
+  },
+  "category": "3d-animation",
+  "complexity": "hard",
+  "bounded": true,
+  "exploration": "local",
+  "risk": "medium",
+  "expectedCost": "large",
+  "executionStyle": "deep-reasoning",
+  "visual": true
+}

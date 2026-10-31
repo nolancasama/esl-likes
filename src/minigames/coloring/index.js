@@ -1795,6 +1795,8 @@ export function createColoring(ctx) {
           z: robot.puppet.group.position.z,
         },
         lift: robot.puppet.pose.root.y,
+        locomotion: robot.puppet.locomotion,
+        beaconColor: robot.puppet.beaconColor,
         // 24, not the default 6. Six points across the body catch a decoration
         // dab and little else on a sparsely painted robot, so two robots told
         // DIFFERENT colours collided on their shared red decoration alone and
@@ -1818,12 +1820,13 @@ export function createColoring(ctx) {
   }
 
   /** Dev tool. Fills the room without painting twenty robots by hand. */
-  function spawnRobots(count = 10, paint = null) {
+  function spawnRobots(count = 10, paint = null, subjectId = null) {
     if (!world) return 0;
+    const subject = (subjectId && subjectById(subjectId)) || activeSubject;
     for (let i = 0; i < count; i += 1) {
-      const member = crowd.join({}, motionProfileFor(activeSubject));
+      const member = crowd.join({}, motionProfileFor(subject));
       const puppet = createPaperPuppet({
-        subject: activeSubject,
+        subject,
         paint: paint ?? surface?.paint ?? null,
         onLand: landTap,
       });
@@ -1832,6 +1835,22 @@ export function createColoring(ctx) {
       livingRobots.push({ id: member.id, puppet, member });
     }
     return livingRobots.length;
+  }
+
+  /** Dev tool. Leaves the opening page for the room without painting a round. */
+  function skipToRoom() {
+    if (!world || !['canvas-question', 'canvas-answer', 'coloring'].includes(phase)) return false;
+    speech.clearTarget();
+    speech.cancel();
+    dialogue.hide();
+    disposePaintingOverlay();
+    world.visible = true;
+    roomOverlay.hidden = false;
+    cameraRig.setTarget(player).setPreset('follow', CAMERA.room);
+    holdRemaining = 0;
+    phase = 'room';
+    syncRoomButtons();
+    return true;
   }
 
   /** Rebuilds session robots from plain records after the room exists. */
@@ -1860,6 +1879,7 @@ export function createColoring(ctx) {
     if (devTools) {
       window.__eslDebug.coloringSpawn = spawnRobots;
       window.__eslDebug.coloringReset = resetArtwork;
+      window.__eslDebug.coloringSkipToRoom = skipToRoom;
     }
   }
 
@@ -1868,6 +1888,7 @@ export function createColoring(ctx) {
       delete window.__eslDebug.coloring;
       delete window.__eslDebug.coloringSpawn;
       delete window.__eslDebug.coloringReset;
+      delete window.__eslDebug.coloringSkipToRoom;
     }
     if (debugRootCreated && window.__eslDebug && Object.keys(window.__eslDebug).length === 0) delete window.__eslDebug;
     debugRootCreated = false;

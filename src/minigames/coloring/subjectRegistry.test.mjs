@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { insideSilhouette, silhouetteBounds } from './robotDefinition.js';
-import { PUPPET_HEIGHT } from './robotPuppet.js';
+import { PUPPET_HEIGHT, HOP_DISTANCE, DURATIONS, STATES } from './robotPuppet.js';
+import { locomotionConfigFor } from './locomotion.js';
 import { restaurantPresentation, zooPresentation } from './subjectPresentation.js';
 import robot from './subjects/robot.js';
 import { TARGET_HEIGHT } from '../../systems/characters.js';
@@ -102,7 +103,13 @@ test('every subject has a declarative roaming profile with a neutral fallback', 
     assert.ok(subject.motionProfile.idleMax >= subject.motionProfile.idleMin);
   }
 
-  assert.ok(motionProfileFor('ninja').speed > motionProfileFor('snowman').speed);
+  const worldSpeed = (id) => {
+    const config = locomotionConfigFor(subjectById(id));
+    return (config.style === 'hop' ? HOP_DISTANCE / DURATIONS[STATES.HOP] : config.speed)
+      * motionProfileFor(id).speed;
+  };
+  const speedOrder = ['ninja', 'robot', 'snowman', 'gingerbread', 'hero'].map(worldSpeed);
+  assert.deepEqual([...speedOrder].sort((a, b) => a - b), speedOrder);
   assert.ok(motionProfileFor('hero').idleMin > DEFAULT_MOTION_PROFILE.idleMin);
   assert.ok(motionProfileFor('snowman').idleMax > DEFAULT_MOTION_PROFILE.idleMax);
 });

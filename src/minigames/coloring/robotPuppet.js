@@ -5,10 +5,8 @@
  * builds the meshes and applies what this file computes, which is what lets the
  * hop, the squash limits and the roam route be tested without a renderer.
  *
- * It hops. It does not walk — see `.ai/coloring-robot-spec.md`: nine rigid
- * flat cut-outs attempting an articulated biped walk invite a comparison they
- * lose, while the same pieces hopping read as a hand-puppeted paper toy, which
- * is what they are.
+ * Legacy cinematic/hop poses and shared navigation. Roaming's HOW lives in
+ * locomotion.js; routes and their safe floor remain here.
  */
 
 import { pieceBounds } from './robotDefinition.js';
@@ -20,6 +18,9 @@ export const STATES = Object.freeze({
   HOP: 'hop',
   CELEBRATE: 'celebrate',
 });
+
+/** A navigation state, deliberately outside the legacy cinematic pose states. */
+export const MOVE_STATE = 'move';
 
 /** Seconds per cycle. A hop has to be slow enough to read as a hop. */
 export const DURATIONS = Object.freeze({
@@ -337,7 +338,7 @@ export const IDLE_PAUSE = 1.5;
 export function createRoamPlan(
   points = ROAM_POINTS,
   start = 0,
-  { idlePause = IDLE_PAUSE, stateTime = 0, from, speed = 1 } = {},
+  { idlePause = IDLE_PAUSE, stateTime = 0, from, speed = 1, locomotion = { style: 'hop' } } = {},
 ) {
   const usable = points.filter(insideSafeArea);
   if (usable.length < 2) throw new Error('a roam plan needs at least two safe points');
@@ -362,6 +363,14 @@ export function createRoamPlan(
     facing: 0,
     hops: 0,
     hop: 0,
+    locomotion,
+    elapsed: 0,
+    cycleTime: 0,
+    leg: 0,
+    previousFacing: 0,
+    travelTime: 0,
+    checkTime: 0,
+    checking: false,
   };
 }
 
@@ -374,18 +383,58 @@ const legTarget = (plan) => plan.points[(plan.index + 1) % plan.points.length];
 export function stepRoam(plan, dt) {
   const safeDt = clamp(dt || 0, 0, 0.05);
   plan.stateTime += safeDt;
+  plan.elapsed += safeDt;
+  if (plan.state !== STATES.IDLE && !plan.checking) plan.cycleTime += safeDt * plan.speed;
 
   if (plan.state === STATES.IDLE) {
     if (plan.stateTime < (plan.idlePause ?? IDLE_PAUSE)) return plan;
     const target = legTarget(plan);
     const dx = target.x - plan.position.x;
     const dz = target.z - plan.position.z;
+    plan.previousFacing = plan.facing;
     plan.facing = Math.atan2(dx, dz);
     plan.origin = { x: plan.position.x, z: plan.position.z };
     plan.hops = Math.max(1, Math.round(Math.hypot(dx, dz) / HOP_DISTANCE));
     plan.hop = 0;
-    plan.state = STATES.HOP;
+    plan.state = plan.locomotion.style === 'hop' ? STATES.HOP : MOVE_STATE;
     plan.stateTime = 0;
+    plan.leg += 1;
+    plan.travelTime = 0;
+    plan.checkTime = 0;
+    plan.checking = false;
+    plan.checked = false;
+    // A short acceleration/deceleration ramp with a constant-speed middle.
+    plan.travelDuration = Math.hypot(dx, dz) / ((plan.locomotion.speed ?? 0.49) * plan.speed) + 0.24;
+    return plan;
+  }
+
+  if (plan.state === MOVE_STATE) {
+    const duration = plan.travelDuration;
+    const check = plan.locomotion.checkEvery && plan.leg % plan.locomotion.checkEvery === 0;
+    if (check && !plan.checked && plan.travelTime >= duration * 0.46) {
+      plan.checking = true;
+      plan.checkTime += safeDt;
+      if (plan.checkTime < (plan.locomotion.checkDuration ?? 0.8)) return plan;
+      plan.checked = true;
+      plan.checking = false;
+    }
+    plan.travelTime = Math.min(duration, plan.travelTime + safeDt);
+    const t = plan.travelTime;
+    const ramp = Math.min(0.24, duration / 3);
+    const distanceTime = t < ramp ? t * t / (2 * ramp)
+      : t > duration - ramp ? duration - ramp - (duration - t) ** 2 / (2 * ramp)
+        : t - ramp / 2;
+    const travelled = clamp(distanceTime / (duration - ramp), 0, 1);
+    const target = legTarget(plan);
+    plan.position.x = lerp(plan.origin.x, target.x, travelled);
+    plan.position.z = lerp(plan.origin.z, target.z, travelled);
+    if (t >= duration) {
+      plan.position.x = target.x;
+      plan.position.z = target.z;
+      plan.index = (plan.index + 1) % plan.points.length;
+      plan.state = STATES.IDLE;
+      plan.stateTime = 0;
+    }
     return plan;
   }
 
